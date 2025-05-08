@@ -1,0 +1,15 @@
+# Package dependencies
+streamlit
+pandas
+numpy
+matplotlib
+python-pptx
+python-dateutil
+
+# File requirements
+# The application requires the following Excel files to be uploaded:
+# - Sales Excel File (.xlsx)
+# - Budget Excel File (.xlsx)
+# - OS-First Excel File (.xlsx) (formerly OS Jan)
+# - OS-Second Excel File (.xlsx) (formerly OS Feb)
+# - Optional: Logo file (.png, .jpg, or .jpeg)
