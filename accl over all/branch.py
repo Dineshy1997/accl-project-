@@ -344,7 +344,7 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
     filtered_sales_df[sales_area_col] = filtered_sales_df[sales_area_col].astype(str).str.strip()
     budget_df[budget_area_col] = budget_df[budget_area_col].astype(str).str.strip()
     filtered_sales_df[sales_product_group_col] = filtered_sales_df[sales_product_group_col].astype(str).str.strip()
-   filtered_sales_df[sales_sl_code_col] = filtered_sales_df[sales_sl_code_col].astype(str).str.strip().str.replace('\\.0$', '', regex=True)
+    filtered_sales_df[sales_sl_code_col] = filtered_sales_df[sales_sl_code_col].astype(str).str.strip().str.replace('\\.0$', '', regex=True)
     budget_df[budget_product_group_col] = budget_df[budget_product_group_col].astype(str).str.strip()
     budget_df[budget_sl_code_col] = budget_df[budget_sl_code_col].astype(str).str.strip().str.replace('\\.0$', '', regex=True)
 
