@@ -1,5 +1,5 @@
 # Package dependencies
-streamlit
+streamlit==1.45.0
 pandas
 numpy
 matplotlib
