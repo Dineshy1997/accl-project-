@@ -5,6 +5,7 @@ numpy
 matplotlib
 python-pptx
 python-dateutil
+pptx
 
 # File requirements
 # The application requires the following Excel files to be uploaded:
