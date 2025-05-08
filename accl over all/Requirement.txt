@@ -3,7 +3,7 @@ streamlit
 pandas
 numpy
 matplotlib
-python-pptx
+python-pptx==0.6.23
 python-dateutil
 
 
