@@ -359,139 +359,318 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
                      sales_date_col, sales_area_col, sales_value_col, sales_qty_col, sales_product_group_col, sales_sl_code_col, sales_exec_col,
                      budget_area_col, budget_value_col, budget_qty_col, budget_product_group_col, budget_sl_code_col, budget_exec_col, selected_branches=None):
     """
-    Calculate budget vs billed values exactly as in the original code.
+    Calculate budget vs billed values with improved optimized logic.
     Returns four DataFrames for the different report sections.
     """
-    sales_df = sales_df.copy()
-    budget_df = budget_df.copy()
-    raw_sales_branches = sales_df[sales_area_col].dropna().astype(str).str.upper().str.split(' - ').str[-1].unique().tolist()
-    raw_budget_branches = budget_df[budget_area_col].dropna().astype(str).str.upper().str.split(' - ').str[-1].str.replace('AAAA - ', '', regex=False).unique().tolist()
-    all_branches = sorted(set([branch_mapping.get(branch, branch) for branch in raw_sales_branches + raw_budget_branches]))
-    if sales_executives:
-        sales_df = sales_df[sales_df[sales_exec_col].isin(sales_executives)].copy()
-    if budget_executives:
-        budget_df = budget_df[budget_df[budget_exec_col].isin(budget_executives)].copy()
-
-    if sales_df.empty or budget_df.empty:
-        st.warning("No data found for selected executives in one or both files.")
-        return None, None, None, None
-    sales_df[sales_date_col] = pd.to_datetime(sales_df[sales_date_col], dayfirst=True, errors='coerce')
-    filtered_sales_df = sales_df[sales_df[sales_date_col].dt.strftime('%b %y') == selected_month].copy()
-    if filtered_sales_df.empty:
-        st.warning(f"No sales data found for {selected_month} in '{sales_date_col}'. Check date format.")
-        return None, None, None, None
-    filtered_sales_df[sales_area_col] = filtered_sales_df[sales_area_col].astype(str).str.strip()
-    budget_df[budget_area_col] = budget_df[budget_area_col].astype(str).str.strip()
-    filtered_sales_df[sales_product_group_col] = filtered_sales_df[sales_product_group_col].astype(str).str.strip()
-    filtered_sales_df[sales_sl_code_col] = filtered_sales_df[sales_sl_code_col].astype(str).str.strip().str.replace('\.0$', '', regex=True)
-    budget_df[budget_product_group_col] = budget_df[budget_product_group_col].astype(str).str.strip()
-    budget_df[budget_sl_code_col] = budget_df[budget_sl_code_col].astype(str).str.strip().str.replace('\.0$', '', regex=True)
-    for col, df_name in [(sales_value_col, 'Sales Value'), (sales_qty_col, 'Sales Qty'), 
-                         (budget_value_col, 'Budget Value'), (budget_qty_col, 'Budget Qty')]:
-        df = filtered_sales_df if col in [sales_value_col, sales_qty_col] else budget_df
-        try:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-            if df[col].isna().any():
-                st.warning(f"Non-numeric values found in {df_name} column '{col}'. Converted to 0.")
-            df[col] = df[col].fillna(0)
-        except Exception as e:
-            st.error(f"Error converting {df_name} column '{col}' to numeric: {e}")
+    try:
+        # Create copies to avoid modifying original DataFrames
+        sales_df = sales_df.copy()
+        budget_df = budget_df.copy()
+        
+        # Validate column existence
+        required_sales_cols = [sales_date_col, sales_area_col, sales_value_col, sales_qty_col, sales_exec_col,
+                              sales_product_group_col, sales_sl_code_col]
+        required_budget_cols = [budget_area_col, budget_value_col, budget_qty_col, budget_exec_col,
+                               budget_product_group_col, budget_sl_code_col]
+        
+        missing_sales_cols = [col for col in required_sales_cols if col not in sales_df.columns]
+        missing_budget_cols = [col for col in required_budget_cols if col not in budget_df.columns]
+        
+        if missing_sales_cols:
+            st.error(f"Missing columns in sales data: {missing_sales_cols}")
             return None, None, None, None
-    budget_df[budget_area_col] = budget_df[budget_area_col].str.split(' - ').str[-1].str.upper()
-    budget_df[budget_area_col] = budget_df[budget_area_col].str.replace('AAAA - ', '', regex=False).str.upper()
-    budget_df[budget_area_col] = budget_df[budget_area_col].replace(branch_mapping)
-    filtered_sales_df[sales_area_col] = filtered_sales_df[sales_area_col].str.upper().replace(branch_mapping)
-    if selected_branches:
-        filtered_sales_df = filtered_sales_df[filtered_sales_df[sales_area_col].isin(selected_branches)].copy()
-        budget_df = budget_df[budget_df[budget_area_col].isin(selected_branches)].copy()
-    filtered_sales_df[sales_product_group_col] = filtered_sales_df[sales_product_group_col].str.upper()
-    filtered_sales_df[sales_sl_code_col] = filtered_sales_df[sales_sl_code_col].str.upper()
-    budget_df[budget_product_group_col] = budget_df[budget_product_group_col].str.upper()
-    budget_df[budget_sl_code_col] = budget_df[budget_sl_code_col].str.upper()
-    budget_grouped_value = (budget_df.groupby(budget_area_col)
-                            .agg({budget_value_col: 'sum'})
-                            .reset_index()
-                            .rename(columns={budget_area_col: 'Area', budget_value_col: 'Budget Value'}))
-    budget_grouped_qty = (budget_df.groupby(budget_area_col)
-                            .agg({budget_qty_col: 'sum'})
-                            .reset_index()
-                            .rename(columns={budget_area_col: 'Area', budget_qty_col: 'Budget Qty'}))
-    budget_pairs = budget_df[[budget_area_col, budget_product_group_col, budget_sl_code_col]].drop_duplicates()
-    budget_pairs = budget_pairs.rename(columns={budget_area_col: 'Area', budget_product_group_col: 'Product Group', budget_sl_code_col: 'SL Code'})
-    filtered_sales_value = pd.merge(filtered_sales_df, budget_pairs, 
-                                    left_on=[sales_area_col, sales_product_group_col, sales_sl_code_col], 
-                                    right_on=['Area', 'Product Group', 'SL Code'], 
-                                    how='inner')
-    sales_grouped_value = (filtered_sales_value.groupby(sales_area_col)
-                            .agg({sales_value_col: 'sum'})
-                            .reset_index()
-                            .rename(columns={sales_area_col: 'Area', sales_value_col: 'Billed Value'}))
-    filtered_sales_qty = pd.merge(filtered_sales_df, budget_pairs, 
-                                    left_on=[sales_area_col, sales_product_group_col, sales_sl_code_col], 
-                                    right_on=['Area', 'Product Group', 'SL Code'], 
-                                    how='inner')
-    sales_grouped_qty = (filtered_sales_qty.groupby(sales_area_col)
-                            .agg({sales_qty_col: 'sum'})
-                            .reset_index()
-                            .rename(columns={sales_area_col: 'Area', sales_qty_col: 'Billed Qty'}))
-    sales_grouped_overall_qty = (filtered_sales_df.groupby(sales_area_col)
-                                    .agg({sales_qty_col: 'sum'})
-                                    .reset_index()
-                                    .rename(columns={sales_area_col: 'Area', sales_qty_col: 'Billed Qty'}))
-    sales_grouped_overall_value = (filtered_sales_df.groupby(sales_area_col)
-                                    .agg({sales_value_col: 'sum'})
-                                    .reset_index()
-                                    .rename(columns={sales_area_col: 'Area', sales_value_col: 'Billed Value'}))
-    default_branches = selected_branches if selected_branches else all_branches
-    budget_vs_billed_value_df = pd.DataFrame({'Area': default_branches})
-    budget_vs_billed_value_df = pd.merge(budget_vs_billed_value_df, budget_grouped_value, on='Area', how='left').fillna({'Budget Value': 0})
-    budget_vs_billed_value_df = pd.merge(budget_vs_billed_value_df, sales_grouped_value, on='Area', how='left').fillna({'Billed Value': 0})
-    budget_vs_billed_value_df['Billed Value'] = budget_vs_billed_value_df.apply(
-        lambda row: row['Billed Value'] if row['Billed Value'] <= row['Budget Value'] else row['Budget Value'], axis=1)
-    budget_vs_billed_value_df['%'] = budget_vs_billed_value_df.apply(
-        lambda row: int((row['Billed Value'] / row['Budget Value'] * 100)) if row['Budget Value'] != 0 else 0, axis=1)
-    total_budget = budget_vs_billed_value_df['Budget Value'].sum()
-    total_billed = budget_vs_billed_value_df['Billed Value'].sum()
-    total_percentage = int((total_billed / total_budget * 100)) if total_budget != 0 else 0
-    total_row = pd.DataFrame({'Area': ['TOTAL'], 'Budget Value': [total_budget], 'Billed Value': [total_billed], '%': [total_percentage]})
-    budget_vs_billed_value_df = pd.concat([budget_vs_billed_value_df, total_row], ignore_index=True)
-    budget_vs_billed_value_df['Budget Value'] = budget_vs_billed_value_df['Budget Value'].round(0).astype(int)
-    budget_vs_billed_value_df['Billed Value'] = budget_vs_billed_value_df['Billed Value'].round(0).astype(int)
-    budget_vs_billed_qty_df = pd.DataFrame({'Area': default_branches})
-    budget_vs_billed_qty_df = pd.merge(budget_vs_billed_qty_df, budget_grouped_qty, on='Area', how='left').fillna({'Budget Qty': 0})
-    budget_vs_billed_qty_df = pd.merge(budget_vs_billed_qty_df, sales_grouped_qty, on='Area', how='left').fillna({'Billed Qty': 0})
-    budget_vs_billed_qty_df['Billed Qty'] = budget_vs_billed_qty_df.apply(
-        lambda row: row['Billed Qty'] if row['Billed Qty'] <= row['Budget Qty'] else row['Budget Qty'], axis=1)
-    budget_vs_billed_qty_df['%'] = budget_vs_billed_qty_df.apply(
-        lambda row: int((row['Billed Qty'] / row['Budget Qty'] * 100)) if row['Budget Qty'] != 0 else 0, axis=1)
-    total_budget = budget_vs_billed_qty_df['Budget Qty'].sum()
-    total_billed = budget_vs_billed_qty_df['Billed Qty'].sum()
-    total_percentage = int((total_billed / total_budget * 100)) if total_budget != 0 else 0
-    total_row = pd.DataFrame({'Area': ['TOTAL'], 'Budget Qty': [total_budget], 'Billed Qty': [total_billed], '%': [total_percentage]})
-    budget_vs_billed_qty_df = pd.concat([budget_vs_billed_qty_df, total_row], ignore_index=True)
-    budget_vs_billed_qty_df['Budget Qty'] = budget_vs_billed_qty_df['Budget Qty'].round(0).astype(int)
-    budget_vs_billed_qty_df['Billed Qty'] = budget_vs_billed_qty_df['Billed Qty'].round(0).astype(int)
-    overall_sales_qty_df = pd.DataFrame({'Area': default_branches})
-    overall_sales_qty_df = pd.merge(overall_sales_qty_df, budget_grouped_qty, on='Area', how='left').fillna({'Budget Qty': 0})
-    overall_sales_qty_df = pd.merge(overall_sales_qty_df, sales_grouped_overall_qty, on='Area', how='left').fillna({'Billed Qty': 0})
-    total_budget = overall_sales_qty_df['Budget Qty'].sum()
-    total_billed = overall_sales_qty_df['Billed Qty'].sum()
-    total_percentage = int((total_billed / total_budget * 100)) if total_budget != 0 else 0
-    total_row = pd.DataFrame({'Area': ['TOTAL'], 'Budget Qty': [total_budget], 'Billed Qty': [total_billed]})
-    overall_sales_qty_df = pd.concat([overall_sales_qty_df, total_row], ignore_index=True)
-    overall_sales_qty_df['Budget Qty'] = overall_sales_qty_df['Budget Qty'].round(0).astype(int)
-    overall_sales_qty_df['Billed Qty'] = overall_sales_qty_df['Billed Qty'].round(0).astype(int)
-    overall_sales_value_df = pd.DataFrame({'Area': default_branches})
-    overall_sales_value_df = pd.merge(overall_sales_value_df, budget_grouped_value, on='Area', how='left').fillna({'Budget Value': 0})
-    overall_sales_value_df = pd.merge(overall_sales_value_df, sales_grouped_overall_value, on='Area', how='left').fillna({'Billed Value': 0})
-    total_budget = overall_sales_value_df['Budget Value'].sum()
-    total_billed = overall_sales_value_df['Billed Value'].sum()
-    total_percentage = int((total_billed / total_budget * 100)) if total_budget != 0 else 0
-    total_row = pd.DataFrame({'Area': ['TOTAL'], 'Budget Value': [total_budget], 'Billed Value': [total_billed]})
-    overall_sales_value_df = pd.concat([overall_sales_value_df, total_row], ignore_index=True)
-    overall_sales_value_df['Budget Value'] = overall_sales_value_df['Budget Value'].round(0).astype(int)
-    overall_sales_value_df['Billed Value'] = overall_sales_value_df['Billed Value'].round(0).astype(int)
-    return budget_vs_billed_value_df, budget_vs_billed_qty_df, overall_sales_qty_df, overall_sales_value_df
+        if missing_budget_cols:
+            st.error(f"Missing columns in budget data: {missing_budget_cols}")
+            return None, None, None, None
+
+        # Get branch information for UI
+        raw_sales_branches = sales_df[sales_area_col].dropna().astype(str).str.upper().str.split(' - ').str[-1].unique().tolist()
+        raw_budget_branches = budget_df[budget_area_col].dropna().astype(str).str.upper().str.split(' - ').str[-1].str.replace('AAAA - ', '', regex=False).unique().tolist()
+        all_branches = sorted(set([branch_mapping.get(branch, branch) for branch in raw_sales_branches + raw_budget_branches]))
+        
+        # Filter by executives
+        if sales_executives:
+            sales_df = sales_df[sales_df[sales_exec_col].isin(sales_executives)].copy()
+        if budget_executives:
+            budget_df = budget_df[budget_df[budget_exec_col].isin(budget_executives)].copy()
+
+        if sales_df.empty or budget_df.empty:
+            st.warning("No data found for selected executives in one or both files.")
+            return None, None, None, None
+            
+        # Convert date and numeric columns
+        sales_df[sales_date_col] = pd.to_datetime(sales_df[sales_date_col], dayfirst=True, errors='coerce')
+        sales_df[sales_value_col] = pd.to_numeric(sales_df[sales_value_col], errors='coerce').fillna(0)
+        sales_df[sales_qty_col] = pd.to_numeric(sales_df[sales_qty_col], errors='coerce').fillna(0)
+        budget_df[budget_value_col] = pd.to_numeric(budget_df[budget_value_col], errors='coerce').fillna(0)
+        budget_df[budget_qty_col] = pd.to_numeric(budget_df[budget_qty_col], errors='coerce').fillna(0)
+        
+        # Filter sales data for the selected month
+        filtered_sales_df = sales_df[sales_df[sales_date_col].dt.strftime('%b %y') == selected_month].copy()
+        if filtered_sales_df.empty:
+            st.warning(f"No sales data found for {selected_month} in '{sales_date_col}'. Check date format.")
+            return None, None, None, None
+
+        # Standardize string columns
+        filtered_sales_df[sales_area_col] = filtered_sales_df[sales_area_col].astype(str).str.strip()
+        budget_df[budget_area_col] = budget_df[budget_area_col].astype(str).str.strip()
+        filtered_sales_df[sales_product_group_col] = filtered_sales_df[sales_product_group_col].astype(str).str.strip()
+        filtered_sales_df[sales_sl_code_col] = filtered_sales_df[sales_sl_code_col].astype(str).str.strip().str.replace('\.0$', '', regex=True)
+        budget_df[budget_product_group_col] = budget_df[budget_product_group_col].astype(str).str.strip()
+        budget_df[budget_sl_code_col] = budget_df[budget_sl_code_col].astype(str).str.strip().str.replace('\.0$', '', regex=True)
+
+        # Apply branch mapping and standardization
+        budget_df[budget_area_col] = budget_df[budget_area_col].str.split(' - ').str[-1].str.upper()
+        budget_df[budget_area_col] = budget_df[budget_area_col].str.replace('AAAA - ', '', regex=False).str.upper()
+        budget_df[budget_area_col] = budget_df[budget_area_col].replace(branch_mapping)
+        filtered_sales_df[sales_area_col] = filtered_sales_df[sales_area_col].str.upper().replace(branch_mapping)
+        
+        # Apply branch filtering if specified
+        if selected_branches:
+            filtered_sales_df = filtered_sales_df[filtered_sales_df[sales_area_col].isin(selected_branches)].copy()
+            budget_df = budget_df[budget_df[budget_area_col].isin(selected_branches)].copy()
+            default_branches = selected_branches
+        else:
+            default_branches = all_branches
+
+        # Standardize product groups and SL codes
+        filtered_sales_df[sales_product_group_col] = filtered_sales_df[sales_product_group_col].str.upper()
+        filtered_sales_df[sales_sl_code_col] = filtered_sales_df[sales_sl_code_col].str.upper()
+        budget_df[budget_product_group_col] = budget_df[budget_product_group_col].str.upper()
+        budget_df[budget_sl_code_col] = budget_df[budget_sl_code_col].str.upper()
+
+        # STEP 1: Process Budget Data with improved logic
+        print("Processing Budget Data...")
+        
+        # Group by Branch + SL Code + Product Group and sum quantities/values
+        budget_grouped = budget_df.groupby([
+            budget_area_col,
+            budget_sl_code_col, 
+            budget_product_group_col
+        ]).agg({
+            budget_qty_col: 'sum',
+            budget_value_col: 'sum'
+        }).reset_index()
+        
+        # Filter: Only include rows where BOTH qty > 0 AND value > 0
+        budget_valid = budget_grouped[
+            (budget_grouped[budget_qty_col] > 0) & 
+            (budget_grouped[budget_value_col] > 0)
+        ].copy()
+        
+        if budget_valid.empty:
+            st.error("No valid budget data found (with qty > 0 and value > 0).")
+            return None, None, None, None
+        
+        print(f"Valid budget records: {len(budget_valid)}")
+        
+        # STEP 2: Process Sales Data - Match exactly with budget combinations
+        print("Processing Sales Data...")
+        
+        # Initialize results storage
+        final_results = []
+        
+        # For each valid budget record, find matching sales
+        for _, budget_row in budget_valid.iterrows():
+            branch = budget_row[budget_area_col]
+            sl_code = budget_row[budget_sl_code_col]
+            product = budget_row[budget_product_group_col]
+            budget_qty = budget_row[budget_qty_col]
+            budget_value = budget_row[budget_value_col]
+            
+            # Find matching sales records (same branch + sl_code + product)
+            matching_sales = filtered_sales_df[
+                (filtered_sales_df[sales_area_col] == branch) &
+                (filtered_sales_df[sales_sl_code_col] == sl_code) &
+                (filtered_sales_df[sales_product_group_col] == product)
+            ]
+            
+            # Sum all matching sales records for this combination
+            if not matching_sales.empty:
+                sales_qty_total = matching_sales[sales_qty_col].sum()
+                sales_value_total = matching_sales[sales_value_col].sum()
+            else:
+                sales_qty_total = 0
+                sales_value_total = 0
+            
+            # Apply the comparison logic for budget vs billed reports
+            # If sales > budget, use budget; else use sales
+            final_qty = budget_qty if sales_qty_total > budget_qty else sales_qty_total
+            final_value = budget_value if sales_value_total > budget_value else sales_value_total
+            
+            # Store result
+            final_results.append({
+                'Branch': branch,
+                'SL_Code': sl_code,
+                'Product': product,
+                'Budget_Qty': budget_qty,
+                'Sales_Qty': sales_qty_total,
+                'Final_Qty': final_qty,
+                'Budget_Value': budget_value,
+                'Sales_Value': sales_value_total,
+                'Final_Value': final_value
+            })
+        
+        # Convert to DataFrame for easier manipulation
+        results_df = pd.DataFrame(final_results)
+        
+        print(f"Processed {len(results_df)} budget-sales combinations")
+        
+        # STEP 3: Aggregate by Branch for Budget vs Billed reports
+        
+        # Budget vs Billed Quantity DataFrame
+        branch_qty_summary = results_df.groupby('Branch').agg({
+            'Budget_Qty': 'sum',
+            'Final_Qty': 'sum'
+        }).reset_index()
+        branch_qty_summary.columns = ['Area', 'Budget Qty', 'Billed Qty']
+        
+        # Calculate achievement percentage for quantity
+        branch_qty_summary['%'] = branch_qty_summary.apply(
+            lambda row: int((row['Billed Qty'] / row['Budget Qty'] * 100)) if row['Budget Qty'] > 0 else 0,
+            axis=1
+        )
+        
+        # Ensure all selected branches are included (even if no data)
+        budget_vs_billed_qty_df = pd.DataFrame({'Area': default_branches})
+        budget_vs_billed_qty_df = pd.merge(
+            budget_vs_billed_qty_df,
+            branch_qty_summary,
+            on='Area',
+            how='left'
+        ).fillna({'Budget Qty': 0, 'Billed Qty': 0, '%': 0})
+        
+        # Budget vs Billed Value DataFrame
+        branch_value_summary = results_df.groupby('Branch').agg({
+            'Budget_Value': 'sum',
+            'Final_Value': 'sum'
+        }).reset_index()
+        branch_value_summary.columns = ['Area', 'Budget Value', 'Billed Value']
+        
+        # Calculate achievement percentage for value
+        branch_value_summary['%'] = branch_value_summary.apply(
+            lambda row: int((row['Billed Value'] / row['Budget Value'] * 100)) if row['Budget Value'] > 0 else 0,
+            axis=1
+        )
+        
+        # Ensure all selected branches are included (even if no data)
+        budget_vs_billed_value_df = pd.DataFrame({'Area': default_branches})
+        budget_vs_billed_value_df = pd.merge(
+            budget_vs_billed_value_df,
+            branch_value_summary,
+            on='Area',
+            how='left'
+        ).fillna({'Budget Value': 0, 'Billed Value': 0, '%': 0})
+        
+        # STEP 4: Create Overall Sales DataFrames (use all sales data, not just matched)
+        
+        # Overall Sales - use complete sales data for selected branches
+        overall_sales_data = filtered_sales_df.groupby(sales_area_col).agg({
+            sales_qty_col: 'sum',
+            sales_value_col: 'sum'
+        }).reset_index()
+        overall_sales_data.columns = ['Area', 'Overall_Sales_Qty', 'Overall_Sales_Value']
+        
+        # For overall sales, use the same budget totals for consistency
+        budget_totals = results_df.groupby('Branch').agg({
+            'Budget_Qty': 'sum',
+            'Budget_Value': 'sum'
+        }).reset_index()
+        budget_totals.columns = ['Area', 'Budget_Qty', 'Budget_Value']
+        
+        # Overall Sales Quantity DataFrame
+        overall_sales_qty_df = pd.DataFrame({'Area': default_branches})
+        overall_sales_qty_df = pd.merge(
+            overall_sales_qty_df,
+            budget_totals[['Area', 'Budget_Qty']].rename(columns={'Budget_Qty': 'Budget Qty'}),
+            on='Area',
+            how='left'
+        ).fillna({'Budget Qty': 0})
+        
+        overall_sales_qty_df = pd.merge(
+            overall_sales_qty_df,
+            overall_sales_data[['Area', 'Overall_Sales_Qty']].rename(columns={'Overall_Sales_Qty': 'Billed Qty'}),
+            on='Area',
+            how='left'
+        ).fillna({'Billed Qty': 0})
+        
+        # Overall Sales Value DataFrame
+        overall_sales_value_df = pd.DataFrame({'Area': default_branches})
+        overall_sales_value_df = pd.merge(
+            overall_sales_value_df,
+            budget_totals[['Area', 'Budget_Value']].rename(columns={'Budget_Value': 'Budget Value'}),
+            on='Area',
+            how='left'
+        ).fillna({'Budget Value': 0})
+        
+        overall_sales_value_df = pd.merge(
+            overall_sales_value_df,
+            overall_sales_data[['Area', 'Overall_Sales_Value']].rename(columns={'Overall_Sales_Value': 'Billed Value'}),
+            on='Area',
+            how='left'
+        ).fillna({'Billed Value': 0})
+        
+        # STEP 5: Add Total Rows
+        
+        # Add total row for budget vs billed quantity
+        total_budget_qty = budget_vs_billed_qty_df['Budget Qty'].sum()
+        total_billed_qty = budget_vs_billed_qty_df['Billed Qty'].sum()
+        total_percentage_qty = int((total_billed_qty / total_budget_qty * 100)) if total_budget_qty > 0 else 0
+        
+        total_row_qty = pd.DataFrame({
+            'Area': ['TOTAL'],
+            'Budget Qty': [total_budget_qty],
+            'Billed Qty': [total_billed_qty],
+            '%': [total_percentage_qty]
+        })
+        budget_vs_billed_qty_df = pd.concat([budget_vs_billed_qty_df, total_row_qty], ignore_index=True)
+        
+        # Add total row for budget vs billed value
+        total_budget_value = budget_vs_billed_value_df['Budget Value'].sum()
+        total_billed_value = budget_vs_billed_value_df['Billed Value'].sum()
+        total_percentage_value = int((total_billed_value / total_budget_value * 100)) if total_budget_value > 0 else 0
+        
+        total_row_value = pd.DataFrame({
+            'Area': ['TOTAL'],
+            'Budget Value': [total_budget_value],
+            'Billed Value': [total_billed_value],
+            '%': [total_percentage_value]
+        })
+        budget_vs_billed_value_df = pd.concat([budget_vs_billed_value_df, total_row_value], ignore_index=True)
+        
+        # Add total rows for overall sales
+        total_row_overall_qty = pd.DataFrame({
+            'Area': ['TOTAL'],
+            'Budget Qty': [overall_sales_qty_df['Budget Qty'].sum()],
+            'Billed Qty': [overall_sales_qty_df['Billed Qty'].sum()]
+        })
+        overall_sales_qty_df = pd.concat([overall_sales_qty_df, total_row_overall_qty], ignore_index=True)
+        
+        total_row_overall_value = pd.DataFrame({
+            'Area': ['TOTAL'],
+            'Budget Value': [overall_sales_value_df['Budget Value'].sum()],
+            'Billed Value': [overall_sales_value_df['Billed Value'].sum()]
+        })
+        overall_sales_value_df = pd.concat([overall_sales_value_df, total_row_overall_value], ignore_index=True)
+        
+        # Convert to integers for final display
+        budget_vs_billed_value_df['Budget Value'] = budget_vs_billed_value_df['Budget Value'].round(0).astype(int)
+        budget_vs_billed_value_df['Billed Value'] = budget_vs_billed_value_df['Billed Value'].round(0).astype(int)
+        budget_vs_billed_qty_df['Budget Qty'] = budget_vs_billed_qty_df['Budget Qty'].round(0).astype(int)
+        budget_vs_billed_qty_df['Billed Qty'] = budget_vs_billed_qty_df['Billed Qty'].round(0).astype(int)
+        overall_sales_qty_df['Budget Qty'] = overall_sales_qty_df['Budget Qty'].round(0).astype(int)
+        overall_sales_qty_df['Billed Qty'] = overall_sales_qty_df['Billed Qty'].round(0).astype(int)
+        overall_sales_value_df['Budget Value'] = overall_sales_value_df['Budget Value'].round(0).astype(int)
+        overall_sales_value_df['Billed Value'] = overall_sales_value_df['Billed Value'].round(0).astype(int)
+        
+        print("Budget vs Billed calculation completed successfully!")
+        
+        return budget_vs_billed_value_df, budget_vs_billed_qty_df, overall_sales_qty_df, overall_sales_value_df
+
+    except Exception as e:
+        logger.error(f"Error in calculate_values: {str(e)}")
+        st.error(f"Error calculating budget values: {str(e)}")
+        return None, None, None, None
 def create_budget_ppt(budget_vs_billed_value_df, budget_vs_billed_qty_df, overall_sales_qty_df, overall_sales_value_df, month_title=None, logo_file=None):
     """Create PPT presentation with budget vs billed data"""
     try:
@@ -1599,8 +1778,11 @@ def create_dynamic_regional_summary(final_df, region_branch_mapping):
     # Define numeric columns
     numeric_cols = ["Due Target", "Collection Achieved", "For the month Overdue", "For the month Collection"]
     
-    # Group by region and sum numeric columns (values are already in lakhs)
+    # Group by region and sum numeric columns
     regional_summary = df.groupby('Region')[numeric_cols].sum().reset_index()
+    
+    # Convert monetary columns to Lakhs
+    regional_summary[numeric_cols] = regional_summary[numeric_cols].div(100000)
     
     # Calculate percentage columns
     regional_summary["Overall % Achieved"] = np.where(
@@ -1614,14 +1796,20 @@ def create_dynamic_regional_summary(final_df, region_branch_mapping):
         0
     )
     
-    # Round all columns to 2 decimal places consistently
-    round_cols = numeric_cols + ["Overall % Achieved", "% Achieved (Selected Month)"]
-    regional_summary[round_cols] = regional_summary[round_cols].round(2)
+    # Round monetary columns: 2 decimal places for Due Target and Collection Achieved, 0 for Overdue and Collection
+    regional_summary[["Due Target", "Collection Achieved"]] = regional_summary[["Due Target", "Collection Achieved"]].round(2)
+    regional_summary[["For the month Overdue", "For the month Collection"]] = regional_summary[["For the month Overdue", "For the month Collection"]].round(0).astype(int)
+    
+    # Round percentage columns to 2 decimal places
+    regional_summary[["Overall % Achieved", "% Achieved (Selected Month)"]] = regional_summary[["Overall % Achieved", "% Achieved (Selected Month)"]].round(2)
     
     # Create total row
     total_row = {'Region': 'TOTAL'}
     for col in numeric_cols:
-        total_row[col] = round(regional_summary[col].sum(), 2)
+        if col in ["For the month Overdue", "For the month Collection"]:
+            total_row[col] = int(regional_summary[col].sum())  # Sum and convert to integer
+        else:
+            total_row[col] = round(regional_summary[col].sum(), 2)  # Sum and round to 2 decimal places
     total_row["Overall % Achieved"] = round(
         regional_summary["Overall % Achieved"].replace([np.inf, -np.inf], 0).mean(), 2
     )
