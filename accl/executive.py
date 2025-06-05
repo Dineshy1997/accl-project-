@@ -228,8 +228,10 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
                               sales_product_group_col, sales_sl_code_col]
         required_budget_cols = [budget_value_col, budget_qty_col, budget_exec_col,
                                budget_product_group_col, budget_sl_code_col]
+        
         missing_sales_cols = [col for col in required_sales_cols if col not in sales_df.columns]
         missing_budget_cols = [col for col in required_budget_cols if col not in budget_df.columns]
+        
         if missing_sales_cols:
             st.error(f"Missing columns in sales data: {missing_sales_cols}")
             return None, None, None, None
@@ -250,148 +252,203 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             st.error(f"No sales data found for {selected_month}")
             return None, None, None, None
 
-        # Standardize executive names
+        # Standardize executive names, SL codes, and product groups
         filtered_sales_df[sales_exec_col] = filtered_sales_df[sales_exec_col].astype(str).str.strip().str.upper()
         budget_df[budget_exec_col] = budget_df[budget_exec_col].astype(str).str.strip().str.upper()
         sales_executives = [str(exec).strip().upper() for exec in sales_executives]
 
-        # Log executive names for debugging
-        budget_executives = budget_df[budget_exec_col].dropna().unique().tolist()
-        logger.info(f"Sales executives: {sales_executives}")
-        logger.info(f"Budget executives: {budget_executives}")
-        non_matching_executives = [exec for exec in budget_executives if exec not in sales_executives]
-        if non_matching_executives:
-            logger.warning(f"Budget file contains executives not in sales file: {non_matching_executives}")
-
-        # Filter by selected executives (from sales file only)
-        filtered_sales_df = filtered_sales_df[filtered_sales_df[sales_exec_col].isin(sales_executives)]
-        if filtered_sales_df.empty:
-            st.error(f"No sales data found for selected executives: {sales_executives}")
-            return None, None, None, None
-
-        # Filter budget data to include only executives from sales_executives
-        budget_df = budget_df[budget_df[budget_exec_col].isin(sales_executives)]
-        if budget_df.empty:
-            st.warning("No budget data found for selected sales executives. Using zero budget values.")
-
-        # Standardize SL Code and Product Group
         filtered_sales_df[sales_sl_code_col] = filtered_sales_df[sales_sl_code_col].astype(str).str.strip().str.upper()
         filtered_sales_df[sales_product_group_col] = filtered_sales_df[sales_product_group_col].astype(str).str.strip().str.upper()
         budget_df[budget_sl_code_col] = budget_df[budget_sl_code_col].astype(str).str.strip().str.upper()
         budget_df[budget_product_group_col] = budget_df[budget_product_group_col].astype(str).str.strip().str.upper()
 
-        # **Budget vs Billed Value and Quantity (Slides 2 and 3)**
-
-        # Budget: Full amounts by executive (only for sales_executives)
-        budget_value_per_exec = budget_df.groupby(budget_exec_col)[budget_value_col].sum().reset_index()
-        budget_value_per_exec.columns = ['Executive', 'Budget Value']
-        budget_qty_per_exec = budget_df.groupby(budget_exec_col)[budget_qty_col].sum().reset_index()
-        budget_qty_per_exec.columns = ['Executive', 'Budget Qty']
-
-        # Get unique SL Code and Product Group pairs from budget for mapping
-        budget_pairs = budget_df[[budget_sl_code_col, budget_product_group_col]].drop_duplicates()
-        budget_pairs.columns = ['SL Code', 'Product Group']
-
-        # Filter sales to include only matching SL Code and Product Group
-        sales_value_mapped = pd.merge(
-            filtered_sales_df,
-            budget_pairs,
-            left_on=[sales_sl_code_col, sales_product_group_col],
-            right_on=['SL Code', 'Product Group'],
-            how='inner'
-        )
-
-        if sales_value_mapped.empty:
-            st.warning("No sales data matches budget SL Code and Product Group. Using unfiltered sales data.")
-            sales_value_mapped = filtered_sales_df.copy()
-
-        # Group sales by executive for mapped data
-        sales_grouped_value_mapped = (
-            sales_value_mapped.groupby(sales_exec_col)
-            .agg({sales_value_col: 'sum'})
-            .reset_index()
-            .rename(columns={sales_exec_col: 'Executive', sales_value_col: 'Billed Value'})
-        )
-        sales_grouped_qty_mapped = (
-            sales_value_mapped.groupby(sales_exec_col)
-            .agg({sales_qty_col: 'sum'})
-            .reset_index()
-            .rename(columns={sales_exec_col: 'Executive', sales_qty_col: 'Billed Qty'})
-        )
-
-        # Budget vs Billed Value DataFrame
-        budget_vs_billed_value_df = pd.DataFrame({'Executive': sales_executives})
-        budget_vs_billed_value_df = pd.merge(
-            budget_vs_billed_value_df,
-            budget_value_per_exec,
-            on='Executive',
-            how='left'
-        ).fillna({'Budget Value': 0})
-        budget_vs_billed_value_df = pd.merge(
-            budget_vs_billed_value_df,
-            sales_grouped_value_mapped,
-            on='Executive',
-            how='left'
-        ).fillna({'Billed Value': 0})
-
-        # Adjust billed value if it exceeds budget
-        budget_vs_billed_value_df['Billed Value'] = budget_vs_billed_value_df.apply(
-            lambda row: row['Budget Value'] if row['Billed Value'] > row['Budget Value'] and row['Billed Value'] >= 0 else row['Billed Value'],
-            axis=1
-        )
-        budget_vs_billed_value_df['%'] = budget_vs_billed_value_df.apply(
-            lambda row: round((row['Billed Value'] / row['Budget Value'] * 100), 2) if row['Budget Value'] != 0 else 0,
-            axis=1
-        )
-
-        # Add total row for value
-        total_budget_value = budget_vs_billed_value_df['Budget Value'].sum()
-        total_billed_value = budget_vs_billed_value_df['Billed Value'].sum()
-        total_percentage_value = round((total_billed_value / total_budget_value * 100), 2) if total_budget_value != 0 else 0
-        total_row_value = pd.DataFrame({
-            'Executive': ['TOTAL'],
-            'Budget Value': [total_budget_value],
-            'Billed Value': [total_billed_value],
-            '%': [total_percentage_value]
-        })
-        budget_vs_billed_value_df = pd.concat([budget_vs_billed_value_df, total_row_value], ignore_index=True)
-        budget_vs_billed_value_df['Budget Value'] = budget_vs_billed_value_df['Budget Value'].round(2)
-        budget_vs_billed_value_df['Billed Value'] = budget_vs_billed_value_df['Billed Value'].round(2)
-
-        # Ensure only sales executives are in the final DataFrame
-        budget_vs_billed_value_df = budget_vs_billed_value_df[
-            budget_vs_billed_value_df['Executive'].isin(sales_executives + ['TOTAL'])
-        ]
-
+        # STEP 1: Process Budget Data
+        print("Processing Budget Data...")
+        
+        # Filter budget by selected executives
+        budget_filtered = budget_df[budget_df[budget_exec_col].isin(sales_executives)].copy()
+        
+        if budget_filtered.empty:
+            st.error("No budget data found for selected executives.")
+            return None, None, None, None
+        
+        # Group by Executive + SL Code + Product and sum quantities/values
+        budget_grouped = budget_filtered.groupby([
+            budget_exec_col, 
+            budget_sl_code_col, 
+            budget_product_group_col
+        ]).agg({
+            budget_qty_col: 'sum',
+            budget_value_col: 'sum'
+        }).reset_index()
+        
+        # Filter: Only include rows where BOTH qty > 0 AND value > 0
+        budget_valid = budget_grouped[
+            (budget_grouped[budget_qty_col] > 0) & 
+            (budget_grouped[budget_value_col] > 0)
+        ].copy()
+        
+        if budget_valid.empty:
+            st.error("No valid budget data found (with qty > 0 and value > 0).")
+            return None, None, None, None
+        
+        print(f"Valid budget records: {len(budget_valid)}")
+        
+        # STEP 2: Process Sales Data - Match exactly with budget combinations
+        print("Processing Sales Data...")
+        
+        # Filter sales by selected executives
+        sales_filtered = filtered_sales_df[filtered_sales_df[sales_exec_col].isin(sales_executives)].copy()
+        
+        # Initialize results storage
+        final_results = []
+        
+        # For each valid budget record, find matching sales
+        for _, budget_row in budget_valid.iterrows():
+            executive = budget_row[budget_exec_col]
+            sl_code = budget_row[budget_sl_code_col]
+            product = budget_row[budget_product_group_col]
+            budget_qty = budget_row[budget_qty_col]
+            budget_value = budget_row[budget_value_col]
+            
+            # Find matching sales records (same executive + sl_code + product)
+            matching_sales = sales_filtered[
+                (sales_filtered[sales_exec_col] == executive) &
+                (sales_filtered[sales_sl_code_col] == sl_code) &
+                (sales_filtered[sales_product_group_col] == product)
+            ]
+            
+            # Sum all matching sales records for this combination
+            if not matching_sales.empty:
+                sales_qty_total = matching_sales[sales_qty_col].sum()
+                sales_value_total = matching_sales[sales_value_col].sum()
+            else:
+                sales_qty_total = 0
+                sales_value_total = 0
+            
+            # Apply the comparison logic
+            # If sales > budget, use budget; else use sales
+            final_qty = budget_qty if sales_qty_total > budget_qty else sales_qty_total
+            final_value = budget_value if sales_value_total > budget_value else sales_value_total
+            
+            # Store result
+            final_results.append({
+                'Executive': executive,
+                'SL_Code': sl_code,
+                'Product': product,
+                'Budget_Qty': budget_qty,
+                'Sales_Qty': sales_qty_total,
+                'Final_Qty': final_qty,
+                'Budget_Value': budget_value,
+                'Sales_Value': sales_value_total,
+                'Final_Value': final_value
+            })
+        
+        # Convert to DataFrame for easier manipulation
+        results_df = pd.DataFrame(final_results)
+        
+        print(f"Processed {len(results_df)} budget-sales combinations")
+        
+        # STEP 3: Aggregate by Executive for final reports
+        
         # Budget vs Billed Quantity DataFrame
+        exec_qty_summary = results_df.groupby('Executive').agg({
+            'Budget_Qty': 'sum',
+            'Final_Qty': 'sum'
+        }).reset_index()
+        exec_qty_summary.columns = ['Executive', 'Budget Qty', 'Billed Qty']
+        
+        # Calculate achievement percentage for quantity
+        exec_qty_summary['%'] = exec_qty_summary.apply(
+            lambda row: round((row['Billed Qty'] / row['Budget Qty'] * 100), 2) if row['Budget Qty'] > 0 else 0,
+            axis=1
+        )
+        
+        # Ensure all selected executives are included (even if no data)
         budget_vs_billed_qty_df = pd.DataFrame({'Executive': sales_executives})
         budget_vs_billed_qty_df = pd.merge(
             budget_vs_billed_qty_df,
-            budget_qty_per_exec,
+            exec_qty_summary,
+            on='Executive',
+            how='left'
+        ).fillna({'Budget Qty': 0, 'Billed Qty': 0, '%': 0})
+        
+        # Budget vs Billed Value DataFrame
+        exec_value_summary = results_df.groupby('Executive').agg({
+            'Budget_Value': 'sum',
+            'Final_Value': 'sum'
+        }).reset_index()
+        exec_value_summary.columns = ['Executive', 'Budget Value', 'Billed Value']
+        
+        # Calculate achievement percentage for value
+        exec_value_summary['%'] = exec_value_summary.apply(
+            lambda row: round((row['Billed Value'] / row['Budget Value'] * 100), 2) if row['Budget Value'] > 0 else 0,
+            axis=1
+        )
+        
+        # Ensure all selected executives are included (even if no data)
+        budget_vs_billed_value_df = pd.DataFrame({'Executive': sales_executives})
+        budget_vs_billed_value_df = pd.merge(
+            budget_vs_billed_value_df,
+            exec_value_summary,
+            on='Executive',
+            how='left'
+        ).fillna({'Budget Value': 0, 'Billed Value': 0, '%': 0})
+        
+        # STEP 4: Create Overall Sales DataFrames (use all sales data, not just matched)
+        
+        # Overall Sales - use complete sales data for selected executives
+        overall_sales_data = sales_filtered.groupby(sales_exec_col).agg({
+            sales_qty_col: 'sum',
+            sales_value_col: 'sum'
+        }).reset_index()
+        overall_sales_data.columns = ['Executive', 'Overall_Sales_Qty', 'Overall_Sales_Value']
+        
+        # For overall sales, use the same budget totals for consistency
+        budget_totals = results_df.groupby('Executive').agg({
+            'Budget_Qty': 'sum',
+            'Budget_Value': 'sum'
+        }).reset_index()
+        
+        # Overall Sales Quantity DataFrame
+        overall_sales_qty_df = pd.DataFrame({'Executive': sales_executives})
+        overall_sales_qty_df = pd.merge(
+            overall_sales_qty_df,
+            budget_totals[['Executive', 'Budget_Qty']].rename(columns={'Budget_Qty': 'Budget Qty'}),
             on='Executive',
             how='left'
         ).fillna({'Budget Qty': 0})
-        budget_vs_billed_qty_df = pd.merge(
-            budget_vs_billed_qty_df,
-            sales_grouped_qty_mapped,
+        
+        overall_sales_qty_df = pd.merge(
+            overall_sales_qty_df,
+            overall_sales_data[['Executive', 'Overall_Sales_Qty']].rename(columns={'Overall_Sales_Qty': 'Billed Qty'}),
             on='Executive',
             how='left'
         ).fillna({'Billed Qty': 0})
-
-        # Adjust billed quantity if it exceeds budget
-        budget_vs_billed_qty_df['Billed Qty'] = budget_vs_billed_qty_df.apply(
-            lambda row: row['Budget Qty'] if row['Billed Qty'] > row['Budget Qty'] and row['Billed Qty'] >= 0 else row['Billed Qty'],
-            axis=1
-        )
-        budget_vs_billed_qty_df['%'] = budget_vs_billed_qty_df.apply(
-            lambda row: round((row['Billed Qty'] / row['Budget Qty'] * 100), 2) if row['Budget Qty'] != 0 else 0,
-            axis=1
-        )
-
-        # Add total row for quantity
+        
+        # Overall Sales Value DataFrame
+        overall_sales_value_df = pd.DataFrame({'Executive': sales_executives})
+        overall_sales_value_df = pd.merge(
+            overall_sales_value_df,
+            budget_totals[['Executive', 'Budget_Value']].rename(columns={'Budget_Value': 'Budget Value'}),
+            on='Executive',
+            how='left'
+        ).fillna({'Budget Value': 0})
+        
+        overall_sales_value_df = pd.merge(
+            overall_sales_value_df,
+            overall_sales_data[['Executive', 'Overall_Sales_Value']].rename(columns={'Overall_Sales_Value': 'Billed Value'}),
+            on='Executive',
+            how='left'
+        ).fillna({'Billed Value': 0})
+        
+        # STEP 5: Add Total Rows
+        
+        # Add total row for budget vs billed quantity
         total_budget_qty = budget_vs_billed_qty_df['Budget Qty'].sum()
         total_billed_qty = budget_vs_billed_qty_df['Billed Qty'].sum()
-        total_percentage_qty = round((total_billed_qty / total_budget_qty * 100), 2) if total_budget_qty != 0 else 0
+        total_percentage_qty = round((total_billed_qty / total_budget_qty * 100), 2) if total_budget_qty > 0 else 0
+        
         total_row_qty = pd.DataFrame({
             'Executive': ['TOTAL'],
             'Budget Qty': [total_budget_qty],
@@ -399,94 +456,42 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             '%': [total_percentage_qty]
         })
         budget_vs_billed_qty_df = pd.concat([budget_vs_billed_qty_df, total_row_qty], ignore_index=True)
-        budget_vs_billed_qty_df['Budget Qty'] = budget_vs_billed_qty_df['Budget Qty'].round(2)
-        budget_vs_billed_qty_df['Billed Qty'] = budget_vs_billed_qty_df['Billed Qty'].round(2)
-
-        # Ensure only sales executives are in the final DataFrame
-        budget_vs_billed_qty_df = budget_vs_billed_qty_df[
-            budget_vs_billed_qty_df['Executive'].isin(sales_executives + ['TOTAL'])
-        ]
-
-        # **Overall Sales Quantity and Value (Slides 4 and 5)**
-
-        # Sales: Use all sales data for selected executives without SL Code/Product Group mapping
-        sales_grouped_qty_all = (
-            filtered_sales_df.groupby(sales_exec_col)
-            .agg({sales_qty_col: 'sum'})
-            .reset_index()
-            .rename(columns={sales_exec_col: 'Executive', sales_qty_col: 'Billed Qty'})
-        )
-        sales_grouped_value_all = (
-            filtered_sales_df.groupby(sales_exec_col)
-            .agg({sales_value_col: 'sum'})
-            .reset_index()
-            .rename(columns={sales_exec_col: 'Executive', sales_value_col: 'Billed Value'})
-        )
-
-        # Overall Sales Quantity DataFrame (Slide 4, no % column)
-        overall_sales_qty_df = pd.DataFrame({'Executive': sales_executives})
-        overall_sales_qty_df = pd.merge(
-            overall_sales_qty_df,
-            budget_qty_per_exec,
-            on='Executive',
-            how='left'
-        ).fillna({'Budget Qty': 0})
-        overall_sales_qty_df = pd.merge(
-            overall_sales_qty_df,
-            sales_grouped_qty_all,
-            on='Executive',
-            how='left'
-        ).fillna({'Billed Qty': 0})
-
-        # Add total row for overall sales quantity
-        total_budget_qty = overall_sales_qty_df['Budget Qty'].sum()
-        total_billed_qty = overall_sales_qty_df['Billed Qty'].sum()
-        total_row_qty = pd.DataFrame({
-            'Executive': ['TOTAL'],
-            'Budget Qty': [total_budget_qty],
-            'Billed Qty': [total_billed_qty]
-        })
-        overall_sales_qty_df = pd.concat([overall_sales_qty_df, total_row_qty], ignore_index=True)
-        overall_sales_qty_df['Budget Qty'] = overall_sales_qty_df['Budget Qty'].round(2)
-        overall_sales_qty_df['Billed Qty'] = overall_sales_qty_df['Billed Qty'].round(2)
-
-        # Ensure only sales executives are in the final DataFrame
-        overall_sales_qty_df = overall_sales_qty_df[
-            overall_sales_qty_df['Executive'].isin(sales_executives + ['TOTAL'])
-        ]
-
-        # Overall Sales Value DataFrame (Slide 5, no % column, 2 decimal places)
-        overall_sales_value_df = pd.DataFrame({'Executive': sales_executives})
-        overall_sales_value_df = pd.merge(
-            overall_sales_value_df,
-            budget_value_per_exec,
-            on='Executive',
-            how='left'
-        ).fillna({'Budget Value': 0})
-        overall_sales_value_df = pd.merge(
-            overall_sales_value_df,
-            sales_grouped_value_all,
-            on='Executive',
-            how='left'
-        ).fillna({'Billed Value': 0})
-
-        # Add total row for overall sales value
-        total_budget_value = overall_sales_value_df['Budget Value'].sum()
-        total_billed_value = overall_sales_value_df['Billed Value'].sum()
+        
+        # Add total row for budget vs billed value
+        total_budget_value = budget_vs_billed_value_df['Budget Value'].sum()
+        total_billed_value = budget_vs_billed_value_df['Billed Value'].sum()
+        total_percentage_value = round((total_billed_value / total_budget_value * 100), 2) if total_budget_value > 0 else 0
+        
         total_row_value = pd.DataFrame({
             'Executive': ['TOTAL'],
             'Budget Value': [total_budget_value],
-            'Billed Value': [total_billed_value]
+            'Billed Value': [total_billed_value],
+            '%': [total_percentage_value]
         })
-        overall_sales_value_df = pd.concat([overall_sales_value_df, total_row_value], ignore_index=True)
-        overall_sales_value_df['Budget Value'] = overall_sales_value_df['Budget Value'].round(2)
-        overall_sales_value_df['Billed Value'] = overall_sales_value_df['Billed Value'].round(2)
-
-        # Ensure only sales executives are in the final DataFrame
-        overall_sales_value_df = overall_sales_value_df[
-            overall_sales_value_df['Executive'].isin(sales_executives + ['TOTAL'])
-        ]
-
+        budget_vs_billed_value_df = pd.concat([budget_vs_billed_value_df, total_row_value], ignore_index=True)
+        
+        # Add total rows for overall sales
+        total_row_overall_qty = pd.DataFrame({
+            'Executive': ['TOTAL'],
+            'Budget Qty': [overall_sales_qty_df['Budget Qty'].sum()],
+            'Billed Qty': [overall_sales_qty_df['Billed Qty'].sum()]
+        })
+        overall_sales_qty_df = pd.concat([overall_sales_qty_df, total_row_overall_qty], ignore_index=True)
+        
+        total_row_overall_value = pd.DataFrame({
+            'Executive': ['TOTAL'],
+            'Budget Value': [overall_sales_value_df['Budget Value'].sum()],
+            'Billed Value': [overall_sales_value_df['Billed Value'].sum()]
+        })
+        overall_sales_value_df = pd.concat([overall_sales_value_df, total_row_overall_value], ignore_index=True)
+        
+        # Round all numeric columns to 2 decimal places
+        for df in [budget_vs_billed_qty_df, budget_vs_billed_value_df, overall_sales_qty_df, overall_sales_value_df]:
+            numeric_cols = df.select_dtypes(include=[np.number]).columns
+            df[numeric_cols] = df[numeric_cols].round(2)
+        
+        print("Budget vs Billed calculation completed successfully!")
+        
         return (budget_vs_billed_value_df, budget_vs_billed_qty_df,
                 overall_sales_qty_df, overall_sales_value_df)
 
@@ -1376,11 +1381,11 @@ def sidebar_ui():
         if budget_file:
             st.session_state.budget_file = budget_file
             st.success("✅ Budget file uploaded")
-        os_jan_file = st.file_uploader("Upload OS-First Excel File", type=["xlsx"], key="upload_os_jan")
+        os_jan_file = st.file_uploader("Upload OS-Previous Month Excel File", type=["xlsx"], key="upload_os_jan")
         if os_jan_file:
             st.session_state.os_jan_file = os_jan_file
             st.success("✅ OS-Previous Month file uploaded")
-        os_feb_file = st.file_uploader("Upload OS-Second Excel File", type=["xlsx"], key="upload_os_feb")
+        os_feb_file = st.file_uploader("Upload OS-Current Month Excel File", type=["xlsx"], key="upload_os_feb")
         if os_feb_file:
             st.session_state.os_feb_file = os_feb_file
             st.success("✅ OS-Current Month file uploaded")
