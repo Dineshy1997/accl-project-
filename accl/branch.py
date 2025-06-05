@@ -1778,11 +1778,8 @@ def create_dynamic_regional_summary(final_df, region_branch_mapping):
     # Define numeric columns
     numeric_cols = ["Due Target", "Collection Achieved", "For the month Overdue", "For the month Collection"]
     
-    # Group by region and sum numeric columns
+    # Group by region and sum numeric columns (values are already in lakhs)
     regional_summary = df.groupby('Region')[numeric_cols].sum().reset_index()
-    
-    # Convert monetary columns to Lakhs
-    regional_summary[numeric_cols] = regional_summary[numeric_cols].div(100000)
     
     # Calculate percentage columns
     regional_summary["Overall % Achieved"] = np.where(
@@ -1796,20 +1793,14 @@ def create_dynamic_regional_summary(final_df, region_branch_mapping):
         0
     )
     
-    # Round monetary columns: 2 decimal places for Due Target and Collection Achieved, 0 for Overdue and Collection
-    regional_summary[["Due Target", "Collection Achieved"]] = regional_summary[["Due Target", "Collection Achieved"]].round(2)
-    regional_summary[["For the month Overdue", "For the month Collection"]] = regional_summary[["For the month Overdue", "For the month Collection"]].round(0).astype(int)
-    
-    # Round percentage columns to 2 decimal places
-    regional_summary[["Overall % Achieved", "% Achieved (Selected Month)"]] = regional_summary[["Overall % Achieved", "% Achieved (Selected Month)"]].round(2)
+    # Round all columns to 2 decimal places consistently
+    round_cols = numeric_cols + ["Overall % Achieved", "% Achieved (Selected Month)"]
+    regional_summary[round_cols] = regional_summary[round_cols].round(2)
     
     # Create total row
     total_row = {'Region': 'TOTAL'}
     for col in numeric_cols:
-        if col in ["For the month Overdue", "For the month Collection"]:
-            total_row[col] = int(regional_summary[col].sum())  # Sum and convert to integer
-        else:
-            total_row[col] = round(regional_summary[col].sum(), 2)  # Sum and round to 2 decimal places
+        total_row[col] = round(regional_summary[col].sum(), 2)
     total_row["Overall % Achieved"] = round(
         regional_summary["Overall % Achieved"].replace([np.inf, -np.inf], 0).mean(), 2
     )
