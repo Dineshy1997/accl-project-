@@ -8,19 +8,23 @@ import datetime
 import pickle
 import openpyxl
 from openpyxl.utils import get_column_letter
+
 DATA_DIR = "app_data"
 METADATA_PATH = os.path.join(DATA_DIR, "metadata.pickle")
 BRANCH_MAPPING_PATH = os.path.join(DATA_DIR, "branch_mappings.pickle")
 REGION_MAPPING_PATH = os.path.join(DATA_DIR, "region_mappings.pickle")
 COMPANY_MAPPING_PATH = os.path.join(DATA_DIR, "company_mappings.pickle")
+
 def ensure_data_dir():
     os.makedirs(DATA_DIR, exist_ok=True)
+
 def to_excel_buffer(df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Sheet1')
     output.seek(0)
     return output
+
 def init_session_state():
     if 'initialized' not in st.session_state:
         st.session_state.initialized = True
@@ -34,6 +38,7 @@ def init_session_state():
         st.session_state.region_branch_mapping = {}
         st.session_state.company_product_mapping = {}
         load_all_mappings()
+
 def save_metadata():
     ensure_data_dir()
     metadata = {
@@ -46,6 +51,7 @@ def save_metadata():
     }
     with open(METADATA_PATH, 'wb') as f:
         pickle.dump(metadata, f)
+
 def load_metadata():
     if os.path.exists(METADATA_PATH):
         try:
@@ -61,10 +67,12 @@ def load_metadata():
         except Exception as e:
             st.error(f"Error loading metadata: {e}")
     return False
+
 def save_branch_mappings():
     ensure_data_dir()
     with open(BRANCH_MAPPING_PATH, 'wb') as f:
         pickle.dump(st.session_state.branch_exec_mapping, f)
+
 def load_branch_mappings():
     if os.path.exists(BRANCH_MAPPING_PATH):
         try:
@@ -74,10 +82,12 @@ def load_branch_mappings():
         except Exception as e:
             st.error(f"Error loading branch mappings: {e}")
     return False
+
 def save_region_mappings():
     ensure_data_dir()
     with open(REGION_MAPPING_PATH, 'wb') as f:
         pickle.dump(st.session_state.region_branch_mapping, f)
+
 def load_region_mappings():
     if os.path.exists(REGION_MAPPING_PATH):
         try:
@@ -87,10 +97,12 @@ def load_region_mappings():
         except Exception as e:
             st.error(f"Error loading region mappings: {e}")
     return False
+
 def save_company_mappings():
     ensure_data_dir()
     with open(COMPANY_MAPPING_PATH, 'wb') as f:
         pickle.dump(st.session_state.company_product_mapping, f)
+
 def load_company_mappings():
     if os.path.exists(COMPANY_MAPPING_PATH):
         try:
@@ -100,18 +112,21 @@ def load_company_mappings():
         except Exception as e:
             st.error(f"Error loading company mappings: {e}")
     return False
+
 def save_all_mappings():
     save_metadata()
     save_branch_mappings()
     save_region_mappings()
     save_company_mappings()
     return True
+
 def load_all_mappings():
     load_metadata()
     load_branch_mappings()
     load_region_mappings()
     load_company_mappings()
     return True
+
 def reset_all_mappings():
     st.session_state.executives = []
     st.session_state.executive_codes = {}
@@ -124,6 +139,89 @@ def reset_all_mappings():
     st.session_state.company_product_mapping = {}
     save_all_mappings()
     return True
+
+# NEW REMOVE FUNCTIONS
+def remove_branch(branch_name):
+    """Remove a branch and all its mappings"""
+    if branch_name in st.session_state.branch_exec_mapping:
+        # Remove from branch-executive mapping
+        del st.session_state.branch_exec_mapping[branch_name]
+        
+        # Remove from region-branch mappings
+        for region, branches in st.session_state.region_branch_mapping.items():
+            if branch_name in branches:
+                st.session_state.region_branch_mapping[region].remove(branch_name)
+        
+        save_branch_mappings()
+        save_region_mappings()
+        return True
+    return False
+
+def remove_region(region_name):
+    """Remove a region and all its mappings"""
+    if region_name in st.session_state.region_branch_mapping:
+        del st.session_state.region_branch_mapping[region_name]
+        save_region_mappings()
+        return True
+    return False
+
+def remove_company_group(company_name):
+    """Remove a company group and all its mappings"""
+    if company_name in st.session_state.company_product_mapping:
+        # Get products that were mapped to this company
+        products = st.session_state.company_product_mapping[company_name]
+        
+        # Remove the company
+        del st.session_state.company_product_mapping[company_name]
+        
+        save_company_mappings()
+        return True, len(products)
+    return False, 0
+
+def remove_product_group(product_name):
+    """Remove a product group from all company mappings and product list"""
+    removed_count = 0
+    
+    # Remove from product groups list
+    if product_name in st.session_state.product_groups:
+        st.session_state.product_groups.remove(product_name)
+        removed_count += 1
+    
+    # Remove from company-product mappings
+    for company, products in st.session_state.company_product_mapping.items():
+        if product_name in products:
+            st.session_state.company_product_mapping[company].remove(product_name)
+            removed_count += 1
+    
+    save_metadata()
+    save_company_mappings()
+    return removed_count > 0, removed_count
+
+def get_branches_using_executive(exec_name):
+    """Get all branches that use a specific executive"""
+    branches = []
+    for branch, execs in st.session_state.branch_exec_mapping.items():
+        if exec_name in execs:
+            branches.append(branch)
+    return branches
+
+def get_regions_using_branch(branch_name):
+    """Get all regions that contain a specific branch"""
+    regions = []
+    for region, branches in st.session_state.region_branch_mapping.items():
+        if branch_name in branches:
+            regions.append(region)
+    return regions
+
+def get_companies_using_product(product_name):
+    """Get all companies that use a specific product"""
+    companies = []
+    for company, products in st.session_state.company_product_mapping.items():
+        if product_name in products:
+            companies.append(company)
+    return companies
+
+# Continue with existing functions...
 def export_mappings():
     ensure_data_dir()
     all_data = {
@@ -139,6 +237,7 @@ def export_mappings():
         "application/json",
         key="download_backup"
     )
+
 def import_mappings_from_file(file):
     try:
         file_content = file.read()
@@ -152,6 +251,7 @@ def import_mappings_from_file(file):
     except Exception as e:
         st.error(f"Error importing mappings: {e}")
         return False
+
 def normalize_customer_code(code):
     if pd.isna(code):
         return ""
@@ -164,6 +264,7 @@ def normalize_customer_code(code):
     except (ValueError, OverflowError):
         pass
     return code_str
+
 def get_sheet_names(file):
     try:
         excel_file = pd.ExcelFile(file)
@@ -171,6 +272,7 @@ def get_sheet_names(file):
     except Exception as e:
         st.error(f"Error reading Excel file: {e}")
         return []
+
 def get_sheet_preview(file, sheet_name, header_row=0):
     try:
         df = pd.read_excel(file, sheet_name=sheet_name, header=header_row)
@@ -178,30 +280,35 @@ def get_sheet_preview(file, sheet_name, header_row=0):
     except Exception as e:
         st.error(f"Error loading sheet {sheet_name}: {e}")
         return None
+
 def get_customer_codes_for_executive(exec_name):
     customer_codes = []
     for code, executive in st.session_state.customer_codes.items():
         if executive == exec_name:
             customer_codes.append(code)
     return customer_codes
+
 def get_assigned_executives():
     """Get all executives that are already assigned to branches"""
     assigned_executives = set()
     for branch, execs in st.session_state.branch_exec_mapping.items():
         assigned_executives.update(execs)
     return assigned_executives
+
 def get_assigned_branches():
     """Get all branches that are already assigned to regions"""
     assigned_branches = set()
     for region, branches in st.session_state.region_branch_mapping.items():
         assigned_branches.update(branches)
     return assigned_branches
+
 def get_assigned_products():
     """Get all products that are already assigned to companies"""
     assigned_products = set()
     for company, products in st.session_state.company_product_mapping.items():
         assigned_products.update(products)
     return assigned_products
+
 def get_available_executives_for_branch(current_branch=None):
     """Get executives available for assignment to a branch"""
     assigned_executives = get_assigned_executives()
@@ -214,6 +321,7 @@ def get_available_executives_for_branch(current_branch=None):
             available_executives.append(exec_name)
     
     return sorted(available_executives)
+
 def get_available_branches_for_region(current_region=None):
     """Get branches available for assignment to a region"""
     assigned_branches = get_assigned_branches()
@@ -225,6 +333,7 @@ def get_available_branches_for_region(current_region=None):
             # Include branches already assigned to current region
             available_branches.append(branch)    
     return sorted(available_branches)
+
 def get_available_products_for_company(current_company=None):
     """Get products available for assignment to a company"""
     assigned_products = get_assigned_products()
@@ -236,6 +345,7 @@ def get_available_products_for_company(current_company=None):
             # Include products already assigned to current company
             available_products.append(product)    
     return sorted(available_products)
+
 def remove_executive(exec_name):
     if exec_name in st.session_state.executives:
         customer_codes = get_customer_codes_for_executive(exec_name)
@@ -253,28 +363,33 @@ def remove_executive(exec_name):
         save_all_mappings()
         return True, len(customer_codes)
     return False, 0
+
 def get_customer_info_string(code):
     name = st.session_state.customer_names.get(code, "")
     if name:
         return f"{code} - {name}"
     else:
         return code
+
 def get_branches_for_executive(exec_name):
     branches = []
     for branch, execs in st.session_state.branch_exec_mapping.items():
         if exec_name in execs:
             branches.append(branch)
     return ", ".join(sorted(branches)) if branches else ""
+
 def get_region_for_branch(branch_name):
     for region, branches in st.session_state.region_branch_mapping.items():
         if branch_name in branches:
             return region
     return ""
+
 def get_company_for_product(product_name):
     for company, products in st.session_state.company_product_mapping.items():
         if product_name in products:
             return company
     return ""
+
 def remove_customer_codes(exec_name, codes):
     count = 0
     for code in codes:
@@ -286,6 +401,7 @@ def remove_customer_codes(exec_name, codes):
     if count > 0:
         save_metadata()
     return count
+
 def assign_customer_codes(exec_name, codes):
     count = 0
     for code in codes:
@@ -296,6 +412,7 @@ def assign_customer_codes(exec_name, codes):
     if count > 0:
         save_metadata()
     return count
+
 def extract_executive_customer_from_file(df, exec_col, cust_col, exec_code_col="None", cust_name_col="None", add_all_execs=True):
     relationships = {}
     exec_codes = {}
@@ -320,6 +437,7 @@ def extract_executive_customer_from_file(df, exec_col, cust_col, exec_code_col="
                exec_code = str(row[exec_code_col]).strip()
                exec_codes[exec_name] = exec_code
     return relationships, exec_codes, cust_names
+
 def apply_reassignment_changes(relationships, exec_codes, cust_names):
     new_execs_added = 0
     new_exec_codes = 0
@@ -351,6 +469,7 @@ def apply_reassignment_changes(relationships, exec_codes, cust_names):
     save_metadata()
     save_all_mappings()    
     st.success(f"Successfully processed: Added {new_execs_added} new executives, {new_exec_codes} executive codes, {new_assignments} new assignments, {reassignments} reassignments, {new_customer_names} customer names")
+
 def normalize_product_name(product_name):
     """
     Normalize product name for better matching
@@ -398,6 +517,7 @@ def get_company_for_product_improved(product_name):
                     return company
     
     return ""
+
 def process_branch_region_file(df, exec_code_col, exec_name_col, branch_col, region_col):
     """Process branch and region mapping file"""
     branch_updates = 0
@@ -435,6 +555,7 @@ def process_branch_region_file(df, exec_code_col, exec_name_col, branch_col, reg
             region_updates += 1    
     save_all_mappings()
     st.success(f"Successfully processed: {new_branches} new branches, {new_regions} new regions, {branch_updates} executive-branch mappings, {region_updates} branch-region mappings")
+
 def process_company_product_file(df, company_col, product_col):
     """Process company and product mapping file"""
     company_updates = 0
@@ -455,6 +576,7 @@ def process_company_product_file(df, company_col, product_col):
                 company_updates += 1    
     save_all_mappings()
     st.success(f"Successfully processed: {new_companies} new companies, {new_products} new products, {company_updates} company-product mappings")
+
 def process_budget_file(budget_df, customer_col, exec_code_col, exec_name_col, branch_col, region_col, cust_name_col):
     processed_df = budget_df.copy()
     if "Branch" not in processed_df.columns:
@@ -482,7 +604,6 @@ def process_budget_file(budget_df, customer_col, exec_code_col, exec_name_col, b
                         processed_df.at[idx, region_col] = region
                     processed_df.at[idx, "Region"] = region    
     return processed_df
-# Replace your existing process_sales_file function with this:
 
 def process_sales_file(sales_df, exec_code_col, product_col=None, exec_name_col=None, unit_col=None, quantity_col=None, value_col=None):
     processed_df = sales_df.copy()
@@ -630,6 +751,7 @@ def process_sales_file(sales_df, exec_code_col, product_col=None, exec_name_col=
     """)
     
     return processed_df
+
 def process_os_file(os_df, exec_code_col):
     processed_df = os_df.copy()
     
@@ -697,6 +819,7 @@ def process_os_file(os_df, exec_code_col):
         unique_branch_issues = list(set(branch_not_found))
         st.warning(f"Branch/Region mapping issues: {unique_branch_issues[:10]}")    
     return processed_df
+
 def debug_executive_mappings():
     """Helper function to debug executive mappings"""
     st.write("**Current Executive Mappings:**")
@@ -739,6 +862,7 @@ def debug_executive_mappings():
         st.dataframe(pd.DataFrame(company_data), hide_index=True)
     else:
         st.warning("No company mappings found")
+
 def smart_column_selector(label, columns, field_type, key=None, include_none=False):
     """
     Smart column selector with auto-detection (case-insensitive)
@@ -855,19 +979,33 @@ def main():
                     for exec_name in sorted(st.session_state.executives):
                         exec_code = st.session_state.executive_codes.get(exec_name, "")
                         customer_count = len(get_customer_codes_for_executive(exec_name))
+                        branches = get_branches_using_executive(exec_name)
                         exec_data.append({
                             "Executive": exec_name,
                             "Code": exec_code,
-                            "Customers": customer_count
+                            "Customers": customer_count,
+                            "Branches": len(branches)
                         })
                     st.dataframe(pd.DataFrame(exec_data), hide_index=True)
                     
+                    # ENHANCED REMOVE EXECUTIVE with warning
                     exec_to_remove = st.selectbox("Remove Executive:", [""] + sorted(st.session_state.executives))
-                    if exec_to_remove and st.button("Remove"):
-                        success, count = remove_executive(exec_to_remove)
-                        if success:
-                            st.success(f"Removed {exec_to_remove}")
-                            st.rerun()
+                    if exec_to_remove:
+                        branches_using = get_branches_using_executive(exec_to_remove)
+                        customer_count = len(get_customer_codes_for_executive(exec_to_remove))
+                        
+                        if branches_using or customer_count > 0:
+                            st.warning(f"⚠️ Removing '{exec_to_remove}' will affect:")
+                            if branches_using:
+                                st.write(f"- **Branches:** {', '.join(branches_using)}")
+                            if customer_count > 0:
+                                st.write(f"- **Customer codes:** {customer_count} codes will become unmapped")
+                        
+                        if st.button("🗑️ Remove Executive", type="secondary"):
+                            success, count = remove_executive(exec_to_remove)
+                            if success:
+                                st.success(f"Removed {exec_to_remove}. {count} customer codes moved to unmapped.")
+                                st.rerun()
                 else:
                     st.info("No executives added yet")
         
@@ -996,14 +1134,64 @@ def main():
                 st.subheader("Current Branches")
                 branches = list(st.session_state.branch_exec_mapping.keys())
                 if branches:
-                    st.dataframe(pd.DataFrame(sorted(branches), columns=["Branch"]), hide_index=True)
+                    branch_data = []
+                    for branch in sorted(branches):
+                        exec_count = len(st.session_state.branch_exec_mapping[branch])
+                        regions_using = get_regions_using_branch(branch)
+                        branch_data.append({
+                            "Branch": branch,
+                            "Executives": exec_count,
+                            "In Regions": len(regions_using)
+                        })
+                    st.dataframe(pd.DataFrame(branch_data), hide_index=True)
+                    
+                    # ENHANCED REMOVE BRANCH with warning
+                    branch_to_remove = st.selectbox("Remove Branch:", [""] + sorted(branches))
+                    if branch_to_remove:
+                        execs_in_branch = st.session_state.branch_exec_mapping[branch_to_remove]
+                        regions_using = get_regions_using_branch(branch_to_remove)
+                        
+                        if execs_in_branch or regions_using:
+                            st.warning(f"⚠️ Removing '{branch_to_remove}' will affect:")
+                            if execs_in_branch:
+                                st.write(f"- **Executives:** {', '.join(execs_in_branch)}")
+                            if regions_using:
+                                st.write(f"- **Regions:** {', '.join(regions_using)}")
+                        
+                        if st.button("🗑️ Remove Branch", type="secondary"):
+                            success = remove_branch(branch_to_remove)
+                            if success:
+                                st.success(f"Removed branch: {branch_to_remove}")
+                                st.rerun()
                 else:
                     st.info("No branches created")
                 
                 st.subheader("Current Regions")
                 regions = list(st.session_state.region_branch_mapping.keys())
                 if regions:
-                    st.dataframe(pd.DataFrame(sorted(regions), columns=["Region"]), hide_index=True)
+                    region_data = []
+                    for region in sorted(regions):
+                        branch_count = len(st.session_state.region_branch_mapping[region])
+                        region_data.append({
+                            "Region": region,
+                            "Branches": branch_count
+                        })
+                    st.dataframe(pd.DataFrame(region_data), hide_index=True)
+                    
+                    # ENHANCED REMOVE REGION with warning
+                    region_to_remove = st.selectbox("Remove Region:", [""] + sorted(regions))
+                    if region_to_remove:
+                        branches_in_region = st.session_state.region_branch_mapping[region_to_remove]
+                        
+                        if branches_in_region:
+                            st.warning(f"⚠️ Removing '{region_to_remove}' will affect:")
+                            st.write(f"- **Branches:** {', '.join(branches_in_region)}")
+                        
+                        if st.button("🗑️ Remove Region", type="secondary"):
+                            success = remove_region(region_to_remove)
+                            if success:
+                                st.success(f"Removed region: {region_to_remove}")
+                                st.rerun()
                 else:
                     st.info("No regions created")
             
@@ -1128,14 +1316,58 @@ def main():
             with col2:
                 st.subheader("Current Products")
                 if st.session_state.product_groups:
-                    st.dataframe(pd.DataFrame(sorted(st.session_state.product_groups), columns=["Product"]), hide_index=True)
+                    product_data = []
+                    for product in sorted(st.session_state.product_groups):
+                        companies_using = get_companies_using_product(product)
+                        product_data.append({
+                            "Product": product,
+                            "In Companies": len(companies_using)
+                        })
+                    st.dataframe(pd.DataFrame(product_data), hide_index=True)
+                    
+                    # ENHANCED REMOVE PRODUCT with warning
+                    product_to_remove = st.selectbox("Remove Product:", [""] + sorted(st.session_state.product_groups))
+                    if product_to_remove:
+                        companies_using = get_companies_using_product(product_to_remove)
+                        
+                        if companies_using:
+                            st.warning(f"⚠️ Removing '{product_to_remove}' will affect:")
+                            st.write(f"- **Companies:** {', '.join(companies_using)}")
+                        
+                        if st.button("🗑️ Remove Product", type="secondary"):
+                            success, count = remove_product_group(product_to_remove)
+                            if success:
+                                st.success(f"Removed product: {product_to_remove} from {count} mappings")
+                                st.rerun()
                 else:
                     st.info("No products created")
                 
                 st.subheader("Current Companies")
                 companies = list(st.session_state.company_product_mapping.keys())
                 if companies:
-                    st.dataframe(pd.DataFrame(sorted(companies), columns=["Company"]), hide_index=True)
+                    company_data = []
+                    for company in sorted(companies):
+                        product_count = len(st.session_state.company_product_mapping[company])
+                        company_data.append({
+                            "Company": company,
+                            "Products": product_count
+                        })
+                    st.dataframe(pd.DataFrame(company_data), hide_index=True)
+                    
+                    # ENHANCED REMOVE COMPANY with warning
+                    company_to_remove = st.selectbox("Remove Company:", [""] + sorted(companies))
+                    if company_to_remove:
+                        products_in_company = st.session_state.company_product_mapping[company_to_remove]
+                        
+                        if products_in_company:
+                            st.warning(f"⚠️ Removing '{company_to_remove}' will affect:")
+                            st.write(f"- **Products:** {', '.join(products_in_company)}")
+                        
+                        if st.button("🗑️ Remove Company", type="secondary"):
+                            success, count = remove_company_group(company_to_remove)
+                            if success:
+                                st.success(f"Removed company: {company_to_remove} ({count} products unmapped)")
+                                st.rerun()
                 else:
                     st.info("No companies created")
             
@@ -1408,6 +1640,7 @@ def main():
                                 "processed_os.xlsx",
                                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             )
+    
     with st.sidebar:
         st.header("Global Operations")
         if st.button("Save All Mappings"):
@@ -1415,10 +1648,22 @@ def main():
             st.success("All mappings saved!")
         
         st.markdown("---")
-        st.subheader("Reset All Data")
-        if st.button("Reset All Mappings"):
-            reset_all_mappings()
-            st.success("All data reset!")
-            st.rerun()
+        st.subheader("System Statistics")
+        st.metric("Executives", len(st.session_state.executives))
+        st.metric("Branches", len(st.session_state.branch_exec_mapping))
+        st.metric("Regions", len(st.session_state.region_branch_mapping))
+        st.metric("Companies", len(st.session_state.company_product_mapping))
+        st.metric("Products", len(st.session_state.product_groups))
+        st.metric("Customer Mappings", len(st.session_state.customer_codes))
+        st.metric("Unmapped Customers", len(st.session_state.unmapped_customers))
+        
+        st.markdown("---")
+        st.subheader("⚠️ Danger Zone")
+        if st.button("🗑️ Reset All Data", type="secondary"):
+            if st.button("⚠️ Confirm Reset All", type="secondary"):
+                reset_all_mappings()
+                st.success("All data reset!")
+                st.rerun()
+
 if __name__ == "__main__":
     main()
