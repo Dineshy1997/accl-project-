@@ -1825,6 +1825,8 @@ def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_
    os_first = os_first.copy()
    os_second = os_second.copy()
    total_sale = total_sale.copy()
+   
+   # Validate numeric columns
    for df, col, file in [
        (os_first, os_first_net_value_col, "OS-First"),
        (os_second, os_second_net_value_col, "OS-Second"),
@@ -1838,6 +1840,8 @@ def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_
        except Exception as e:
            st.error(f"Error processing column '{col}' in {file}: {e}")
            return None, None, None
+
+   # Filter out negative values
    os_first_initial_rows = os_first.shape[0]
    os_first = os_first[os_first[os_first_net_value_col] >= 0]
    os_first_filtered_rows = os_first.shape[0]
@@ -1847,25 +1851,35 @@ def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_
    os_second = os_second[os_second[os_second_net_value_col] >= 0]
    os_second_filtered_rows = os_second.shape[0]
    logger.debug(f"OS-Second: Filtered out {os_second_initial_rows - os_second_filtered_rows} rows with negative Net Value")
+
+   # Convert date columns and map branches
    os_first[os_first_due_date_col] = pd.to_datetime(os_first[os_first_due_date_col], errors='coerce')
    os_first[os_first_ref_date_col] = pd.to_datetime(os_first.get(os_first_ref_date_col), errors='coerce')
    os_first["Branch"] = os_first[os_first_unit_col].apply(map_branch, case='title')
+
    os_second[os_second_due_date_col] = pd.to_datetime(os_second[os_second_due_date_col], errors='coerce')
    os_second[os_second_ref_date_col] = pd.to_datetime(os_second.get(os_second_ref_date_col), errors='coerce')
    os_second["Branch"] = os_second[os_second_unit_col].apply(map_branch, case='title')
+
    total_sale[sale_bill_date_col] = pd.to_datetime(total_sale[sale_bill_date_col], errors='coerce')
    total_sale[sale_due_date_col] = pd.to_datetime(total_sale[sale_due_date_col], errors='coerce')
    total_sale["Branch"] = total_sale[sale_branch_col].apply(map_branch, case='title')
+
+   # Create region-branch mapping BEFORE any further branch name changes
    region_branch_mapping = create_region_branch_mapping(
        os_first, os_second, total_sale,
        os_first_unit_col, os_first_region_col,
        os_second_unit_col, os_second_region_col,
        sale_branch_col, sale_region_col
    )
+
+   # Apply executive filtering
    if selected_executives:
        os_first = os_first[os_first[os_first_exec_col].isin(selected_executives)]
        os_second = os_second[os_second[os_second_exec_col].isin(selected_executives)]
        total_sale = total_sale[total_sale[sale_exec_col].isin(selected_executives)]
+
+   # Check for empty dataframes after executive filtering
    empty_dfs = []
    if os_first.empty:
        empty_dfs.append("OS-First")
@@ -1877,10 +1891,14 @@ def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_
    if empty_dfs:
        st.error(f"No data remains after executive filtering for: {', '.join(empty_dfs)}")
        return None, None, None
+
+   # Apply branch filtering
    if selected_branches:
        os_first = os_first[os_first["Branch"].isin(selected_branches)]
        os_second = os_second[os_second["Branch"].isin(selected_branches)]
        total_sale = total_sale[total_sale["Branch"].isin(selected_branches)]
+
+   # Apply region filtering
    if selected_regions and region_branch_mapping:
        branches_in_selected_regions = []
        for region in selected_regions:
@@ -1890,6 +1908,8 @@ def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_
            os_first = os_first[os_first["Branch"].isin(branches_in_selected_regions)]
            os_second = os_second[os_second["Branch"].isin(branches_in_selected_regions)]
            total_sale = total_sale[total_sale["Branch"].isin(branches_in_selected_regions)]
+
+   # Check for empty dataframes after all filtering
    empty_dfs = []
    if os_first.empty:
        empty_dfs.append("OS-First")
@@ -1900,30 +1920,44 @@ def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_
    if empty_dfs:
        st.error(f"No data remains after filtering for: {', '.join(empty_dfs)}")
        return None, None, None
+
+   # Calculate metrics
    specified_date = pd.to_datetime("01-" + selected_month_str, format="%d-%b-%y")
    specified_month_end = specified_date + pd.offsets.MonthEnd(0)
+
+   # Due target calculation
    due_target = os_first[os_first[os_first_due_date_col] <= specified_month_end]
    due_target_sum = due_target.groupby("Branch")[os_first_net_value_col].sum().reset_index()
    due_target_sum.columns = ["Branch", "Due Target"]
+
+   # Collection calculation
    os_first_coll = os_first[os_first[os_first_due_date_col] <= specified_month_end]
    os_first_coll_sum = os_first_coll.groupby("Branch")[os_first_net_value_col].sum().reset_index()
    os_first_coll_sum.columns = ["Branch", "OS Jan Coll"]
+
    os_second_coll = os_second[(os_second[os_second_due_date_col] <= specified_month_end) & 
                              (os_second[os_second_ref_date_col] < specified_date)]
    os_second_coll_sum = os_second_coll.groupby("Branch")[os_second_net_value_col].sum().reset_index()
    os_second_coll_sum.columns = ["Branch", "OS Feb Coll"]
+
    collection = os_first_coll_sum.merge(os_second_coll_sum, on="Branch", how="outer").fillna(0)
    collection["Collection Achieved"] = collection["OS Jan Coll"] - collection["OS Feb Coll"]
    collection["Overall % Achieved"] = np.where(collection["OS Jan Coll"] > 0, 
                                               (collection["Collection Achieved"] / collection["OS Jan Coll"]) * 100, 
                                               0)
    collection = collection.merge(due_target_sum[["Branch", "Due Target"]], on="Branch", how="outer").fillna(0)
+
+   # Overdue calculation
    overdue = total_sale[(total_sale[sale_bill_date_col].between(specified_date, specified_month_end)) & 
                        (total_sale[sale_due_date_col].between(specified_date, specified_month_end))]
    overdue_sum = overdue.groupby("Branch")[sale_value_col].sum().reset_index()
    overdue_sum.columns = ["Branch", "For the month Overdue"]
+
+   # Sale value calculation
    sale_value = overdue.groupby("Branch")[sale_value_col].sum().reset_index()
    sale_value.columns = ["Branch", "Sale Value"]
+
+   # Month collection calculation
    os_second_month = os_second[(os_second[os_second_ref_date_col].between(specified_date, specified_month_end)) & 
                               (os_second[os_second_due_date_col].between(specified_date, specified_month_end))]
    os_second_month_sum = os_second_month.groupby("Branch")[os_second_net_value_col].sum().reset_index()
@@ -1932,19 +1966,34 @@ def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_
    month_collection = sale_value.merge(os_second_month_sum, on="Branch", how="outer").fillna(0)
    month_collection["For the month Collection"] = month_collection["Sale Value"] - month_collection["OS Month Collection"]
    month_collection_final = month_collection[["Branch", "For the month Collection"]]
+
+   # Final merge
    final = collection.drop(columns=["OS Jan Coll", "OS Feb Coll"]).merge(overdue_sum, on="Branch", how="outer")\
            .merge(month_collection_final, on="Branch", how="outer").fillna(0)
+   
    final["% Achieved (Selected Month)"] = np.where(final["For the month Overdue"] > 0, 
                                                   (final["For the month Collection"] / final["For the month Overdue"]) * 100, 
                                                   0)
-   final["Branch"] = final["Branch"].replace({"Puducherry": "Pondicherry"})
+
+   # *** REMOVED THE PROBLEMATIC LINE ***
+   # final["Branch"] = final["Branch"].replace({"Puducherry": "Pondicherry"})
+
+   # Convert to lakhs and round
    val_cols = ["Due Target", "Collection Achieved", "For the month Overdue", "For the month Collection"]
    final[val_cols] = final[val_cols].div(100000)
    round_cols = val_cols + ["Overall % Achieved", "% Achieved (Selected Month)"]
    final[round_cols] = final[round_cols].round(2)
+
+   # Reorder columns
    final = final[["Branch", "Due Target", "Collection Achieved", "Overall % Achieved", 
                  "For the month Overdue", "For the month Collection", "% Achieved (Selected Month)"]]
+   
    final.sort_values("Branch", inplace=True)
+
+   # Calculate regional summary BEFORE adding total row
+   regional_summary = create_dynamic_regional_summary(final, region_branch_mapping)
+
+   # Add total row
    total_row = {'Branch': 'TOTAL'}
    for col in final.columns[1:]:
        if col in ["Overall % Achieved", "% Achieved (Selected Month)"]:
@@ -1954,7 +2003,7 @@ def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_
            total_row[col] = round(final[col].sum(), 2)
    
    final = pd.concat([final, pd.DataFrame([total_row])], ignore_index=True)
-   regional_summary = create_dynamic_regional_summary(final, region_branch_mapping)   
+   
    return final, regional_summary, region_branch_mapping
 def create_od_ppt_updated(df, regional_df, title, logo_file=None):
    """Create a PPT for OD Target vs Collection Report with regional summary."""
