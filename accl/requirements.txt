@@ -6,6 +6,7 @@ matplotlib
 python-pptx
 python-dateutil
 openpyxl
+fuzzywuzzy
 
 # File requirements
 # The application requires the following Excel files to be uploaded:
