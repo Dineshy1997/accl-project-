@@ -224,10 +224,14 @@ def get_companies_using_product(product_name):
 # Continue with existing functions...
 def export_mappings():
     ensure_data_dir()
+    # Include product_groups in the backup data
     all_data = {
         "branch_exec_mapping": st.session_state.branch_exec_mapping,
         "region_branch_mapping": st.session_state.region_branch_mapping,
-        "company_product_mapping": st.session_state.company_product_mapping
+        "company_product_mapping": st.session_state.company_product_mapping,
+        "product_groups": st.session_state.product_groups,  # Add this line
+        "executives": st.session_state.executives,  # Add this line
+        "executive_codes": st.session_state.executive_codes  # Add this line
     }
     json_data = json.dumps(all_data, indent=4)
     st.download_button(
@@ -242,9 +246,22 @@ def import_mappings_from_file(file):
     try:
         file_content = file.read()
         data = json.loads(file_content)
+        
+        # Restore all mappings
         st.session_state.branch_exec_mapping = data.get("branch_exec_mapping", {})
         st.session_state.region_branch_mapping = data.get("region_branch_mapping", {})
         st.session_state.company_product_mapping = data.get("company_product_mapping", {})
+        
+        # Restore product groups (this was missing!)
+        st.session_state.product_groups = data.get("product_groups", [])
+        
+        # Also restore executives and executive codes if they exist in backup
+        if "executives" in data:
+            st.session_state.executives = data.get("executives", [])
+        if "executive_codes" in data:
+            st.session_state.executive_codes = data.get("executive_codes", {})
+        
+        # Save all restored data
         save_all_mappings()
         st.success("Successfully restored mappings from backup file")
         return True
