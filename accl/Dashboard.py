@@ -172,7 +172,7 @@ def find_table_end(df, start_idx):
     return len(df)
 
 # Create charts optimized for Streamlit Cloud
-def create_cloud_optimized_chart(data, x_col, y_col, chart_type='bar', title="Chart"):
+def create_cloud_optimized_chart(data, x_col, y_col, chart_type='bar', title="Chart", color_override=None):
     """Create charts optimized for Streamlit Cloud rendering."""
     
     # Create figure with optimal settings for cloud
@@ -182,25 +182,23 @@ def create_cloud_optimized_chart(data, x_col, y_col, chart_type='bar', title="Ch
     fig.patch.set_facecolor('white')
     ax.set_facecolor('white')
     
+    # Determine color - use override if provided, otherwise default colors
+    if color_override:
+        bar_color = color_override
+    else:
+        bar_color = '#2E86AB'
+    
     if chart_type == 'bar':
         bars = ax.bar(data[x_col], data[y_col], 
-                     color='#2E86AB', alpha=0.8, 
+                     color=bar_color, alpha=0.8, 
                      edgecolor='#1B4965', linewidth=1.5)
-        
-        # Add value labels with better positioning
-        for bar in bars:
-            height = bar.get_height()
-            if not pd.isna(height) and height != 0:
-                ax.text(bar.get_x() + bar.get_width()/2., height,
-                       f'{height:,.0f}', 
-                       ha='center', va='bottom', 
-                       fontsize=12, fontweight='bold',
-                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
+        # No value labels for cleaner look
     
     elif chart_type == 'line':
+        line_color = color_override if color_override else '#2E86AB'
         ax.plot(data[x_col], data[y_col], 
                marker='o', linewidth=4, markersize=10, 
-               color='#2E86AB', markerfacecolor='#F18F01', 
+               color=line_color, markerfacecolor='#F18F01', 
                markeredgecolor='#1B4965', markeredgewidth=2)
         ax.grid(True, alpha=0.3, linestyle='--', linewidth=1)
     
@@ -244,11 +242,14 @@ def create_cloud_optimized_chart(data, x_col, y_col, chart_type='bar', title="Ch
     return fig
 
 # Create Plotly charts optimized for cloud
-def create_plotly_chart_cloud_optimized(data, x_col, y_col, chart_type, title):
+def create_plotly_chart_cloud_optimized(data, x_col, y_col, chart_type, title, color_override=None):
     """Create Plotly charts optimized for cloud deployment."""
     try:
         import plotly.express as px
         import plotly.graph_objects as go
+        
+        # Determine color - use override if provided
+        default_color = color_override if color_override else '#2E86AB'
         
         # Common layout settings optimized for cloud
         layout_config = {
@@ -269,14 +270,10 @@ def create_plotly_chart_cloud_optimized(data, x_col, y_col, chart_type, title):
         
         if chart_type == 'bar':
             fig = px.bar(data, x=x_col, y=y_col, 
-                        color_discrete_sequence=['#2E86AB'])
+                        color_discrete_sequence=[default_color])
             
-            # Add value annotations
-            fig.update_traces(
-                texttemplate='%{y:,.0f}', 
-                textposition='outside',
-                textfont={'size': 12, 'family': 'Arial, sans-serif'}
-            )
+            # Remove value annotations for cleaner look
+            fig.update_traces(texttemplate=None, textposition=None)
             
             # Update axes
             fig.update_xaxes(
@@ -291,7 +288,7 @@ def create_plotly_chart_cloud_optimized(data, x_col, y_col, chart_type, title):
             
         elif chart_type == 'line':
             fig = px.line(data, x=x_col, y=y_col, 
-                         markers=True, color_discrete_sequence=['#2E86AB'])
+                         markers=True, color_discrete_sequence=[default_color])
             
             fig.update_traces(
                 line={'width': 4}, 
@@ -338,22 +335,27 @@ def create_plotly_chart_cloud_optimized(data, x_col, y_col, chart_type, title):
         return None, None
 
 # Create PowerPoint slide with chart image (optimized)
-def create_ppt_with_chart(title, chart_data, x_col, y_col, chart_type='bar'):
+def create_ppt_with_chart(title, chart_data, x_col, y_col, chart_type='bar', color_override=None):
     """Creates PowerPoint slide with chart image."""
     ppt = Presentation()
     slide = ppt.slides.add_slide(ppt.slide_layouts[5])
     
-    # Add title to slide
-    txBox = slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(8), Inches(1))
-    tf = txBox.text_frame
-    tf.text = title
+    # Add title to slide as plain text (not clickable)
+    title_shape = slide.shapes.title
+    if title_shape:
+        title_shape.text = title
+    else:
+        # Fallback: create a text box for title
+        txBox = slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(8), Inches(1))
+        tf = txBox.text_frame
+        tf.text = title
     
     # Check if y_col exists and contains numeric data
     if y_col not in chart_data.columns:
         st.error(f"Error: Column {y_col} not found in data.")
-        txBox = slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1))
-        tf = txBox.text_frame
-        tf.text = f"Error: Column {y_col} not found"
+        error_box = slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1))
+        ef = error_box.text_frame
+        ef.text = f"Error: Column {y_col} not found"
         ppt_bytes = BytesIO()
         ppt.save(ppt_bytes)
         ppt_bytes.seek(0)
@@ -361,16 +363,16 @@ def create_ppt_with_chart(title, chart_data, x_col, y_col, chart_type='bar'):
     
     if not pd.api.types.is_numeric_dtype(chart_data[y_col]):
         st.error(f"Error: Column {y_col} is not numeric. Cannot create chart.")
-        txBox = slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1))
-        tf = txBox.text_frame
-        tf.text = f"Error: No numeric data available for {y_col}"
+        error_box = slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1))
+        ef = error_box.text_frame
+        ef.text = f"Error: No numeric data available for {y_col}"
         ppt_bytes = BytesIO()
         ppt.save(ppt_bytes)
         ppt_bytes.seek(0)
         return ppt_bytes
     
     # Create chart with optimized settings
-    fig = create_cloud_optimized_chart(chart_data, x_col, y_col, chart_type, title)
+    fig = create_cloud_optimized_chart(chart_data, x_col, y_col, chart_type, title, color_override)
     
     # Save chart to buffer
     img_buffer = BytesIO()
@@ -463,7 +465,7 @@ def extract_month_year(col_name):
     return col_str
 
 # Cloud-optimized visualization display function
-def display_visualization_cloud_optimized(tab, label, data, x_col, y_col, visual_type):
+def display_visualization_cloud_optimized(tab, label, data, x_col, y_col, visual_type, color_override=None):
     """Display visualization optimized for Streamlit Cloud."""
     with tab:
         if data is None or data.empty:
@@ -489,7 +491,8 @@ def display_visualization_cloud_optimized(tab, label, data, x_col, y_col, visual
             fig, config = create_plotly_chart_cloud_optimized(
                 data, x_col, y_col, 
                 chart_type_map[visual_type], 
-                f"{label} - {table_name}"
+                f"{label} - {table_name}",
+                color_override
             )
             
             if fig is not None:
@@ -502,7 +505,7 @@ def display_visualization_cloud_optimized(tab, label, data, x_col, y_col, visual
             # Fallback to matplotlib with cloud optimization
             chart_type = visual_type.lower().replace(" chart", "")
             fig = create_cloud_optimized_chart(
-                data, x_col, y_col, chart_type, f"{label} - {table_name}"
+                data, x_col, y_col, chart_type, f"{label} - {table_name}", color_override
             )
             
             # Use higher DPI for cloud display
@@ -1193,8 +1196,116 @@ if uploaded_file:
                 
                     st.markdown(f"### Budget vs Actual Comparison - {table_name}")
                 
-                    # Use cloud-optimized visualization
-                    display_visualization_cloud_optimized(tab, "Budget vs Actual", chart_data_agg, "Month", "Value", visual_type)
+                    # Custom Budget vs Actual visualization with orange Act bars (no value labels)
+                    try:
+                        import plotly.express as px
+                        import plotly.graph_objects as go
+                        
+                        # Create custom Budget vs Actual chart with different colors
+                        fig = go.Figure()
+                        
+                        budget_data = chart_data_agg[chart_data_agg['Metric'] == 'Budget']
+                        act_data = chart_data_agg[chart_data_agg['Metric'] == 'Act']
+                        
+                        if not budget_data.empty:
+                            fig.add_trace(go.Bar(
+                                x=budget_data['Month'],
+                                y=budget_data['Value'],
+                                name='Budget',
+                                marker_color='#2E86AB',  # Blue for Budget
+                                # Removed text and textposition for cleaner look
+                            ))
+                        
+                        if not act_data.empty:
+                            fig.add_trace(go.Bar(
+                                x=act_data['Month'],
+                                y=act_data['Value'],
+                                name='Act',
+                                marker_color='#FF8C00',  # Orange for Act
+                                # Removed text and textposition for cleaner look
+                            ))
+                        
+                        fig.update_layout(
+                            title={
+                                'text': f"Budget vs Actual Comparison - {table_name}",
+                                'x': 0.5,
+                                'xanchor': 'center',
+                                'font': {'size': 20, 'family': 'Arial, sans-serif'}
+                            },
+                            xaxis_title="Month",
+                            yaxis_title="Value",
+                            font={'size': 14, 'family': 'Arial, sans-serif'},
+                            plot_bgcolor='white',
+                            paper_bgcolor='white',
+                            height=600,
+                            margin={'l': 80, 'r': 80, 't': 100, 'b': 80},
+                            showlegend=True,
+                            barmode='group'  # Group bars side by side
+                        )
+                        
+                        fig.update_xaxes(
+                            title_font={'size': 16, 'family': 'Arial, sans-serif'},
+                            tickfont={'size': 14}
+                        )
+                        fig.update_yaxes(
+                            title_font={'size': 16, 'family': 'Arial, sans-serif'},
+                            tickfont={'size': 14}
+                        )
+                        
+                        config = {
+                            'displayModeBar': True,
+                            'displaylogo': False,
+                            'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d']
+                        }
+                        
+                        st.plotly_chart(fig, use_container_width=True, config=config)
+                        
+                    except ImportError:
+                        # Fallback to matplotlib with custom colors (no value labels)
+                        fig, ax = plt.subplots(figsize=(14, 10), dpi=200)
+                        fig.patch.set_facecolor('white')
+                        ax.set_facecolor('white')
+                        
+                        budget_data = chart_data_agg[chart_data_agg['Metric'] == 'Budget']
+                        act_data = chart_data_agg[chart_data_agg['Metric'] == 'Act']
+                        
+                        if not budget_data.empty and not act_data.empty:
+                            bar_width = 0.35
+                            months = sorted(set(chart_data_agg['Month']))
+                            x_pos = np.arange(len(months))
+                            
+                            budget_values = [budget_data[budget_data['Month'] == month]['Value'].iloc[0] 
+                                           if len(budget_data[budget_data['Month'] == month]) > 0 else 0 for month in months]
+                            act_values = [act_data[act_data['Month'] == month]['Value'].iloc[0] 
+                                        if len(act_data[act_data['Month'] == month]) > 0 else 0 for month in months]
+                            
+                            # No value labels for cleaner look
+                            bars1 = ax.bar(x_pos - bar_width/2, budget_values, bar_width, 
+                                         label='Budget', color='#2E86AB', alpha=0.8)
+                            bars2 = ax.bar(x_pos + bar_width/2, act_values, bar_width, 
+                                         label='Act', color='#FF8C00', alpha=0.8)  # Orange for Act
+                            
+                            ax.set_xlabel('Month', fontsize=16, fontweight='bold', labelpad=15)
+                            ax.set_ylabel('Value', fontsize=16, fontweight='bold', labelpad=15)
+                            ax.set_title(f"Budget vs Actual Comparison - {table_name}", fontsize=20, fontweight='bold', pad=25)
+                            ax.set_xticks(x_pos)
+                            ax.set_xticklabels(months, rotation=0, ha='center')
+                            ax.legend()
+                            
+                            # Enhanced styling
+                            ax.tick_params(axis='both', which='major', labelsize=14, width=2, length=6)
+                            ax.spines['top'].set_visible(False)
+                            ax.spines['right'].set_visible(False)
+                            ax.spines['left'].set_linewidth(2)
+                            ax.spines['bottom'].set_linewidth(2)
+                        
+                        plt.tight_layout(pad=3.0)
+                        st.pyplot(fig, use_container_width=True)
+                        plt.close(fig)
+                    
+                    # Display data table
+                    with st.expander("📊 View Data Table"):
+                        st.dataframe(chart_data_agg, use_container_width=True)
                 
                     ppt_type = 'bar' if visual_type == 'Bar Chart' else 'line' if visual_type == 'Line Chart' else 'pie'
                     ppt_bytes = create_ppt_with_chart(
@@ -1265,7 +1376,10 @@ if uploaded_file:
                     chart_data = chart_data.sort_values(by='Month', key=lambda x: x.map(get_sort_key))
                     chart_data = make_jsonly_serializable(chart_data)
                 
-                    display_visualization_cloud_optimized(tab, f"{label} by Month", chart_data, "Month", label, visual_type)
+                    # Set orange color for Act tab
+                    color_override = '#FF8C00' if label == "Act" else None
+                
+                    display_visualization_cloud_optimized(tab, f"{label} by Month", chart_data, "Month", label, visual_type, color_override)
                     
                     ppt_type = 'bar' if visual_type == "Bar Chart" else 'line' if visual_type == "Line Chart" else 'pie'
                     ppt_bytes = create_ppt_with_chart(
@@ -1273,7 +1387,8 @@ if uploaded_file:
                         chart_data,
                         "Month",
                         label,
-                        ppt_type
+                        ppt_type,
+                        color_override
                     )
                     
                     st.download_button(
@@ -1323,11 +1438,22 @@ if uploaded_file:
                             end_year = end_year[-2:] if len(end_year) > 2 else end_year
                             fiscal_year = f"{start_year}-{end_year}"
                             month_range_clean = re.sub(r'\s*to\s*', ' - ', month_range, flags=re.IGNORECASE)
-                            clean_label = f"{label}-{fiscal_year} ({month_range_clean})"
+                            # Create labels without FY prefix - just metric name
+                            if label.lower() == 'budget':
+                                clean_label = f"Budget {fiscal_year} ({month_range_clean})"
+                            elif label.lower() == 'ly':
+                                clean_label = f"LY {fiscal_year} ({month_range_clean})"
+                            else:
+                                clean_label = f"{label} {fiscal_year} ({month_range_clean})"
                         else:
                             fiscal_year = "Unknown"
                             month_range_clean = "Apr - Jun"
-                            clean_label = f"{label}-{fiscal_year} ({month_range_clean})"
+                            if label.lower() == 'budget':
+                                clean_label = f"Budget {fiscal_year} ({month_range_clean})"
+                            elif label.lower() == 'ly':
+                                clean_label = f"LY {fiscal_year} ({month_range_clean})"
+                            else:
+                                clean_label = f"{label} {fiscal_year} ({month_range_clean})"
                             st.warning(f"Could not parse year or month range in column '{col}'. Using default '{clean_label}'.")
                         clean_labels.append(clean_label)
                     
@@ -1357,7 +1483,126 @@ if uploaded_file:
                     
                     chart_data = make_jsonly_serializable(chart_data)
                     
-                    display_visualization_cloud_optimized(tab, f"{label} YTD Comparisons", chart_data, "Period", label, visual_type)
+                    # Set orange color for Act YTD tab
+                    color_override = '#FF8C00' if label == "Act" else None
+                    
+                    # Custom visualization for YTD with straight x-axis labels
+                    st.markdown(f"### {label} YTD Comparisons - {table_name}")
+                    
+                    # Try Plotly first with straight x-axis labels
+                    try:
+                        import plotly.express as px
+                        
+                        # Determine color
+                        default_color = color_override if color_override else '#2E86AB'
+                        
+                        if visual_type == "Bar Chart":
+                            fig = px.bar(chart_data, x="Period", y=label, 
+                                        title=f"{label} YTD Comparisons - {table_name}",
+                                        color_discrete_sequence=[default_color])
+                            
+                            # Force straight x-axis labels for YTD
+                            fig.update_xaxes(
+                                title_font={'size': 16, 'family': 'Arial, sans-serif'},
+                                tickfont={'size': 12},
+                                tickangle=0  # Force straight labels
+                            )
+                            fig.update_yaxes(
+                                title_font={'size': 16, 'family': 'Arial, sans-serif'},
+                                tickfont={'size': 14}
+                            )
+                            
+                        elif visual_type == "Line Chart":
+                            fig = px.line(chart_data, x="Period", y=label, 
+                                         title=f"{label} YTD Comparisons - {table_name}",
+                                         markers=True, color_discrete_sequence=[default_color])
+                            
+                            fig.update_traces(line={'width': 4}, marker={'size': 10})
+                            fig.update_xaxes(
+                                title_font={'size': 16, 'family': 'Arial, sans-serif'},
+                                tickfont={'size': 12},
+                                tickangle=0  # Force straight labels
+                            )
+                            fig.update_yaxes(
+                                title_font={'size': 16, 'family': 'Arial, sans-serif'},
+                                tickfont={'size': 14}
+                            )
+                            
+                        elif visual_type == "Pie Chart":
+                            fig = px.pie(chart_data, values=label, names="Period", 
+                                        title=f"{label} YTD Distribution - {table_name}")
+                            fig.update_traces(
+                                textposition='inside', 
+                                textinfo='percent+label',
+                                textfont={'size': 12, 'family': 'Arial, sans-serif'}
+                            )
+                        
+                        # Apply common layout
+                        fig.update_layout(
+                            title={'x': 0.5, 'xanchor': 'center', 'font': {'size': 20, 'family': 'Arial, sans-serif'}},
+                            font={'size': 14, 'family': 'Arial, sans-serif'},
+                            plot_bgcolor='white',
+                            paper_bgcolor='white',
+                            height=600,
+                            margin={'l': 80, 'r': 80, 't': 100, 'b': 80}
+                        )
+                        
+                        config = {
+                            'displayModeBar': True,
+                            'displaylogo': False,
+                            'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d']
+                        }
+                        
+                        st.plotly_chart(fig, use_container_width=True, config=config)
+                        
+                    except ImportError:
+                        # Fallback to matplotlib with straight x-axis labels
+                        fig, ax = plt.subplots(figsize=(14, 10), dpi=200)
+                        fig.patch.set_facecolor('white')
+                        ax.set_facecolor('white')
+                        
+                        # Determine color for matplotlib
+                        bar_color = color_override if color_override else '#2E86AB'
+                        
+                        if visual_type == "Bar Chart":
+                            bars = ax.bar(chart_data["Period"], chart_data[label], 
+                                         color=bar_color, alpha=0.8, 
+                                         edgecolor='#1B4965', linewidth=1.5)
+                        elif visual_type == "Line Chart":
+                            ax.plot(chart_data["Period"], chart_data[label], 
+                                   marker='o', linewidth=4, markersize=10, 
+                                   color=bar_color, markerfacecolor='#F18F01', 
+                                   markeredgecolor='#1B4965', markeredgewidth=2)
+                            ax.grid(True, alpha=0.3, linestyle='--', linewidth=1)
+                        elif visual_type == "Pie Chart":
+                            colors = plt.cm.Set3(np.linspace(0, 1, len(chart_data)))
+                            ax.pie(chart_data[label], labels=chart_data["Period"], autopct='%1.1f%%', 
+                                  startangle=90, colors=colors)
+                        
+                        if visual_type != "Pie Chart":
+                            ax.set_title(f"{label} YTD Comparisons - {table_name}", fontsize=20, fontweight='bold', pad=25)
+                            ax.set_xlabel("Period", fontsize=16, fontweight='bold', labelpad=15)
+                            ax.set_ylabel(label, fontsize=16, fontweight='bold', labelpad=15)
+                            
+                            # Force straight x-axis labels
+                            ax.tick_params(axis='both', which='major', labelsize=12, width=2, length=6)
+                            plt.setp(ax.get_xticklabels(), rotation=0, ha='center')  # Force straight labels
+                            
+                            # Remove spines for cleaner look
+                            ax.spines['top'].set_visible(False)
+                            ax.spines['right'].set_visible(False)
+                            ax.spines['left'].set_linewidth(2)
+                            ax.spines['bottom'].set_linewidth(2)
+                        else:
+                            ax.set_title(f"{label} YTD Distribution - {table_name}", fontsize=20, fontweight='bold')
+                        
+                        plt.tight_layout(pad=3.0)
+                        st.pyplot(fig, use_container_width=True)
+                        plt.close(fig)
+                    
+                    # Display data table
+                    with st.expander("📊 View Data Table"):
+                        st.dataframe(chart_data, use_container_width=True)
                     
                     ppt_type = 'bar' if visual_type == "Bar Chart" else 'line' if visual_type == "Line Chart" else 'pie'
                     ppt_bytes = create_ppt_with_chart(
@@ -1365,7 +1610,8 @@ if uploaded_file:
                         chart_data,
                         "Period",
                         label,
-                        ppt_type
+                        ppt_type,
+                        color_override
                     )
                     
                     st.download_button(
@@ -1860,7 +2106,7 @@ if uploaded_file:
                     chart_data = make_jsonly_serializable(chart_data)
                     all_data[14] = ("Product Monthwise", chart_data)
 
-            # Master PPT generation with fixed column handling
+            # Master PPT generation with fixed column handling and removed clickable titles
             if any(data is not None for _, data in all_data):
                 st.sidebar.markdown("---")
                 st.sidebar.subheader("📊 Download All Visuals")
@@ -1875,9 +2121,12 @@ if uploaded_file:
                             if chart_data is None or x_col is None or y_col is None:
                                 continue
                                 
-                            slide = master_ppt.slides.add_slide(master_ppt.slide_layouts[5])
+                            slide = master_ppt.slides.add_slide(master_ppt.slide_layouts[6])  # Use blank layout to avoid clickable titles
                             
-                            fig = create_cloud_optimized_chart(chart_data, x_col, y_col, 'bar', f"{label} Analysis - {table_name} - {selected_sheet}")
+                            # Determine color for Act-related charts
+                            color_override = '#FF8C00' if 'Act' in label else None
+                            
+                            fig = create_cloud_optimized_chart(chart_data, x_col, y_col, 'bar', f"{label} Analysis - {table_name} - {selected_sheet}", color_override)
                             
                             if label == "Budget vs Actual":
                                 budget_data_ppt = chart_data[chart_data['Metric'] == 'Budget']
@@ -1889,15 +2138,15 @@ if uploaded_file:
                                     
                                     bar_width = 0.35
                                     index = np.arange(len(budget_data_ppt))
-                                    ax.bar(index - bar_width/2, budget_data_ppt[y_col], bar_width, label='Budget', color='#ff7f0e')
-                                    ax.bar(index + bar_width/2, act_data_ppt[y_col], bar_width, label='Act', color='#2ca02c')
+                                    bars1 = ax.bar(index - bar_width/2, budget_data_ppt[y_col], bar_width, label='Budget', color='#2E86AB')
+                                    bars2 = ax.bar(index + bar_width/2, act_data_ppt[y_col], bar_width, label='Act', color='#FF8C00')  # Orange for Act
                                     ax.set_xticks(index)
                                     ax.set_xticklabels(budget_data_ppt[x_col], rotation=0, ha='center')
                                     ax.set_ylabel('Value')
                                     ax.set_title(f"{label} Analysis - {table_name} - {selected_sheet}", fontsize=20, fontweight='bold', pad=25)
                                     ax.legend()
                                     
-                                    # Enhanced styling
+                                    # Enhanced styling - no value labels for cleaner look
                                     ax.tick_params(axis='both', which='major', labelsize=14, width=2, length=6)
                                     ax.spines['top'].set_visible(False)
                                     ax.spines['right'].set_visible(False)
@@ -1915,9 +2164,12 @@ if uploaded_file:
                             plt.close(fig)
                             img_buffer.seek(0)
                             
+                            # Add title as a text box (not clickable)
                             txBox = slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(8), Inches(1))
                             tf = txBox.text_frame
                             tf.text = f"{label} Analysis - {table_name} - {selected_sheet}"
+                            tf.paragraphs[0].font.size = Inches(0.3)
+                            tf.paragraphs[0].font.bold = True
                             
                             slide.shapes.add_picture(img_buffer, Inches(1), Inches(1.5), width=Inches(8))
                             
