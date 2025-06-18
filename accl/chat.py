@@ -191,7 +191,7 @@ Output only the Python code line starting with 'result =':
             """)
 
     st.markdown("---")
-    st.markdown("Made with ❤️ using Streamlit and Google Gemini")
+    st.markdown("Made with CUBE")
 
 
 if __name__ == "__main__":
