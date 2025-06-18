@@ -8,6 +8,9 @@ python-dateutil
 openpyxl
 fuzzywuzzy
 streamlit_plotly_events
+python-dotenv
+google-generativeai
+
 
 # File requirements
 # The application requires the following Excel files to be uploaded:
