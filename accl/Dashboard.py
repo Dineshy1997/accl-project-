@@ -9,6 +9,9 @@ from pptx.util import Inches
 import numpy as np
 from datetime import datetime
 
+# Import streamlit-plotly-events for interactivity
+from streamlit_plotly_events import plotly_events
+
 # Force matplotlib to use Agg backend for cloud deployment
 import matplotlib
 matplotlib.use('Agg')
@@ -19,19 +22,19 @@ os.environ['MPLBACKEND'] = 'Agg'
 
 # Configure matplotlib for high-quality output on cloud
 plt.rcParams.update({
-    'figure.dpi': 150,
-    'savefig.dpi': 200,
+    'figure.dpi': 200,
+    'savefig.dpi': 300,
     'savefig.bbox': 'tight',
     'savefig.facecolor': 'white',
     'figure.facecolor': 'white',
     'axes.facecolor': 'white',
-    'font.size': 12,
-    'axes.labelsize': 14,
-    'axes.titlesize': 16,
-    'xtick.labelsize': 12,
-    'ytick.labelsize': 12,
-    'legend.fontsize': 12,
-    'figure.figsize': (10, 6),
+    'font.size': 14,
+    'axes.labelsize': 16,
+    'axes.titlesize': 18,
+    'xtick.labelsize': 14,
+    'ytick.labelsize': 14,
+    'legend.fontsize': 14,
+    'figure.figsize': (12, 8),
     'savefig.format': 'png',
     'image.interpolation': 'bilinear'
 })
@@ -44,7 +47,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# FIXED: Add cloud-optimized CSS with full interactivity support
+# Add cloud-optimized CSS
 def add_cloud_css():
     st.markdown("""
     <style>
@@ -55,39 +58,26 @@ def add_cloud_css():
             max-width: 95%;
         }
         
-        /* FIXED: Ensure Plotly charts maintain full interactivity */
+        /* Force high-quality image rendering */
+        img {
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: optimize-contrast;
+            image-rendering: crisp-edges;
+            -ms-interpolation-mode: nearest-neighbor;
+        }
+        
+        /* Ensure charts scale properly */
         .js-plotly-plot, .plotly {
             width: 100% !important;
             height: auto !important;
-            pointer-events: auto !important;
-            position: relative !important;
         }
         
-        /* Enable hover and interactive events for Plotly */
-        .plotly .modebar {
-            pointer-events: auto !important;
-            opacity: 0.7;
-        }
-        
-        .plotly .modebar:hover {
-            opacity: 1;
-        }
-        
-        /* Better chart containers with full interactivity */
+        /* Better chart containers */
         .element-container {
             margin: 0.5rem 0;
-            pointer-events: auto !important;
         }
         
-        /* Ensure charts are responsive and interactive */
-        .stPlotlyChart {
-            background-color: white;
-            border-radius: 5px;
-            padding: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        /* Better dataframe styling */
+        /* Improve dataframe styling */
         .dataframe {
             font-size: 12px;
         }
@@ -122,6 +112,23 @@ def add_cloud_css():
             font-size: 14px;
         }
         
+        /* Interactive chart styling */
+        .interactive-chart {
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        
+        /* Selected data styling */
+        .selected-data {
+            background-color: #f0f8ff;
+            border: 1px solid #4CAF50;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        
         /* Better responsive design */
         @media (max-width: 768px) {
             .main .block-container {
@@ -132,15 +139,6 @@ def add_cloud_css():
                 padding: 0 10px;
                 font-size: 12px;
             }
-            .js-plotly-plot, .plotly {
-                min-height: 400px !important;
-            }
-        }
-        
-        /* Interactive elements highlighting */
-        .hover-highlight:hover {
-            background-color: #e8f4fd !important;
-            transition: background-color 0.2s;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -200,236 +198,65 @@ def find_table_end(df, start_idx):
             return i + 1
     return len(df)
 
-# FIXED: Create Plotly charts with FULL interactivity for Streamlit Cloud
-def create_plotly_chart_fully_interactive(data, x_col, y_col, chart_type, title, color_override=None):
-    """Create fully interactive Plotly charts optimized for Streamlit Cloud."""
-    try:
-        import plotly.express as px
-        import plotly.graph_objects as go
-        
-        # Determine color - use override if provided
-        default_color = color_override if color_override else '#2E86AB'
-        
-        # Common layout settings with FULL interactivity enabled
-        layout_config = {
-            'title': {
-                'text': title,
-                'x': 0.5,
-                'xanchor': 'center',
-                'font': {'size': 18, 'family': 'Arial, sans-serif', 'color': '#1f1f1f'}
-            },
-            'font': {'size': 12, 'family': 'Arial, sans-serif'},
-            'plot_bgcolor': 'white',
-            'paper_bgcolor': 'white',
-            'height': 550,
-            'width': None,
-            'margin': {'l': 70, 'r': 70, 't': 90, 'b': 70},
-            'showlegend': True if chart_type == 'pie' else False,
-            # CRITICAL: Enable ALL hover functionality
-            'hovermode': 'closest',
-            'hoverlabel': {
-                'bgcolor': "white",
-                'bordercolor': "#2E86AB",
-                'font': {'size': 13, 'color': 'black'}
-            }
-        }
-        
-        if chart_type == 'bar':
-            fig = px.bar(data, x=x_col, y=y_col, 
-                        color_discrete_sequence=[default_color],
-                        # CRITICAL: Add comprehensive hover data
-                        hover_data={y_col: ':,.0f'})
-            
-            # ENHANCED: Custom hover template with better formatting
-            fig.update_traces(
-                hovertemplate='<b>%{x}</b><br>' +
-                             f'<span style="color: {default_color}; font-weight: bold;">{y_col}: %{{y:,.0f}}</span><br>' +
-                             '<extra></extra>',
-                texttemplate=None, 
-                textposition=None,
-                # Add subtle hover effects
-                marker=dict(
-                    line=dict(width=1, color='#1B4965'),
-                    opacity=0.8
-                ),
-                # Enable hover animations
-                hoverlabel=dict(
-                    bgcolor="rgba(255,255,255,0.9)",
-                    bordercolor=default_color,
-                    font=dict(size=12, color="black")
-                )
-            )
-            
-            # Update axes with better formatting
-            fig.update_xaxes(
-                title_font={'size': 14, 'family': 'Arial, sans-serif', 'color': '#1f1f1f'},
-                tickfont={'size': 11, 'color': '#1f1f1f'},
-                tickangle=0,  # FIXED: Always straight x-axis labels
-                gridcolor='rgba(128,128,128,0.2)',
-                showgrid=True
-            )
-            fig.update_yaxes(
-                title_font={'size': 14, 'family': 'Arial, sans-serif', 'color': '#1f1f1f'},
-                tickfont={'size': 11, 'color': '#1f1f1f'},
-                gridcolor='rgba(128,128,128,0.2)',
-                showgrid=True
-            )
-            
-        elif chart_type == 'line':
-            fig = px.line(data, x=x_col, y=y_col, 
-                         markers=True, color_discrete_sequence=[default_color],
-                         # CRITICAL: Add comprehensive hover data
-                         hover_data={y_col: ':,.0f'})
-            
-            fig.update_traces(
-                line={'width': 3}, 
-                marker={'size': 8},
-                # ENHANCED: Custom hover template with animations
-                hovertemplate='<b>%{x}</b><br>' +
-                             f'<span style="color: {default_color}; font-weight: bold;">{y_col}: %{{y:,.0f}}</span><br>' +
-                             '<extra></extra>',
-                hoverlabel=dict(
-                    bgcolor="rgba(255,255,255,0.9)",
-                    bordercolor=default_color,
-                    font=dict(size=12, color="black")
-                )
-            )
-            
-            fig.update_xaxes(
-                title_font={'size': 14, 'family': 'Arial, sans-serif', 'color': '#1f1f1f'},
-                tickfont={'size': 11, 'color': '#1f1f1f'},
-                tickangle=0,  # FIXED: Always straight x-axis labels
-                gridcolor='rgba(128,128,128,0.2)',
-                showgrid=True
-            )
-            fig.update_yaxes(
-                title_font={'size': 14, 'family': 'Arial, sans-serif', 'color': '#1f1f1f'},
-                tickfont={'size': 11, 'color': '#1f1f1f'},
-                gridcolor='rgba(128,128,128,0.2)',
-                showgrid=True
-            )
-            
-        elif chart_type == 'pie':
-            fig = px.pie(data, values=y_col, names=x_col,
-                        # CRITICAL: Add hover data for pie charts
-                        hover_data=[y_col])
-            fig.update_traces(
-                textposition='inside', 
-                textinfo='percent+label',
-                textfont={'size': 12, 'family': 'Arial, sans-serif'},
-                # ENHANCED: Custom hover template for pie with better formatting
-                hovertemplate='<b>%{label}</b><br>' +
-                             '<span style="font-weight: bold;">Value: %{value:,.0f}</span><br>' +
-                             '<span style="font-weight: bold;">Percentage: %{percent}</span><br>' +
-                             '<extra></extra>',
-                hoverlabel=dict(
-                    bgcolor="rgba(255,255,255,0.9)",
-                    bordercolor="black",
-                    font=dict(size=12, color="black")
-                )
-            )
-        
-        # Apply layout with enhanced interactivity
-        fig.update_layout(**layout_config)
-        
-        # CRITICAL: Configure for MAXIMUM interactivity on cloud
-        config = {
-            'displayModeBar': True,
-            'displaylogo': False,
-            # KEEP ALL interactive tools - don't remove hover functionality
-            'modeBarButtonsToRemove': ['select2d', 'lasso2d'],  # Only remove selection tools
-            'toImageButtonOptions': {
-                'format': 'png',
-                'filename': 'chart',
-                'height': 800,
-                'width': 1200,
-                'scale': 2
-            },
-            # CRITICAL: Ensure maximum interactivity
-            'staticPlot': False,  # NEVER set this to True
-            'responsive': True,
-            'showTips': True,
-            'showEditInChartStudio': False,
-            'plotGlPixelRatio': 2,
-            'autosizable': True,
-            # Enable scroll zoom
-            'scrollZoom': True,
-            # Enable double click reset
-            'doubleClick': 'reset+autosize'
-        }
-        
-        return fig, config
-    except ImportError:
-        return None, None
-
-# Enhanced matplotlib charts with value labels for fallback
-def create_matplotlib_with_labels(data, x_col, y_col, chart_type='bar', title="Chart", color_override=None):
-    """Create matplotlib charts with value annotations for non-interactive environments."""
+# Create charts optimized for Streamlit Cloud
+def create_cloud_optimized_chart(data, x_col, y_col, chart_type='bar', title="Chart", color_override=None):
+    """Create charts optimized for Streamlit Cloud rendering with wider bars."""
     
-    # Create figure with optimal settings
-    fig, ax = plt.subplots(figsize=(12, 8), dpi=150)
+    # Create figure with optimal settings for cloud - wider figure
+    fig, ax = plt.subplots(figsize=(16, 8), dpi=200)  # Increased width
+    
+    # Set high-quality rendering
     fig.patch.set_facecolor('white')
     ax.set_facecolor('white')
     
-    # Determine color
-    bar_color = color_override if color_override else '#2E86AB'
+    # Determine color - use override if provided, otherwise default colors
+    if color_override:
+        bar_color = color_override
+    else:
+        bar_color = '#2E86AB'
     
     if chart_type == 'bar':
+        # Wider bars with more spacing
         bars = ax.bar(data[x_col], data[y_col], 
                      color=bar_color, alpha=0.8, 
-                     edgecolor='#1B4965', linewidth=1)
-        
-        # ADD VALUE LABELS ON BARS for non-interactive environments
-        for i, (bar, value) in enumerate(zip(bars, data[y_col])):
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height + height*0.01,
-                   f'{value:,.0f}',
-                   ha='center', va='bottom', fontsize=10, fontweight='bold',
-                   bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8))
+                     edgecolor='#1B4965', linewidth=1,
+                     width=0.6)  # Increased bar width
     
     elif chart_type == 'line':
+        line_color = color_override if color_override else '#2E86AB'
         ax.plot(data[x_col], data[y_col], 
                marker='o', linewidth=3, markersize=8,
-               color=bar_color, markerfacecolor='#F18F01', 
+               color=line_color, markerfacecolor='#F18F01', 
                markeredgecolor='#1B4965', markeredgewidth=1)
-        
-        # ADD VALUE LABELS ON POINTS
-        for i, (x, y) in enumerate(zip(data[x_col], data[y_col])):
-            ax.annotate(f'{y:,.0f}', 
-                       (x, y), 
-                       textcoords="offset points", 
-                       xytext=(0,15), 
-                       ha='center', fontsize=9, fontweight='bold',
-                       bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.9))
-        
         ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
     
     elif chart_type == 'pie':
         colors = plt.cm.Set3(np.linspace(0, 1, len(data)))
         wedges, texts, autotexts = ax.pie(data[y_col], labels=data[x_col], 
-                                         autopct=lambda pct: f'{pct:.1f}%\n({pct*sum(data[y_col])/100:,.0f})',
-                                         startangle=90, 
-                                         colors=colors, 
-                                         textprops={'fontsize': 10, 'weight': 'bold'})
+                                         autopct='%1.1f%%', startangle=90, 
+                                         colors=colors, textprops={'fontsize': 14, 'weight': 'bold'})
         for autotext in autotexts:
             autotext.set_color('white')
             autotext.set_fontweight('bold')
-            autotext.set_fontsize(9)
+            autotext.set_fontsize(14)
     
-    # Enhanced styling
-    ax.set_title(title, fontsize=18, fontweight='bold', pad=20)
+    # Enhanced styling with original sizes
+    ax.set_title(title, fontsize=20, fontweight='bold', pad=15)
     if chart_type != 'pie':
-        ax.set_xlabel(x_col, fontsize=16, fontweight='bold', labelpad=12)
-        ax.set_ylabel(y_col, fontsize=16, fontweight='bold', labelpad=12)
+        ax.set_xlabel(x_col, fontsize=16, fontweight='bold', labelpad=15)
+        ax.set_ylabel(y_col, fontsize=16, fontweight='bold', labelpad=15)
         
-        ax.tick_params(axis='both', which='major', labelsize=12, width=1, length=4)
+        # Better tick formatting
+        ax.tick_params(axis='both', which='major', labelsize=14, width=1.5, length=6)
         
         # Format large numbers on y-axis
         if data[y_col].max() > 1000:
             ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1000:.0f}K' if x >= 1000 else f'{x:.0f}'))
         
-        # Rotate x-axis labels if needed - FIXED: Always keep straight
-        # plt.setp(ax.get_xticklabels(), rotation=0, ha='center')  # Always straight
+        # Rotate x-axis labels if needed
+        max_label_length = max(len(str(label)) for label in data[x_col])
+        if max_label_length > 10:
+            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
         
         # Remove spines for cleaner look
         ax.spines['top'].set_visible(False)
@@ -437,202 +264,137 @@ def create_matplotlib_with_labels(data, x_col, y_col, chart_type='bar', title="C
         ax.spines['left'].set_linewidth(1)
         ax.spines['bottom'].set_linewidth(1)
     
+    # Ensure tight layout
     plt.tight_layout(pad=3.0)
+    
     return fig
-
-# Enhanced: Interactive Test Function (REMOVED FROM AUTO-EXECUTION)
-def test_chart_interactivity():
-    """Test function to verify chart interactivity works on cloud - CALL MANUALLY IF NEEDED."""
-    st.markdown("---")
-    st.subheader("🧪 Interactive Chart Test")
-    st.info("👆 **Hover over the bars below to test interactivity!**")
-    
-    test_data = pd.DataFrame({
-        'Category': ['Product A', 'Product B', 'Product C', 'Product D', 'Product E'],
-        'Sales': [15000, 25000, 30000, 20000, 35000],
-        'Profit': [3000, 7500, 12000, 6000, 14000]
-    })
-    
+# Create Plotly charts optimized for cloud with interactivity
+def create_plotly_chart_cloud_optimized(data, x_col, y_col, chart_type, title, color_override=None):
+    """Create Plotly charts optimized for cloud deployment with interactivity and wider bars."""
     try:
         import plotly.express as px
+        import plotly.graph_objects as go
         
-        # Create test chart with full interactivity
-        fig = px.bar(test_data, x='Category', y='Sales', 
-                    title="🔥 HOVER TEST: Move your cursor over bars to see values!",
-                    color='Sales',
-                    color_continuous_scale='Viridis',
-                    hover_data={'Sales': ':,.0f', 'Profit': ':,.0f'})
+        # Determine color - use override if provided
+        default_color = color_override if color_override else '#2E86AB'
         
-        fig.update_traces(
-            hovertemplate='<b>%{x}</b><br>' +
-                         '<span style="color: #2E86AB; font-weight: bold;">Sales: %{y:,.0f}</span><br>' +
-                         '<span style="color: #FF8C00; font-weight: bold;">Profit: %{customdata[0]:,.0f}</span><br>' +
-                         '<extra></extra>',
-            customdata=test_data[['Profit']]
-        )
-        
-        fig.update_layout(
-            height=450,
-            hovermode='closest',
-            hoverlabel=dict(
-                bgcolor="white",
-                bordercolor="#2E86AB",
-                font=dict(size=13, color="black")
-            )
-        )
-        
-        config = {
-            'displayModeBar': True,
-            'staticPlot': False,
-            'responsive': True,
-            'showTips': True
+        # Common layout settings optimized for cloud with wider charts
+        layout_config = {
+            'title': {
+                'text': title,
+                'x': 0.5,
+                'xanchor': 'center',
+                'font': {'size': 20, 'family': 'Arial, sans-serif'}
+            },
+            'font': {'size': 14, 'family': 'Arial, sans-serif'},
+            'plot_bgcolor': 'white',
+            'paper_bgcolor': 'white',
+            'height': 600,
+            'width': 1200,  # Explicit wider width
+            'margin': {'l': 80, 'r': 80, 't': 100, 'b': 120},  # Increased bottom margin
+            'showlegend': True if chart_type == 'pie' else False,
+            'bargap': 0.2,  # Space between bars
+            'bargroupgap': 0.1  # Space between bar groups
         }
         
-        st.plotly_chart(fig, config=config, use_container_width=True)
-        
-        # Status indicator
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.success("✅ Plotly Loaded")
-        with col2:
-            st.info("🖱️ Hover Enabled")
-        with col3:
-            st.warning("📊 Values on Hover")
+        if chart_type == 'bar':
+            fig = px.bar(data, x=x_col, y=y_col, 
+                        color_discrete_sequence=[default_color],
+                        width=1200)  # Explicit width setting
             
-    except ImportError:
-        st.error("❌ Plotly not available - using matplotlib fallback")
-        fig = create_matplotlib_with_labels(test_data, 'Category', 'Sales', 'bar', 
-                                           "Matplotlib Fallback with Value Labels")
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
-
-# FIXED: Display visualization with full interactivity priority
-def display_visualization_fully_interactive(tab, label, data, x_col, y_col, visual_type, color_override=None):
-    """Display visualization with MAXIMUM interactivity for Streamlit Cloud."""
-    with tab:
-        if data is None or data.empty:
-            st.warning(f"No data available for {label}")
-            return
-        
-        if not ensure_numeric_data(data, y_col):
-            st.warning(f"No numeric data available for {label}")
-            return None
-        
-        # Filter out non-positive values for pie charts
-        if visual_type == "Pie Chart":
-            data = data[data[y_col] > 0]
-            if data.empty:
-                st.warning(f"No positive values available for {label} pie chart")
-                return None
-        
-        st.markdown(f"### {label} - {table_name}")
-        
-        # PRIORITY: Use Plotly for maximum interactivity
-        try:
-            import plotly.express as px
+            # Make bars wider
+            fig.update_traces(width=0.6)  # Adjust bar width (0-1)
             
-            chart_type_map = {
-                "Bar Chart": "bar",
-                "Line Chart": "line", 
-                "Pie Chart": "pie"
+            # Remove value annotations for cleaner look
+            fig.update_traces(texttemplate=None, textposition=None)
+            
+            # Update axes
+            fig.update_xaxes(
+                title_font={'size': 16, 'family': 'Arial, sans-serif'},
+                tickfont={'size': 14},
+                tickangle=45 if max(len(str(x)) for x in data[x_col]) > 10 else 0
+            )
+            fig.update_yaxes(
+                title_font={'size': 16, 'family': 'Arial, sans-serif'},
+                tickfont={'size': 14}
+            )
+            
+        elif chart_type == 'line':
+            fig = px.line(data, x=x_col, y=y_col, 
+                         markers=True, color_discrete_sequence=[default_color],
+                         width=1200)  # Explicit width setting
+            
+            fig.update_traces(
+                line={'width': 4}, 
+                marker={'size': 10}
+            )
+            
+            fig.update_xaxes(
+                title_font={'size': 16, 'family': 'Arial, sans-serif'},
+                tickfont={'size': 14},
+                tickangle=45 if max(len(str(x)) for x in data[x_col]) > 10 else 0
+            )
+            fig.update_yaxes(
+                title_font={'size': 16, 'family': 'Arial, sans-serif'},
+                tickfont={'size': 14}
+            )
+            
+        elif chart_type == 'pie':
+            fig = px.pie(data, values=y_col, names=x_col, width=1200)
+            fig.update_traces(
+                textposition='inside', 
+                textinfo='percent+label',
+                textfont={'size': 14, 'family': 'Arial, sans-serif'}
+            )
+        
+        # Apply layout
+        fig.update_layout(**layout_config)
+        
+        # Configure for better cloud rendering
+        config = {
+            'displayModeBar': True,
+            'displaylogo': False,
+            'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d'],
+            'toImageButtonOptions': {
+                'format': 'png',
+                'filename': 'chart',
+                'height': 800,
+                'width': 1200,
+                'scale': 2
             }
-            
-            fig, config = create_plotly_chart_fully_interactive(
-                data, x_col, y_col, 
-                chart_type_map[visual_type], 
-                f"{label} - {table_name}",
-                color_override
-            )
-            
-            if fig is not None:
-                # Display with MAXIMUM interactivity
-                st.plotly_chart(fig, use_container_width=True, config=config)
-                
-                # Add interactivity status
-                col1, col2 = st.columns([3, 1])
-                with col2:
-                    st.success("🖱️ Interactive!")
-                    
-            else:
-                raise ImportError("Plotly not available")
-            
-        except ImportError:
-            # Fallback to matplotlib with value labels
-            st.info("📊 Using matplotlib with value labels")
-            chart_type = visual_type.lower().replace(" chart", "")
-            fig = create_matplotlib_with_labels(
-                data, x_col, y_col, chart_type, f"{label} - {table_name}", color_override
-            )
-            
-            st.pyplot(fig, use_container_width=True)
-            plt.close(fig)
+        }
         
-        # Enhanced data table with highlighting
-        with st.expander("📊 View Detailed Data Table"):
-            # Add highlighting for top values
-            if pd.api.types.is_numeric_dtype(data[y_col]):
-                # Create a copy for styling
-                styled_data = data.copy()
-                max_val = styled_data[y_col].max()
-                min_val = styled_data[y_col].min()
-                
-                def highlight_values(val):
-                    if val == max_val:
-                        return 'background-color: #90EE90; font-weight: bold'
-                    elif val == min_val:
-                        return 'background-color: #FFB6C1; font-weight: bold'
-                    return ''
-                
-                styled_df = styled_data.style.applymap(highlight_values, subset=[y_col])
-                st.dataframe(styled_df, use_container_width=True)
-                
-                # Add summary stats
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Max Value", f"{float(max_val):,.0f}")
-                with col2:
-                    st.metric("Min Value", f"{float(min_val):,.0f}")
-                with col3:
-                    st.metric("Average", f"{float(data[y_col].mean()):,.0f}")
-                with col4:
-                    st.metric("Total", f"{float(data[y_col].sum()):,.0f}")
-            else:
-                st.dataframe(data, use_container_width=True)
+        return fig, config
+    except ImportError:
+        return None, None
+# Handle click events for interactive charts
+def handle_chart_click(selected_points, data, x_col, y_col, chart_title):
+    """Handle click events on charts and display detailed information."""
+    if selected_points and len(selected_points) > 0:
+        point = selected_points[0]
         
-        # Memory cleanup
-        optimize_memory()
-
-# Ensure y-axis column contains numeric data
-def ensure_numeric_data(data, y_col):
-    """Ensure the y-axis column contains numeric data."""
-    if y_col not in data.columns:
-        return False
-    try:
-        # Convert to numeric, handling any string values safely
-        data[y_col] = pd.to_numeric(data[y_col].astype(str).str.replace(',', ''), errors='coerce')
-        # Remove rows with NaN values
-        data.dropna(subset=[y_col], inplace=True)
-        # Check if any valid numeric data remains
-        return len(data) > 0 and not data[y_col].isna().all()
-    except Exception as e:
-        st.warning(f"Failed to convert {y_col} to numeric: {e}")
-        return False
-
-# Helper function to extract clean month-year from column names
-def extract_month_year(col_name):
-    """Extract clean month-year format from column names, removing Gr/Ach prefixes."""
-    col_str = str(col_name).strip()
-    
-    # Remove common prefixes that we don't want in the x-axis labels
-    col_str = re.sub(r'^(Gr[-\s]*|Ach[-\s]*|Act[-\s]*|Budget[-\s]*|LY[-\s]*)', '', col_str, flags=re.IGNORECASE)
-    
-    # Extract month-year pattern
-    month_year_match = re.search(r'(\w{3,})[-–\s]*(\d{2})', col_str, re.IGNORECASE)
-    if month_year_match:
-        month, year = month_year_match.groups()
-        return f"{month.capitalize()}-{year}"
-    
-    return col_str
+        # Get the clicked point information
+        if 'pointIndex' in point:
+            idx = point['pointIndex']
+            if idx < len(data):
+                clicked_row = data.iloc[idx]
+                
+                st.markdown(f"""
+                <div class="selected-data">
+                <h4>📌 Selected Data Point</h4>
+                <p><strong>{x_col}:</strong> {clicked_row[x_col]}</p>
+                <p><strong>{y_col}:</strong> {clicked_row[y_col]:,.2f}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Show detailed data for the selected point
+                with st.expander("🔍 Detailed Information"):
+                    st.json({
+                        "Chart": chart_title,
+                        "Selected Item": str(clicked_row[x_col]),
+                        "Value": float(clicked_row[y_col]),
+                        "All Data": clicked_row.to_dict()
+                    })
 
 # Create PowerPoint slide with chart image (optimized)
 def create_ppt_with_chart(title, chart_data, x_col, y_col, chart_type='bar', color_override=None):
@@ -640,11 +402,12 @@ def create_ppt_with_chart(title, chart_data, x_col, y_col, chart_type='bar', col
     ppt = Presentation()
     slide = ppt.slides.add_slide(ppt.slide_layouts[5])
     
-    # Add title to slide
+    # Add title to slide as plain text (not clickable)
     title_shape = slide.shapes.title
     if title_shape:
         title_shape.text = title
     else:
+        # Fallback: create a text box for title
         txBox = slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(8), Inches(1))
         tf = txBox.text_frame
         tf.text = title
@@ -685,7 +448,7 @@ def create_ppt_with_chart(title, chart_data, x_col, y_col, chart_type='bar', col
     if chart_type == 'pie':
         chart_data = chart_data[chart_data[y_col] > 0].copy()
         if chart_data.empty:
-            st.warning(f"No positive values available for pie chart in {title}.")
+            st.warning(f"No positive values available for pie chart in {title}. Skipping chart creation.")
             error_box = slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1))
             ef = error_box.text_frame
             ef.text = f"No positive values available for {y_col} pie chart"
@@ -694,12 +457,12 @@ def create_ppt_with_chart(title, chart_data, x_col, y_col, chart_type='bar', col
             ppt_bytes.seek(0)
             return ppt_bytes
     
-    # Create chart with labels for PPT
-    fig = create_matplotlib_with_labels(chart_data, x_col, y_col, chart_type, title, color_override)
+    # Create chart with optimized settings
+    fig = create_cloud_optimized_chart(chart_data, x_col, y_col, chart_type, title, color_override)
     
     # Save chart to buffer
     img_buffer = BytesIO()
-    fig.savefig(img_buffer, format='png', dpi=200, bbox_inches='tight')
+    fig.savefig(img_buffer, format='png', dpi=200, bbox_inches='tight')  # Reduced dpi
     plt.close(fig)
     img_buffer.seek(0)
     
@@ -710,6 +473,19 @@ def create_ppt_with_chart(title, chart_data, x_col, y_col, chart_type='bar', col
     ppt.save(ppt_bytes)
     ppt_bytes.seek(0)
     return ppt_bytes
+
+# Ensure y-axis column contains numeric data
+def ensure_numeric_data(data, y_col):
+    """Ensure the y-axis column contains numeric data."""
+    if y_col not in data.columns:
+        return False
+    try:
+        data[y_col] = pd.to_numeric(data[y_col].astype(str).str.replace(',', ''), errors='coerce')
+        data.dropna(subset=[y_col], inplace=True)
+    except Exception as e:
+        st.warning(f"Failed to convert {y_col} to numeric: {e}")
+        return False
+    return not data.empty
 
 # Helper function to safely get chart data for master PPT
 def get_chart_data_for_ppt(data, label, first_col, visual_type):
@@ -741,6 +517,7 @@ def get_chart_data_for_ppt(data, label, first_col, visual_type):
                 return None, None, None
                 
         elif "YTD" in label:
+            # Handle YTD data specifically
             if 'Period' in data.columns:
                 return data, "Period", label.replace("YTD ", "")
             elif len(data.columns) >= 2:
@@ -768,6 +545,101 @@ def get_chart_data_for_ppt(data, label, first_col, visual_type):
         st.warning(f"Error processing chart data for {label}: {e}")
         return None, None, None
 
+# Helper function to extract clean month-year from column names
+def extract_month_year(col_name):
+    """Extract clean month-year format from column names, removing Gr/Ach prefixes."""
+    col_str = str(col_name).strip()
+    
+    # Remove common prefixes that we don't want in the x-axis labels
+    col_str = re.sub(r'^(Gr[-\s]*|Ach[-\s]*|Act[-\s]*|Budget[-\s]*|LY[-\s]*)', '', col_str, flags=re.IGNORECASE)
+    
+    # Extract month-year pattern
+    month_year_match = re.search(r'(\w{3,})[-–\s]*(\d{2})', col_str, re.IGNORECASE)
+    if month_year_match:
+        month, year = month_year_match.groups()
+        return f"{month.capitalize()}-{year}"
+    
+    return col_str
+
+# Cloud-optimized visualization display function with interactivity
+def display_visualization_cloud_optimized(tab, label, data, x_col, y_col, visual_type, color_override=None):
+    """Display visualization optimized for Streamlit Cloud with interactivity."""
+    with tab:
+        if data is None or data.empty:
+            st.warning(f"No data available for {label}")
+            return
+        
+        if not ensure_numeric_data(data, y_col):
+            st.warning(f"No numeric data available for {label}")
+            return None
+        
+        # Filter out non-positive values for pie charts
+        if visual_type == "Pie Chart":
+            data = data[data[y_col] > 0]
+            if data.empty:
+                st.warning(f"No positive values available for {label} pie chart")
+                return None
+        
+        st.markdown(f"### {label} - {table_name}")
+        st.markdown("💡 **Click on chart elements to see detailed information**")
+        
+        # Try Plotly first (recommended for cloud) with interactivity
+        try:
+            import plotly.express as px
+            
+            chart_type_map = {
+                "Bar Chart": "bar",
+                "Line Chart": "line", 
+                "Pie Chart": "pie"
+            }
+            
+            fig, config = create_plotly_chart_cloud_optimized(
+                data, x_col, y_col, 
+                chart_type_map[visual_type], 
+                f"{label} - {table_name}",
+                color_override
+            )
+            
+            if fig is not None:
+                # Display with cloud-optimized config and interactivity
+                st.markdown('<div class="interactive-chart">', unsafe_allow_html=True)
+                
+                # Use plotly_events for interactivity
+                selected_points = plotly_events(
+                    fig, 
+                    click_event=True, 
+                    hover_event=False,
+                    select_event=False,
+                    override_height=700,
+                    key=f"{label}_{visual_type}_chart"
+                )
+                
+                # Handle click events
+                handle_chart_click(selected_points, data, x_col, y_col, f"{label} - {table_name}")
+                
+                st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                raise ImportError("Plotly not available, using matplotlib")
+            
+        except ImportError:
+            # Fallback to matplotlib with cloud optimization (no interactivity)
+            st.info("Interactive features require Plotly. Displaying static chart.")
+            chart_type = visual_type.lower().replace(" chart", "")
+            fig = create_cloud_optimized_chart(
+                data, x_col, y_col, chart_type, f"{label} - {table_name}", color_override
+            )
+            
+            # Use higher DPI for cloud display
+            st.pyplot(fig, use_container_width=True)
+            plt.close(fig)  # Important: free memory
+        
+        # Display data table
+        with st.expander("📊 View Data Table"):
+            st.dataframe(data, use_container_width=True)
+        
+        # Memory cleanup
+        optimize_memory()
+
 # File uploader
 uploaded_file = st.sidebar.file_uploader("📂 Upload Excel File", type=["xlsx"])
 
@@ -776,8 +648,9 @@ if uploaded_file:
         # Clear memory before processing new file
         optimize_memory()
         
-        # Read the Excel file
+        # Read the Excel file in chunks if it's large
         file_size = uploaded_file.size
+        chunk_size = 1024 * 1024  # 1MB chunks
         
         if file_size > 10 * 1024 * 1024:  # If file is larger than 10MB
             st.warning("Large file detected. Processing in chunks for better performance...")
@@ -807,6 +680,7 @@ if uploaded_file:
             except:
                 pass
                 
+        
         # Dynamic processing of long header rows
         if df_sheet.shape[1] < 20:
             new_data = []
@@ -1374,7 +1248,7 @@ if uploaded_file:
                 ["Bar Chart", "Pie Chart", "Line Chart"],
                 index=0,
                 key="visualization_type_select"
-            )
+            )  
 
             tabs = st.tabs([
                 "📊 Budget vs Actual", "📊 Budget", "📊 LY", "📊 Act", "📊 Gr", "📊 Ach", 
@@ -1382,6 +1256,7 @@ if uploaded_file:
                 "🌍 Branch Performance", "🌍 Branch Monthwise", 
                 "📦 Product Performance", "📦 Product Monthwise"
             ])
+
             tab_names = [
                 "Budget vs Actual", "Budget", "LY", "Act", "Gr", "Ach",
                 "YTD Budget", "YTD LY", "YTD Act", "YTD Gr", "YTD Ach",
@@ -1447,7 +1322,7 @@ if uploaded_file:
                         if pie_data.empty:
                             st.warning("No valid data for Budget vs Actual pie chart after aggregation")
                             return None
-                        display_visualization_fully_interactive(tab, "Budget vs Actual", pie_data, "Metric", "Value", visual_type)
+                        display_visualization_cloud_optimized(tab, "Budget vs Actual", pie_data, "Metric", "Value", visual_type)
                         ppt_type = 'pie'
                         chart_data_for_ppt = pie_data
                         x_col_for_ppt = "Metric"
@@ -1481,8 +1356,10 @@ if uploaded_file:
                             return None
                         
                         st.markdown(f"### Budget vs Actual Comparison - {table_name}")
+                        st.markdown("💡 **Click on chart elements to see detailed information**")
                         
                         try:
+                            import plotly.express as px
                             import plotly.graph_objects as go
                             
                             fig = go.Figure()
@@ -1494,17 +1371,15 @@ if uploaded_file:
                                     x=budget_data['Month'],
                                     y=budget_data['Value'],
                                     name='Budget',
-                                    marker_color='#2E86AB',
-                                    hovertemplate='<b>%{x}</b><br>Budget: %{y:,.0f}<extra></extra>'
+                                    marker_color='#2E86AB'
                                 ))
                             
                             if not act_data.empty:
                                 fig.add_trace(go.Bar(
                                     x=act_data['Month'],
                                     y=act_data['Value'],
-                                    name='Actual',
-                                    marker_color='#FF8C00',
-                                    hovertemplate='<b>%{x}</b><br>Actual: %{y:,.0f}<extra></extra>'
+                                    name='Act',
+                                    marker_color='#FF8C00'
                                 ))
                             
                             fig.update_layout(
@@ -1514,26 +1389,56 @@ if uploaded_file:
                                 font={'size': 12},
                                 plot_bgcolor='white',
                                 paper_bgcolor='white',
-                                height=500,
+                                height=600,
                                 margin={'l': 60, 'r': 60, 't': 80, 'b': 60},
                                 showlegend=True,
-                                barmode='group',
-                                hovermode='closest',
-                                hoverlabel=dict(bgcolor="white", bordercolor="#2E86AB", font=dict(size=12))
+                                barmode='group'
                             )
-                            fig.update_xaxes(title_font={'size': 14}, tickfont={'size': 12}, tickangle=0)  # FIXED: Straight labels
+                            fig.update_xaxes(title_font={'size': 14}, tickfont={'size': 12})
                             fig.update_yaxes(title_font={'size': 14}, tickfont={'size': 12})
                             
-                            config = {
-                                'displayModeBar': True, 
-                                'displaylogo': False, 
-                                'staticPlot': False,
-                                'responsive': True
-                            }
-                            st.plotly_chart(fig, use_container_width=True, config=config)
+                            # Add interactivity
+                            st.markdown('<div class="interactive-chart">', unsafe_allow_html=True)
+                            selected_points = plotly_events(
+                                fig, 
+                                click_event=True, 
+                                hover_event=False,
+                                select_event=False,
+                                override_height=600,
+                                key=f"budget_vs_actual_{visual_type}_chart"
+                            )
+                            
+                            # Handle click events for grouped data
+                            if selected_points and len(selected_points) > 0:
+                                point = selected_points[0]
+                                if 'pointIndex' in point and 'curveNumber' in point:
+                                    curve_num = point['curveNumber']
+                                    point_idx = point['pointIndex']
+                                    
+                                    if curve_num == 0 and not budget_data.empty and point_idx < len(budget_data):
+                                        clicked_row = budget_data.iloc[point_idx]
+                                        metric_type = "Budget"
+                                    elif curve_num == 1 and not act_data.empty and point_idx < len(act_data):
+                                        clicked_row = act_data.iloc[point_idx]
+                                        metric_type = "Act"
+                                    else:
+                                        clicked_row = None
+                                        metric_type = "Unknown"
+                                    
+                                    if clicked_row is not None:
+                                        st.markdown(f"""
+                                        <div class="selected-data">
+                                        <h4>📌 Selected Data Point</h4>
+                                        <p><strong>Metric:</strong> {metric_type}</p>
+                                        <p><strong>Month:</strong> {clicked_row['Month']}</p>
+                                        <p><strong>Value:</strong> {clicked_row['Value']:,.2f}</p>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                            
+                            st.markdown('</div>', unsafe_allow_html=True)
                             
                         except ImportError:
-                            fig, ax = plt.subplots(figsize=(12, 8), dpi=150)
+                            fig, ax = plt.subplots(figsize=(10, 6), dpi=150)
                             fig.patch.set_facecolor('white')
                             ax.set_facecolor('white')
                             budget_data = chart_data_agg[chart_data_agg['Metric'] == 'Budget']
@@ -1546,25 +1451,13 @@ if uploaded_file:
                                                if len(budget_data[budget_data['Month'] == month]) > 0 else 0 for month in months]
                                 act_values = [act_data[act_data['Month'] == month]['Value'].iloc[0] 
                                             if len(act_data[act_data['Month'] == month]) > 0 else 0 for month in months]
-                                
-                                bars1 = ax.bar(x_pos - bar_width/2, budget_values, bar_width, label='Budget', color='#2E86AB')
-                                bars2 = ax.bar(x_pos + bar_width/2, act_values, bar_width, label='Actual', color='#FF8C00')
-                                
-                                # Add value labels
-                                for bar, value in zip(bars1, budget_values):
-                                    if value > 0:
-                                        ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + bar.get_height()*0.01,
-                                               f'{value:,.0f}', ha='center', va='bottom', fontsize=9, fontweight='bold')
-                                for bar, value in zip(bars2, act_values):
-                                    if value > 0:
-                                        ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + bar.get_height()*0.01,
-                                               f'{value:,.0f}', ha='center', va='bottom', fontsize=9, fontweight='bold')
-                                
+                                ax.bar(x_pos - bar_width/2, budget_values, bar_width, label='Budget', color='#2E86AB')
+                                ax.bar(x_pos + bar_width/2, act_values, bar_width, label='Act', color='#FF8C00')
                                 ax.set_xlabel('Month', fontsize=14, fontweight='bold', labelpad=10)
                                 ax.set_ylabel('Value', fontsize=14, fontweight='bold', labelpad=10)
                                 ax.set_title(f"Budget vs Actual Comparison - {table_name}", fontsize=16, fontweight='bold', pad=15)
                                 ax.set_xticks(x_pos)
-                                ax.set_xticklabels(months, rotation=0, ha='center')  # FIXED: Straight labels
+                                ax.set_xticklabels(months, rotation=0, ha='center')
                                 ax.legend()
                                 ax.tick_params(axis='both', which='major', labelsize=12, width=1, length=4)
                                 ax.spines['top'].set_visible(False)
@@ -1655,7 +1548,7 @@ if uploaded_file:
                     # Set orange color for Act tab
                     color_override = '#FF8C00' if label == "Act" else None
                 
-                    display_visualization_fully_interactive(tab, f"{label} by Month", chart_data, "Month", label, visual_type, color_override)
+                    display_visualization_cloud_optimized(tab, f"{label} by Month", chart_data, "Month", label, visual_type, color_override)
                     
                     ppt_type = 'bar' if visual_type == "Bar Chart" else 'line' if visual_type == "Line Chart" else 'pie'
                     ppt_bytes = create_ppt_with_chart(
@@ -1761,7 +1654,145 @@ if uploaded_file:
                     # Set orange color for Act YTD tab
                     color_override = '#FF8C00' if label == "Act" else None
                     
-                    display_visualization_fully_interactive(tab, f"{label} YTD Comparisons", chart_data, "Period", label, visual_type, color_override)
+                    # Custom visualization for YTD with straight x-axis labels and interactivity
+                    st.markdown(f"### {label} YTD Comparisons - {table_name}")
+                    st.markdown("💡 **Click on chart elements to see detailed information**")
+                    
+                    # Try Plotly first with straight x-axis labels
+                    try:
+                        import plotly.express as px
+                        
+                        # Determine color
+                        default_color = color_override if color_override else '#2E86AB'
+                        
+                        if visual_type == "Bar Chart":
+                            fig = px.bar(chart_data, x="Period", y=label, 
+                                        title=f"{label} YTD Comparisons - {table_name}",
+                                        color_discrete_sequence=[default_color])
+                            
+                            # Force straight x-axis labels for YTD
+                            fig.update_xaxes(
+                                title_font={'size': 14, 'family': 'Arial, sans-serif'},
+                                tickfont={'size': 12},
+                                tickangle=0
+                            )
+                            fig.update_yaxes(
+                                title_font={'size': 14, 'family': 'Arial, sans-serif'},
+                                tickfont={'size': 12}
+                            )
+                            
+                        elif visual_type == "Line Chart":
+                            fig = px.line(chart_data, x="Period", y=label, 
+                                         title=f"{label} YTD Comparisons - {table_name}",
+                                         markers=True, color_discrete_sequence=[default_color])
+                            
+                            fig.update_traces(line={'width': 3}, marker={'size': 8})
+                            fig.update_xaxes(
+                                title_font={'size': 14, 'family': 'Arial, sans-serif'},
+                                tickfont={'size': 12},
+                                tickangle=0
+                            )
+                            fig.update_yaxes(
+                                title_font={'size': 14, 'family': 'Arial, sans-serif'},
+                                tickfont={'size': 12}
+                            )
+                            
+                        elif visual_type == "Pie Chart":
+                            fig = px.pie(chart_data, values=label, names="Period", 
+                                        title=f"{label} YTD Distribution - {table_name}")
+                            fig.update_traces(
+                                textposition='inside', 
+                                textinfo='percent+label',
+                                textfont={'size': 12, 'family': 'Arial, sans-serif'}
+                            )
+                        
+                        # Apply common layout
+                        fig.update_layout(
+                            title={'x': 0.5, 'xanchor': 'center', 'font': {'size': 16, 'family': 'Arial, sans-serif'}},
+                            font={'size': 12, 'family': 'Arial, sans-serif'},
+                            plot_bgcolor='white',
+                            paper_bgcolor='white',
+                            height=600,
+                            margin={'l': 60, 'r': 60, 't': 80, 'b': 60}
+                        )
+                        
+                        # Add interactivity
+                        st.markdown('<div class="interactive-chart">', unsafe_allow_html=True)
+                        selected_points = plotly_events(
+                            fig, 
+                            click_event=True, 
+                            hover_event=False,
+                            select_event=False,
+                            override_height=600,
+                            key=f"ytd_{label}_{visual_type}_chart"
+                        )
+                        
+                        # Handle click events
+                        handle_chart_click(selected_points, chart_data, "Period", label, f"{label} YTD Comparisons - {table_name}")
+                        st.markdown('</div>', unsafe_allow_html=True)
+                        
+                    except ImportError:
+                        # Fallback to matplotlib with straight x-axis labels
+                        st.info("Interactive features require Plotly. Displaying static chart.")
+                        fig, ax = plt.subplots(figsize=(10, 6), dpi=150)
+                        fig.patch.set_facecolor('white')
+                        ax.set_facecolor('white')
+                        
+                        # Determine color for matplotlib
+                        bar_color = color_override if color_override else '#2E86AB'
+                        
+                        if visual_type == "Bar Chart":
+                            ax.bar(chart_data['Period'], chart_data[label], 
+                                  color=bar_color, alpha=0.8, edgecolor='#1B4965', linewidth=1)
+                        
+                        elif visual_type == "Line Chart":
+                            ax.plot(chart_data['Period'], chart_data[label], 
+                                   marker='o', linewidth=3, markersize=8, 
+                                   color=bar_color, markerfacecolor='#F18F01', 
+                                   markeredgecolor='#1B4965', markeredgewidth=1)
+                            ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+                        
+                        elif visual_type == "Pie Chart":
+                            # Data already filtered for positive values
+                            colors = plt.cm.Set3(np.linspace(0, 1, len(chart_data)))
+                            wedges, texts, autotexts = ax.pie(chart_data[label], labels=chart_data['Period'], 
+                                                             autopct='%1.1f%%', startangle=90, 
+                                                             colors=colors, textprops={'fontsize': 10, 'weight': 'bold'})
+                            for autotext in autotexts:
+                                autotext.set_color('white')
+                                autotext.set_fontweight('bold')
+                                autotext.set_fontsize(10)
+                        
+                        ax.set_title(f"{label} YTD Comparisons - {table_name}", fontsize=16, fontweight='bold', pad=15)
+                        if visual_type != "Pie Chart":
+                            ax.set_xlabel("Period", fontsize=14, fontweight='bold', labelpad=10)
+                            ax.set_ylabel(label, fontsize=14, fontweight='bold', labelpad=10)
+                            ax.tick_params(axis='both', which='major', labelsize=12, width=1, length=4)
+                            
+                            # Format large numbers on y-axis
+                            if chart_data[label].max() > 1000:
+                                ax.yaxis.set_major_formatter(plt.FuncFormatter(
+                                    lambda x, p: f'{x/1000:.0f}K' if x >= 1000 else f'{x:.0f}'))
+                            
+                            # Straight x-axis labels for YTD
+                            plt.setp(ax.get_xticklabels(), rotation=0, ha='center')
+                            
+                            ax.spines['top'].set_visible(False)
+                            ax.spines['right'].set_visible(False)
+                            ax.spines['left'].set_linewidth(1)
+                            ax.spines['bottom'].set_linewidth(1)                            
+                            ax.spines['top'].set_visible(False)
+                            ax.spines['right'].set_visible(False)
+                            ax.spines['left'].set_linewidth(1)
+                            ax.spines['bottom'].set_linewidth(1)
+                        
+                        plt.tight_layout(pad=2.0)
+                        st.pyplot(fig, use_container_width=True)
+                        plt.close(fig)
+                    
+                    # Display data table
+                    with st.expander("📊 View Data Table"):
+                        st.dataframe(chart_data, use_container_width=True)
                     
                     # Generate PPT for YTD chart
                     ppt_type = 'bar' if visual_type == "Bar Chart" else 'line' if visual_type == "Line Chart" else 'pie'
@@ -1814,47 +1845,25 @@ if uploaded_file:
                 
                     if not ensure_numeric_data(regions_df, ytd_act_col):
                         st.warning("No numeric data available for region performance")
-                        return None
+                        return
                 
-                    # Ensure we have valid numeric data before sorting
-                    try:
-                        regions_df[ytd_act_col] = pd.to_numeric(regions_df[ytd_act_col], errors='coerce')
-                        regions_df = regions_df.dropna(subset=[ytd_act_col])
-                        
-                        if regions_df.empty:
-                            st.warning("No valid region performance data after cleaning")
-                            return None
-                            
-                        regions_df = regions_df.sort_values(by=ytd_act_col, ascending=False)
-                    except Exception as e:
-                        st.error(f"Error processing region performance data: {e}")
-                        return None
+                    regions_df = regions_df.sort_values(by=ytd_act_col, ascending=False)
                     
-                    display_visualization_fully_interactive(tab, "Branch Performance", regions_df, first_col, ytd_act_col, visual_type)
+                    st.markdown(f"### Branch Performance Analysis - {table_name}")
                     
-                    # Safe metric calculation with proper error handling
+                    # Use cloud-optimized visualization with interactivity
+                    display_visualization_cloud_optimized(tab, "Branch Performance", regions_df, first_col, ytd_act_col, visual_type)
+                    
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        if not regions_df.empty:
-                            try:
-                                top_region = regions_df.iloc[0]
-                                top_name = str(top_region[first_col])
-                                top_value = float(top_region[ytd_act_col])
-                                st.metric("Top Performer", top_name, f"{top_value:,.0f}")
-                            except Exception as e:
-                                st.metric("Top Performer", "N/A", "0")
+                        top_region = regions_df.iloc[0]
+                        st.metric("Top Performer", top_region[first_col], f"{top_region[ytd_act_col]:,.0f}")
                     with col2:
-                        try:
-                            total_performance = float(regions_df[ytd_act_col].sum())
-                            st.metric("Total Performance", f"{total_performance:,.0f}")
-                        except Exception:
-                            st.metric("Total Performance", "0")
+                        total_performance = regions_df[ytd_act_col].sum()
+                        st.metric("Total Performance", f"{total_performance:,.0f}")
                     with col3:
-                        try:
-                            avg_performance = float(regions_df[ytd_act_col].mean())
-                            st.metric("Average Performance", f"{avg_performance:,.0f}")
-                        except Exception:
-                            st.metric("Average Performance", "0")
+                        avg_performance = regions_df[ytd_act_col].mean()
+                        st.metric("Average Performance", f"{avg_performance:,.0f}")
                     
                     col1, col2 = st.columns(2)
                     with col1:
@@ -1939,24 +1948,25 @@ if uploaded_file:
                         st.warning("No numeric data available for region monthwise performance after filtering")
                         return
                 
+                    st.markdown(f"### Branch Monthwise Performance ({', '.join(selected_years if selected_years else years)})")
+                
                     chart_data = monthwise_data.melt(id_vars=first_col, 
                                                   var_name="Month", 
                                                   value_name="Value")
                     chart_data = make_jsonly_serializable(chart_data)
                     
-                    display_visualization_fully_interactive(tab, "Branch Monthwise", chart_data, "Month", "Value", visual_type)
+                    display_visualization_cloud_optimized(tab, "Branch Monthwise", chart_data, "Month", "Value", visual_type)
                     
                     col1, col2, col3 = st.columns(3)
                     with col1:
                         total_by_month = monthwise_data[clean_col_names].sum()
-                        if not total_by_month.empty:
-                            best_month = total_by_month.idxmax()
-                            st.metric("Best Month", str(best_month), f"{float(total_by_month[best_month]):,.0f}")
+                        best_month = total_by_month.idxmax()
+                        st.metric("Best Month", best_month, f"{total_by_month[best_month]:,.0f}")
                     with col2:
-                        avg_monthly = float(total_by_month.mean())
+                        avg_monthly = total_by_month.mean()
                         st.metric("Monthly Average", f"{avg_monthly:,.0f}")
                     with col3:
-                        total_performance = float(total_by_month.sum())
+                        total_performance = total_by_month.sum()
                         st.metric("Total Performance", f"{total_performance:,.0f}")
                 
                     ppt_type = 'bar' if visual_type == "Bar Chart" else 'line'
@@ -1976,7 +1986,6 @@ if uploaded_file:
                         key=f"download_region_monthwise_ppt_{selected_sheet}_{sheet_index}"
                     )
                     return chart_data
-
             def plot_product_performance(tab, visual_type):
                 with tab:
                     if not is_product_analysis:
@@ -2009,47 +2018,24 @@ if uploaded_file:
                 
                     if not ensure_numeric_data(products_df, ytd_act_col):
                         st.warning("No numeric data available for product performance")
-                        return None
+                        return
                 
-                    # Ensure we have valid numeric data before sorting
-                    try:
-                        products_df[ytd_act_col] = pd.to_numeric(products_df[ytd_act_col], errors='coerce')
-                        products_df = products_df.dropna(subset=[ytd_act_col])
-                        
-                        if products_df.empty:
-                            st.warning("No valid product performance data after cleaning")
-                            return None
-                            
-                        products_df = products_df.sort_values(by=ytd_act_col, ascending=False)
-                    except Exception as e:
-                        st.error(f"Error processing product performance data: {e}")
-                        return None
+                    products_df = products_df.sort_values(by=ytd_act_col, ascending=False)
                     
-                    display_visualization_fully_interactive(tab, "Product Performance", products_df, first_col, ytd_act_col, visual_type)
+                    st.markdown("### Product Performance Analysis")
                     
-                    # Safe metric calculation with proper error handling
+                    display_visualization_cloud_optimized(tab, "Product Performance", products_df, first_col, ytd_act_col, visual_type)
+                    
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        if not products_df.empty:
-                            try:
-                                top_product = products_df.iloc[0]
-                                top_name = str(top_product[first_col])
-                                top_value = float(top_product[ytd_act_col])
-                                st.metric("Top Performer", top_name, f"{top_value:,.0f}")
-                            except Exception as e:
-                                st.metric("Top Performer", "N/A", "0")
+                        top_product = products_df.iloc[0]
+                        st.metric("Top Performer", top_product[first_col], f"{top_product[ytd_act_col]:,.0f}")
                     with col2:
-                        try:
-                            total_performance = float(products_df[ytd_act_col].sum())
-                            st.metric("Total Performance", f"{total_performance:,.0f}")
-                        except Exception:
-                            st.metric("Total Performance", "0")
+                        total_performance = products_df[ytd_act_col].sum()
+                        st.metric("Total Performance", f"{total_performance:,.0f}")
                     with col3:
-                        try:
-                            avg_performance = float(products_df[ytd_act_col].mean())
-                            st.metric("Average Performance", f"{avg_performance:,.0f}")
-                        except Exception:
-                            st.metric("Average Performance", "0")
+                        avg_performance = products_df[ytd_act_col].mean()
+                        st.metric("Average Performance", f"{avg_performance:,.0f}")
                     
                     col1, col2 = st.columns(2)
                     with col1:
@@ -2135,24 +2121,118 @@ if uploaded_file:
                         st.warning("No numeric data available for product monthwise performance after filtering")
                         return
                 
+                    st.write(f"### Product Monthwise Performance ({', '.join(selected_years if selected_years else years)})")
+                
                     chart_data = monthwise_data.melt(id_vars=first_col, 
                                                   var_name="Month", 
                                                   value_name="Value")
                     chart_data = make_jsonly_serializable(chart_data)
                     
-                    display_visualization_fully_interactive(tab, "Product Monthwise", chart_data, "Month", "Value", visual_type)
+                    display_visualization_cloud_optimized(tab, "Product Monthwise", chart_data, "Month", "Value", visual_type)
                     
                     col1, col2, col3 = st.columns(3)
                     with col1:
                         total_by_month = monthwise_data[clean_col_names].sum()
-                        if not total_by_month.empty:
-                            best_month = total_by_month.idxmax()
-                            st.metric("Best Month", str(best_month), f"{float(total_by_month[best_month]):,.0f}")
+                        best_month = total_by_month.idxmax()
+                        st.metric("Best Month", best_month, f"{total_by_month[best_month]:,.0f}")
                     with col2:
-                        avg_monthly = float(total_by_month.mean())
+                        avg_monthly = total_by_month.mean()
                         st.metric("Monthly Average", f"{avg_monthly:,.0f}")
                     with col3:
-                        total_performance = float(total_by_month.sum())
+                        total_performance = total_by_month.sum()
+                        st.metric("Total Performance", f"{total_performance:,.0f}")
+                
+                    ppt_type = 'bar' if visual_type == "Bar Chart" else 'line'
+                    ppt_bytes = create_ppt_with_chart(
+                        f"Product Monthwise Performance - {selected_sheet}",
+                        chart_data,
+                        "Month",
+                        "Value",
+                        ppt_type
+                    )
+                
+                    st.download_button(
+                        "⬇️ Download Product Monthwise PPT",
+                        ppt_bytes,
+                        "product_monthwise.pptx",
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                        key=f"download_product_monthwise_ppt_{selected_sheet}_{sheet_index}"
+                    )
+
+
+            def plot_product_monthwise(tab, visual_type):
+                with tab:
+                    if not is_product_analysis:
+                        st.info("This visualization is only available for product analysis sheets")
+                        return
+                
+                    act_cols = []
+                    for col in table_df.columns:
+                        col_str = str(col).lower()
+                        for year in years:
+                            if (re.search(rf'\bact\b.*(apr|may|jun|jul|aug|sep|oct|nov|dec|jan|feb|mar)[-\s]*{year}', col_str, re.IGNORECASE) and 'ytd' not in col_str):
+                                act_cols.append(col)
+                
+                    if not act_cols:
+                        st.warning(f"Could not find monthly Act columns for the selected years ({', '.join(years)})")
+                        return
+                
+                    month_order = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar']
+                
+                    def get_sort_key(col_name):
+                        col_name = str(col_name).lower()
+                        month_match = re.search(r'\b(apr|may|jun|jul|aug|sep|oct|nov|dec|jan|feb|mar)\b', col_name, re.IGNORECASE)
+                        year_match = re.search(r'[-–](\d{2})\b', col_name)
+                        month_idx = month_order.index(month_match.group(1).capitalize()) if month_match and month_match.group(1).capitalize() in month_order else 99
+                        year = int(year_match.group(1)) if year_match else 0
+                        return (year, month_idx)
+                
+                    act_cols_sorted = sorted(act_cols, key=get_sort_key)
+                
+                    first_col = table_df.columns[0]
+                    exclude_terms = ['Total', 'TOTAL', 'Grand', 'GRAND', 'Total Sales']
+                    products_df = table_df[~table_df[first_col].str.contains('|'.join(exclude_terms), na=False, case=False)].copy()
+                    monthwise_data = products_df[[first_col] + act_cols_sorted].copy()
+                    
+                    clean_col_names = []
+                    for col in act_cols_sorted:
+                        month_match = re.search(r'\b(apr|may|jun|jul|aug|sep|oct|nov|dec|jan|feb|mar)\b', str(col), re.IGNORECASE)
+                        year_match = re.search(r'[-–](\d{2})\b', str(col))
+                        if month_match and year_match:
+                            clean_col_names.append(f"{month_match.group(1).capitalize()}-{year_match.group(1)}")
+                        else:
+                            clean_col_names.append(str(col))
+                    
+                    monthwise_data.columns = [first_col] + clean_col_names
+                    
+                    for col in clean_col_names:
+                        monthwise_data[col] = pd.to_numeric(monthwise_data[col].astype(str).str.replace(',', ''), errors='coerce')
+                    
+                    monthwise_data = monthwise_data.dropna()
+                    
+                    if monthwise_data.empty:
+                        st.warning("No numeric data available for product monthwise performance after filtering")
+                        return
+                
+                    st.write(f"### Product Monthwise Performance ({', '.join(selected_years if selected_years else years)})")
+                
+                    chart_data = monthwise_data.melt(id_vars=first_col, 
+                                                  var_name="Month", 
+                                                  value_name="Value")
+                    chart_data = make_jsonly_serializable(chart_data)
+                    
+                    display_visualization_cloud_optimized(tab, "Product Monthwise", chart_data, "Month", "Value", visual_type)
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        total_by_month = monthwise_data[clean_col_names].sum()
+                        best_month = total_by_month.idxmax()
+                        st.metric("Best Month", best_month, f"{total_by_month[best_month]:,.0f}")
+                    with col2:
+                        avg_monthly = total_by_month.mean()
+                        st.metric("Monthly Average", f"{avg_monthly:,.0f}")
+                    with col3:
+                        total_performance = total_by_month.sum()
                         st.metric("Total Performance", f"{total_performance:,.0f}")
                 
                     ppt_type = 'bar' if visual_type == "Bar Chart" else 'line'
@@ -2173,7 +2253,8 @@ if uploaded_file:
                     )
                     return chart_data
 
-            # Store chart data for master PPT and plot visualizations
+            # Store chart data for master PPT
+            # Plot visualizations in respective tabs
             budget_vs_actual_data = plot_budget_vs_actual(tabs_dict["Budget vs Actual"], visual_type)
             budget_data = plot_monthly_comparison(tabs_dict["Budget"], "Budget", visual_type)
             ly_data = plot_monthly_comparison(tabs_dict["LY"], "LY", visual_type)
@@ -2209,7 +2290,7 @@ if uploaded_file:
                 ("Product Monthwise", product_monthwise_data)
             ]
 
-            # Master PPT generation - clean charts without value labels
+            # Master PPT generation with fixed column handling and removed clickable titles
             if any(data is not None for _, data in all_data):
                 st.sidebar.markdown("---")
                 st.sidebar.subheader("📊 Download All Visuals")
@@ -2224,51 +2305,70 @@ if uploaded_file:
                             if chart_data is None or x_col is None or y_col is None:
                                 continue
                                 
-                            slide = master_ppt.slides.add_slide(master_ppt.slide_layouts[6])  # Use blank layout
+                            slide = master_ppt.slides.add_slide(master_ppt.slide_layouts[6])  # Use blank layout to avoid clickable titles
                             
                             # Determine color for Act-related charts
                             color_override = '#FF8C00' if 'Act' in label else None
                             
-                            # Create clean chart WITHOUT value labels for PPT
-                            fig, ax = plt.subplots(figsize=(12, 8), dpi=150)
-                            fig.patch.set_facecolor('white')
-                            ax.set_facecolor('white')
-                            
-                            bar_color = color_override if color_override else '#2E86AB'
-                            
-                            # Create clean bar chart without value labels
-                            bars = ax.bar(chart_data[x_col], chart_data[y_col], 
-                                         color=bar_color, alpha=0.8, 
-                                         edgecolor='#1B4965', linewidth=1)
-                            
-                            # Enhanced styling without value labels
-                            ax.set_title(f"{label} Analysis - {table_name}", fontsize=18, fontweight='bold', pad=20)
-                            ax.set_xlabel(x_col, fontsize=16, fontweight='bold', labelpad=12)
-                            ax.set_ylabel(y_col, fontsize=16, fontweight='bold', labelpad=12)
-                            
-                            ax.tick_params(axis='both', which='major', labelsize=12, width=1, length=4)
-                            
-                            # Format large numbers on y-axis
-                            if chart_data[y_col].max() > 1000:
-                                ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1000:.0f}K' if x >= 1000 else f'{x:.0f}'))
-                            
-                            # Keep x-axis labels straight
-                            plt.setp(ax.get_xticklabels(), rotation=0, ha='center')
-                            
-                            # Remove spines for cleaner look
-                            ax.spines['top'].set_visible(False)
-                            ax.spines['right'].set_visible(False)
-                            ax.spines['left'].set_linewidth(1)
-                            ax.spines['bottom'].set_linewidth(1)
-                            
-                            plt.tight_layout(pad=3.0)
+                            # Special handling for YTD charts
+                            if "YTD" in label:
+                                # Create a figure with straight x-axis labels
+                                fig, ax = plt.subplots(figsize=(10, 6), dpi=150)
+                                fig.patch.set_facecolor('white')
+                                ax.set_facecolor('white')
+                                
+                                if visual_type == "Bar Chart":
+                                    ax.bar(chart_data[x_col], chart_data[y_col], 
+                                          color=color_override if color_override else '#2E86AB', 
+                                          alpha=0.8, edgecolor='#1B4965', linewidth=1)
+                                elif visual_type == "Line Chart":
+                                    ax.plot(chart_data[x_col], chart_data[y_col], 
+                                           marker='o', linewidth=3, markersize=8, 
+                                           color=color_override if color_override else '#2E86AB', 
+                                           markerfacecolor='#F18F01', 
+                                           markeredgecolor='#1B4965', markeredgewidth=1)
+                                    ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+                                elif visual_type == "Pie Chart":
+                                    colors = plt.cm.Set3(np.linspace(0, 1, len(chart_data)))
+                                    wedges, texts, autotexts = ax.pie(chart_data[y_col], labels=chart_data[x_col], 
+                                                                     autopct='%1.1f%%', startangle=90, 
+                                                                     colors=colors, textprops={'fontsize': 10, 'weight': 'bold'})
+                                    for autotext in autotexts:
+                                        autotext.set_color('white')
+                                        autotext.set_fontweight('bold')
+                                        autotext.set_fontsize(10)
+                                
+                                ax.set_title(f"{label} Analysis - {table_name}", fontsize=16, fontweight='bold', pad=15)
+                                if visual_type != "Pie Chart":
+                                    ax.set_xlabel(x_col, fontsize=14, fontweight='bold', labelpad=10)
+                                    ax.set_ylabel(y_col, fontsize=14, fontweight='bold', labelpad=10)
+                                    ax.tick_params(axis='both', which='major', labelsize=12, width=1, length=4)
+                                    
+                                    # Format large numbers on y-axis
+                                    if chart_data[y_col].max() > 1000:
+                                        ax.yaxis.set_major_formatter(plt.FuncFormatter(
+                                            lambda x, p: f'{x/1000:.0f}K' if x >= 1000 else f'{x:.0f}'))
+                                    
+                                    # Straight x-axis labels for YTD
+                                    plt.setp(ax.get_xticklabels(), rotation=0, ha='center')
+                                    
+                                    ax.spines['top'].set_visible(False)
+                                    ax.spines['right'].set_visible(False)
+                                    ax.spines['left'].set_linewidth(1)
+                                    ax.spines['bottom'].set_linewidth(1)
+                                
+                                plt.tight_layout(pad=2.0)
+                            else:
+                                # For non-YTD charts, use the standard chart creation
+                                fig = create_cloud_optimized_chart(chart_data, x_col, y_col, 'bar', 
+                                                                 f"{label} Analysis - {table_name}", color_override)
                             
                             img_buffer = BytesIO()
                             fig.savefig(img_buffer, format='png', dpi=200, bbox_inches='tight')
                             plt.close(fig)
                             img_buffer.seek(0)
                             
-                            # Add title as a text box
+                            # Add title as a text box (not clickable)
                             txBox = slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(8), Inches(1))
                             tf = txBox.text_frame
                             tf.text = f"{label} Analysis - {table_name} - {selected_sheet}"
