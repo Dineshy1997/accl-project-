@@ -2,13 +2,13 @@ import streamlit as st
 import pandas as pd
 import google.generativeai as genai
 import os
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 import numpy as np
 
 def main():
     # Load API key from .env or directly use it here
-    load_dotenv()
-    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+    # load_dotenv()
+    genai.configure(api_key="AIzaSyDrvURpHhrOkNKxlunjnN7pDs8tfjCLXdU")
 
     model = genai.GenerativeModel("gemini-1.5-flash")
 
@@ -191,7 +191,7 @@ Output only the Python code line starting with 'result =':
             """)
 
     st.markdown("---")
-    st.markdown("Made with CUBE")
+    st.markdown("Made with ❤️ using Streamlit and Google Gemini")
 
 
 if __name__ == "__main__":
