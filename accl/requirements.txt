@@ -10,6 +10,7 @@ fuzzywuzzy
 streamlit_plotly_events
 python-dotenv
 google-generativeai
+python-Levenshtein
 
 
 # File requirements
