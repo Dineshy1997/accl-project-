@@ -134,7 +134,11 @@ def extract_tables(df, possible_headers, is_product_analysis=False):
     st.error(f"Could not locate table header. Tried: {', '.join(possible_headers)}")
     return None, None
 
-def find_column(df, possible_names, case_sensitive=False):
+def find_column(df, possible_names, case_sensitive=False, threshold=80):
+    """Enhanced fuzzy matching for column names"""
+    if isinstance(possible_names, str):
+        possible_names = [possible_names]
+    
     for name in possible_names:
         if case_sensitive:
             if name in df.columns:
@@ -143,6 +147,13 @@ def find_column(df, possible_names, case_sensitive=False):
             for col in df.columns:
                 if col.lower() == name.lower():
                     return col
+    
+    # If exact match not found, try fuzzy matching
+    for name in possible_names:
+        matches = process.extractOne(name, df.columns, score_cutoff=threshold)
+        if matches:
+            return matches[0]
+    
     return None
 
 def standardize_column_names(df, is_auditor=False):
@@ -385,6 +396,61 @@ def normalize_month_year(col):
     except:
         return col
 
+def clean_and_convert_numeric(df):
+    """
+    Clean and convert DataFrame columns to appropriate data types.
+    Handles mixed data types that cause serialization issues.
+    """
+    if df is None or df.empty:
+        return df
+        
+    df = df.copy()
+    
+    # Get the first column (identifier column)
+    identifier_col = df.columns[0]
+    
+    # Process each column
+    for col in df.columns:
+        if col == identifier_col:
+            # Keep identifier column as string, ensure no numeric conversion
+            df[col] = df[col].astype(str).str.strip()
+            # Replace common problematic values
+            df[col] = df[col].replace({'nan': '', 'NaN': '', 'None': '', 'null': ''})
+            # Don't convert to numeric for identifier columns
+            continue
+            
+        # Try to convert to numeric for other columns
+        try:
+            # First, convert to string and clean
+            series_str = df[col].astype(str).str.strip()
+            
+            # Replace common non-numeric values
+            series_str = series_str.replace({
+                'nan': '0',
+                'NaN': '0', 
+                'None': '0',
+                '': '0',
+                '-': '0',
+                'null': '0'
+            })
+            
+            # Try to convert to numeric
+            df[col] = pd.to_numeric(series_str, errors='coerce')
+            
+            # Fill any remaining NaN values with 0
+            df[col] = df[col].fillna(0.0)
+            
+            # Ensure it's float64 for consistency
+            df[col] = df[col].astype('float64')
+            
+        except Exception as e:
+            # If conversion fails, keep as string but clean it
+            df[col] = df[col].astype(str).str.strip()
+            df[col] = df[col].replace({'nan': '', 'NaN': '', 'None': '', 'null': ''})
+            st.warning(f"Could not convert column '{col}' to numeric: {str(e)}")
+    
+    return df
+
 def safe_format_dataframe(df):
     """
     Safely format a dataframe for display, removing duplicate columns and rounding numeric columns to 2 decimal places.
@@ -413,6 +479,81 @@ def safe_format_dataframe(df):
     except Exception as e:
         st.warning(f"Error in safe_format_dataframe: {str(e)}")
         return df
+
+
+
+def display_dataframe_safely(df, title="", download_name="table"):
+    """
+    Safely display a DataFrame with proper formatting and error handling.
+    """
+    try:
+        if df is None or df.empty:
+            st.warning(f"No data available for {title}")
+            return
+        
+        if title:
+            st.subheader(title)
+        
+        # Clean and format the dataframe
+        clean_df = safe_format_dataframe(df)
+        
+        # Display the dataframe
+        st.dataframe(clean_df, use_container_width=True)
+        
+        # Add download button
+        csv_data = clean_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            "⬇️ Download Table as CSV",
+            csv_data,
+            file_name=f"{download_name}.csv",
+            mime="text/csv",
+            key=f"download_{download_name}_{hash(title)}"
+        )
+        
+    except Exception as e:
+        st.error(f"Error displaying dataframe: {str(e)}")
+        # Fallback: display raw dataframe
+        try:
+            st.dataframe(df, use_container_width=True)
+        except:
+            st.error("Could not display the dataframe at all.")
+
+def display_raw_dataframe_preview(df, title="", download_name="table"):
+    """
+    Display DataFrame for preview tabs without complex formatting.
+    Converts all data to strings to avoid Arrow serialization issues.
+    """
+    try:
+        if df is None or df.empty:
+            st.warning(f"No data available for {title}")
+            return
+        
+        if title:
+            st.subheader(title)
+        
+        # Convert all data to strings for safe display in preview tabs
+        display_df = df.copy()
+        for col in display_df.columns:
+            display_df[col] = display_df[col].astype(str)
+        
+        # Display the dataframe without styling
+        st.dataframe(display_df, use_container_width=True)
+        
+        # Add download button for original data
+        csv_data = df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            "⬇️ Download Table as CSV",
+            csv_data,
+            file_name=f"{download_name}.csv",
+            mime="text/csv",
+            key=f"download_{download_name}_{hash(title)}"
+        )
+        
+    except Exception as e:
+        st.error(f"Error displaying dataframe: {str(e)}")
+        # Fallback: show basic info about the dataframe
+        st.write(f"DataFrame shape: {df.shape}")
+        st.write(f"Columns: {list(df.columns)}")
 
 def validate_dataframe(df, name, required_cols=['REGIONS', 'PRODUCT NAME']):
     if df is None or df.empty:
@@ -862,26 +1003,67 @@ def merge_auditor_sales_data(auditor_df, sales_df, budget_data=None, last_year_d
 # Sidebar File Uploaders
 with st.sidebar:
     st.header("📁 File Uploads")
-    st.session_state.uploaded_file_auditor = st.file_uploader(
-        "Upload Auditor Format File", 
-        type=["xlsx"],
-        key="auditor_uploader"
-    )
-    st.session_state.uploaded_file_sales = st.file_uploader(
-        "Upload Total Sales Dataset", 
-        type=["xlsx"],
-        key="sales_uploader"
-    )
     st.session_state.uploaded_file_budget = st.file_uploader(
         "Upload Budget Dataset", 
         type=["xlsx"],
         key="budget_uploader"
     )
+    st.session_state.uploaded_file_sales = st.file_uploader(
+        "Upload Sales Dataset", 
+        type=["xlsx"],
+        key="sales_uploader"
+    )
+    
     st.session_state.uploaded_file_last_year = st.file_uploader(
-        "Upload Last Year Dataset", 
+        "Upload Total Sales Dataset", 
         type=["xlsx"],
         key="last_year_uploader"
     )
+    st.session_state.uploaded_file_auditor = st.file_uploader(
+        "Upload Auditor Format File", 
+        type=["xlsx"],
+        key="auditor_uploader"
+    )
+
+# Budget Sheet Selection Sidebar
+with st.sidebar:
+    st.header("📄 Budget Sheet Selection")
+    if st.session_state.uploaded_file_budget:
+        xls_budget = pd.ExcelFile(st.session_state.uploaded_file_budget)
+        sheet_names_budget = xls_budget.sheet_names
+        selected_sheet_budget = st.selectbox(
+            "Select Budget Sheet", 
+            sheet_names_budget,
+            key="budget_sheet"
+        )
+
+#  Sales Sheet Selection Sidebar
+with st.sidebar:
+    st.header("📄 Sales Sheet Selection")
+    if st.session_state.uploaded_file_sales:
+        xls_sales = pd.ExcelFile(st.session_state.uploaded_file_sales)
+        sheet_names_sales = xls_sales.sheet_names
+        selected_sheets_sales = st.multiselect(
+            "Select Sales Sheets ", 
+            sheet_names_sales,
+            key="sales_sheets",
+            default=[sheet_names_sales[0]] if sheet_names_sales else None
+        )
+        st.session_state.selected_sheets_sales = selected_sheets_sales
+
+        
+
+# Last Year Sheet Selection Sidebar
+with st.sidebar:
+    st.header("📄 Total Sales Selection")
+    if st.session_state.uploaded_file_last_year:
+        xls_last_year = pd.ExcelFile(st.session_state.uploaded_file_last_year)
+        sheet_names_last_year = xls_last_year.sheet_names
+        selected_sheet_last_year = st.selectbox(
+            "Select Last Year Sheet", 
+            sheet_names_last_year,
+            key="last_year_sheet"
+        )
 
 # Auditor Sheet and Table Selection Sidebar
 with st.sidebar:
@@ -903,166 +1085,124 @@ with st.sidebar:
         if is_region_analysis or is_product_analysis or is_sales_analysis_month_wise:
             table_label = "Region Analysis" if is_region_analysis else "Product Analysis"
 
-# Total Sales Sheet Selection Sidebar
-with st.sidebar:
-    st.header("📄 Sales Sheet Selection")
-    if st.session_state.uploaded_file_sales:
-        xls_sales = pd.ExcelFile(st.session_state.uploaded_file_sales)
-        sheet_names_sales = xls_sales.sheet_names
-        selected_sheets_sales = st.multiselect(
-            "Select Sales Sheets (Select multiple if needed)", 
-            sheet_names_sales,
-            key="sales_sheets",
-            default=[sheet_names_sales[0]] if sheet_names_sales else None
-        )
-        st.session_state.selected_sheets_sales = selected_sheets_sales
-
-# Budget Sheet Selection Sidebar
-with st.sidebar:
-    st.header("📄 Budget Sheet Selection")
-    if st.session_state.uploaded_file_budget:
-        xls_budget = pd.ExcelFile(st.session_state.uploaded_file_budget)
-        sheet_names_budget = xls_budget.sheet_names
-        selected_sheet_budget = st.selectbox(
-            "Select Budget Sheet", 
-            sheet_names_budget,
-            key="budget_sheet"
-        )
-
-# Last Year Sheet Selection Sidebar
-with st.sidebar:
-    st.header("📄 Last Year Sheet Selection")
-    if st.session_state.uploaded_file_last_year:
-        xls_last_year = pd.ExcelFile(st.session_state.uploaded_file_last_year)
-        sheet_names_last_year = xls_last_year.sheet_names
-        selected_sheet_last_year = st.selectbox(
-            "Select Last Year Sheet", 
-            sheet_names_last_year,
-            key="last_year_sheet"
-        )
 
 # Main tabs
 st.title("📊 ACL Extraction")
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(["Auditor Format", "Total Sales and Budget Dataset", "Region Month-wise Analysis", "Product-wise Analysis", "TS-PW Analysis", "ERO-PW Analysis", "Sales Analysis", "Combined Data"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(["Auditor Format", " Sales and Budget Dataset", "Region Month-wise Analysis", "Product-wise Analysis", "TS-PW Analysis", "ERO-PW Analysis", "Sales Analysis", "Combined Data"])
 
 # Tab 1: Auditor Format
 with tab1:
     st.header("📊 Auditor Format - Data Tables")
     
     if st.session_state.get('uploaded_file_auditor') and 'selected_sheet_auditor' in locals():
-        xls = pd.ExcelFile(st.session_state.uploaded_file_auditor)
-        df_sheet = pd.read_excel(xls, sheet_name=selected_sheet_auditor, header=None)
-        
-        is_region_analysis = 'region' in selected_sheet_auditor.lower()
-        is_product_analysis = 'product' in selected_sheet_auditor.lower() or 'ts-pw' in selected_sheet_auditor.lower() or 'ero-pw' in selected_sheet_auditor.lower()
-        is_sales_analysis_month_wise = re.search(r'sales\s*analysis\s*month\s*wise', selected_sheet_auditor.lower(), re.IGNORECASE) is not None
-        
-        if is_region_analysis or is_product_analysis or is_sales_analysis_month_wise:
-            table1_possible_headers = [
-                "SALES in MT", "SALES IN MT", "Sales in MT", "SALES IN TONNAGE", "SALES IN TON",
-                "Tonnage", "TONNAGE", "Tonnage Sales", "Sales Tonnage", "Metric Tons", "MT Sales"
-            ]
-            table2_possible_headers = [
-                "SALES in Value", "SALES IN VALUE", "Sales in Value", "SALES IN RS", "VALUE SALES",
-                "Value", "VALUE", "Sales Value"
-            ]
+        try:
+            xls = pd.ExcelFile(st.session_state.uploaded_file_auditor)
+            df_sheet = pd.read_excel(xls, sheet_name=selected_sheet_auditor, header=None)
             
-            idx1, data_start1 = extract_tables(df_sheet, table1_possible_headers, is_product_analysis=is_product_analysis)
-            idx2, data_start2 = extract_tables(df_sheet, table2_possible_headers, is_product_analysis=is_product_analysis)
+            is_region_analysis = 'region' in selected_sheet_auditor.lower()
+            is_product_analysis = 'product' in selected_sheet_auditor.lower() or 'ts-pw' in selected_sheet_auditor.lower() or 'ero-pw' in selected_sheet_auditor.lower()
+            is_sales_analysis_month_wise = re.search(r'sales\s*analysis\s*month\s*wise', selected_sheet_auditor.lower(), re.IGNORECASE) is not None
             
-            if idx1 is None:
-                st.error(f"❌ Could not locate SALES in Tonnage/MT table header in the sheet. Tried: {', '.join(table1_possible_headers)}")
-                st.dataframe(df_sheet.head(10))
-            else:
-                table1_end = idx2 if idx2 is not None and idx2 > idx1 else len(df_sheet)
-                table1 = df_sheet.iloc[data_start1:table1_end].dropna(how='all')
-                table1.columns = df_sheet.iloc[idx1]
-                table1.columns = table1.columns.map(str)
-                table1.columns = rename_columns(table1.columns)
+            if is_region_analysis or is_product_analysis or is_sales_analysis_month_wise:
+                table1_possible_headers = [
+                    "SALES in MT", "SALES IN MT", "Sales in MT", "SALES IN TONNAGE", "SALES IN TON",
+                    "Tonnage", "TONNAGE", "Tonnage Sales", "Sales Tonnage", "Metric Tons", "MT Sales"
+                ]
+                table2_possible_headers = [
+                    "SALES in Value", "SALES IN VALUE", "Sales in Value", "SALES IN RS", "VALUE SALES",
+                    "Value", "VALUE", "Sales Value"
+                ]
                 
-                if idx2 is not None and idx2 > idx1:
-                    table2 = df_sheet.iloc[data_start2:].dropna(how='all')
-                    table2.columns = df_sheet.iloc[idx2]
-                    table2.columns = table2.columns.map(str)
-                    table2.columns = rename_columns(table2.columns)
+                idx1, data_start1 = extract_tables(df_sheet, table1_possible_headers, is_product_analysis=is_product_analysis)
+                idx2, data_start2 = extract_tables(df_sheet, table2_possible_headers, is_product_analysis=is_product_analysis)
+                
+                if idx1 is None:
+                    st.error(f"❌ Could not locate SALES in Tonnage/MT table header in the sheet. Tried: {', '.join(table1_possible_headers)}")
+                    st.dataframe(df_sheet.head(10))
                 else:
-                    table2 = None
-                
-                # Sidebar for table selection
-                st.sidebar.subheader("Select Table to Display")
-                table_choice_auditor = st.sidebar.radio(
-                    "Choose table:",
-                    ["Table 1: SALES in MT\Tonage", "Table 2: SALES in Value"],
-                    key="table_choice_auditor",
-                    index=0 if st.session_state.get('table_choice_auditor', "Table 1: SALES in Tonage") == "Table 1: SALES in Tonnage" else 1
-                )
-                
-                table_df = None
-                if table_choice_auditor == "Table 1: SALES in MT\Tonage" and table1 is not None:
-                    table_df = table1
-                elif table_choice_auditor == "Table 2: SALES in Value" and table2 is not None:
-                    table_df = table2
-                
-                if table_df is None:
-                    available_tables = []
-                    if table1 is not None:
-                        available_tables.append("Table 1: SALES in Tonage")
-                    if table2 is not None:
-                        available_tables.append("Table 2: SALES in Value")
+                    table1_end = idx2 if idx2 is not None and idx2 > idx1 else len(df_sheet)
+                    table1 = df_sheet.iloc[data_start1:table1_end].dropna(how='all')
+                    table1.columns = df_sheet.iloc[idx1]
+                    table1.columns = table1.columns.map(str)
+                    table1.columns = rename_columns(table1.columns)
                     
-                    if available_tables:
-                        table_choice_auditor = available_tables[0]
-                        table_df = table1 if table_choice_auditor == "Table 1: SALES in Tonage" else table2
+                    if idx2 is not None and idx2 > idx1:
+                        table2 = df_sheet.iloc[data_start2:].dropna(how='all')
+                        table2.columns = df_sheet.iloc[idx2]
+                        table2.columns = table2.columns.map(str)
+                        table2.columns = rename_columns(table2.columns)
                     else:
-                        st.error("No valid tables found in the sheet")
-                        st.stop()
-                
-                if table_df.columns.duplicated().any():
-                    table_df = table_df.loc[:, ~table_df.columns.duplicated()]
-                    st.warning("⚠️ Duplicate columns detected and removed.")
-                
-                if is_region_analysis:
-                    if table_choice_auditor == "Table 1: SALES in Tonage":
-                        st.session_state.auditor_mt_table = table_df
-                    else:
-                        st.session_state.auditor_value_table = table_df
-                elif is_product_analysis:
-                    if table_choice_auditor == "Table 1: SALES in Tonage":
-                        st.session_state.auditor_product_mt_table = table_df
-                    else:
-                        st.session_state.auditor_product_value_table = table_df
-                elif is_sales_analysis_month_wise:
-                    if table_choice_auditor == "Table 1: SALES in Tonage":
-                        st.session_state.auditor_monthly_mt_table = table_df
-                    else:
-                        st.session_state.auditor_monthly_value_table = table_df
-                
-                st.subheader(table_choice_auditor)
-                try:
-                    if len(table_df) * len(table_df.columns) <= 100000:
-                        styled_df = safe_format_dataframe(table_df)
-                        st.dataframe(styled_df.style.format("{:,.2f}"), use_container_width=True)
-                    else:
-                        st.dataframe(table_df, use_container_width=True)
-                except Exception as e:
-                    st.warning(f"Formatting error: {str(e)} - displaying raw data")
-                    st.dataframe(table_df, use_container_width=True)
-                
-                st.download_button(
-                    "⬇️ Download Table as CSV",
-                    table_df.to_csv(index=False).encode('utf-8'),
-                    file_name=f"auditor_{table_choice_auditor.lower().replace(' ', '_').replace(':', '')}.csv",
-                    mime="text/csv",
-                    key=f"auditor_download_{table_choice_auditor}"
-                )
+                        table2 = None
+                    
+                    # Sidebar for table selection
+                    st.sidebar.subheader("Select Table to Display")
+                    table_choice_auditor = st.sidebar.radio(
+                        "Choose table:",
+                        ["Table 1: SALES in MT/Tonnage", "Table 2: SALES in Value"],
+                        key="table_choice_auditor",
+                        index=0 if st.session_state.get('table_choice_auditor', "Table 1: SALES in MT/Tonnage") == "Table 1: SALES in MT/Tonnage" else 1
+                    )
+                    
+                    table_df = None
+                    if table_choice_auditor == "Table 1: SALES in MT/Tonnage" and table1 is not None:
+                        table_df = table1
+                    elif table_choice_auditor == "Table 2: SALES in Value" and table2 is not None:
+                        table_df = table2
+                    
+                    if table_df is None:
+                        available_tables = []
+                        if table1 is not None:
+                            available_tables.append("Table 1: SALES in MT/Tonnage")
+                        if table2 is not None:
+                            available_tables.append("Table 2: SALES in Value")
+                        
+                        if available_tables:
+                            table_choice_auditor = available_tables[0]
+                            table_df = table1 if table_choice_auditor == "Table 1: SALES in MT/Tonnage" else table2
+                        else:
+                            st.error("No valid tables found in the sheet")
+                            st.stop()
+                    
+                    if table_df.columns.duplicated().any():
+                        table_df = table_df.loc[:, ~table_df.columns.duplicated()]
+                        st.warning("⚠️ Duplicate columns detected and removed.")
+                    
+                    if is_region_analysis:
+                        if table_choice_auditor == "Table 1: SALES in MT/Tonnage":
+                            st.session_state.auditor_mt_table = table_df
+                        else:
+                            st.session_state.auditor_value_table = table_df
+                    elif is_product_analysis:
+                        if table_choice_auditor == "Table 1: SALES in MT/Tonnage":
+                            st.session_state.auditor_product_mt_table = table_df
+                        else:
+                            st.session_state.auditor_product_value_table = table_df
+                    elif is_sales_analysis_month_wise:
+                        if table_choice_auditor == "Table 1: SALES in MT/Tonnage":
+                            st.session_state.auditor_monthly_mt_table = table_df
+                        else:
+                            st.session_state.auditor_monthly_value_table = table_df
+                    
+                    # Use the simple preview display to avoid Arrow serialization issues
+                    display_raw_dataframe_preview(
+                        table_df, 
+                        title=table_choice_auditor,
+                        download_name=f"auditor_{table_choice_auditor.lower().replace(' ', '_').replace(':', '')}"
+                    )
+                    
+        except Exception as e:
+            st.error(f"Error processing auditor file: {str(e)}")
+            st.write("Please check your file format and try again.")
+    else:
+        st.info("Please upload an Auditor Format file and select a sheet to view the data tables.")
 
-# Tab 2: Total Sales, Budget, and Last Year Datase
+# Tab 2: Total Sales, Budget, and Last Year Dataset
 with tab2:
-    st.header("📊 Total Sales, Budget, and Last Year Dataset")
+    st.header("📊  Sales, Budget, and Last Year Dataset")
     
     if st.session_state.uploaded_file_sales or st.session_state.uploaded_file_budget or st.session_state.uploaded_file_last_year:
         if st.session_state.uploaded_file_sales and 'selected_sheets_sales' in st.session_state:
-            st.subheader("Total Sales Data")
+            
             
             # Create tabs for each selected sales sheet
             sales_tabs = st.tabs([f"Sheet: {sheet}" for sheet in st.session_state.selected_sheets_sales])
@@ -1074,25 +1214,18 @@ with tab2:
                         df_sales = pd.read_excel(xls_sales, sheet_name=sheet_name, header=0)
                         df_sales = handle_duplicate_columns(df_sales)
                         
-                        try:
-                            styled_df = safe_format_dataframe(df_sales)
-                            st.dataframe(styled_df.style.format("{:,.2f}"), use_container_width=True)
-                        except Exception as e:
-                            st.dataframe(df_sales, use_container_width=True)
-                        
-                        csv_sales = df_sales.to_csv(index=False).encode('utf-8')
-                        st.download_button(
-                            f"⬇️ Download {sheet_name} Data", 
-                            csv_sales, 
-                            file_name=f"sales_{sheet_name.lower().replace(' ', '_')}.csv", 
-                            mime="text/csv",
-                            key=f"sales_download_{sheet_name}"
+                        # Use simple preview display
+                        display_raw_dataframe_preview(
+                            df_sales, 
+                            f"Sales Data - {sheet_name}", 
+                            f"sales_{sheet_name.lower().replace(' ', '_')}"
                         )
+                        
                     except Exception as e:
                         st.error(f"Error reading sheet {sheet_name}: {str(e)}")
         
         if st.session_state.uploaded_file_budget and 'selected_sheet_budget' in locals():
-            st.subheader("Sales Budget Data")
+            
             try:
                 # Read Excel with header in first row (row index 0)
                 df_budget = pd.read_excel(xls_budget, sheet_name=selected_sheet_budget, header=0)
@@ -1103,24 +1236,18 @@ with tab2:
                 budget_data = process_budget_data(df_budget, group_type='region')
                 st.session_state.budget_data = budget_data
                 
-                try:
-                    styled_df = safe_format_dataframe(df_budget)
-                    st.dataframe(styled_df.style.format("{:,.2f}"), use_container_width=True)
-                except Exception as e:
-                    st.dataframe(df_budget, use_container_width=True)
-                
-                csv_budget = df_budget.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    "⬇️ Download Budget Data", 
-                    csv_budget, 
-                    file_name=f"budget_{selected_sheet_budget.lower().replace(' ', '_')}.csv", 
-                    mime="text/csv"
+                # Use simple preview display
+                display_raw_dataframe_preview(
+                    df_budget, 
+                    "Budget Data", 
+                    f"budget_{selected_sheet_budget.lower().replace(' ', '_')}"
                 )
+                
             except Exception as e:
                 st.error(f"Error reading budget sheet: {str(e)}")
         
         if st.session_state.uploaded_file_last_year and 'selected_sheet_last_year' in locals():
-            st.subheader("Last Year Data")
+            
             try:
                 # Read Excel with header in first row (row index 0)
                 df_last_year = pd.read_excel(xls_last_year, sheet_name=selected_sheet_last_year, header=0)
@@ -1131,25 +1258,17 @@ with tab2:
                 # Store raw DataFrame in session state
                 st.session_state.last_year_data = df_last_year
                 
-                try:
-                    styled_df = safe_format_dataframe(df_last_year)
-                    st.dataframe(styled_df.style.format("{:,.2f}"), use_container_width=True)
-                except Exception as e:
-                    st.dataframe(df_last_year, use_container_width=True)
-                
-                csv_last_year = df_last_year.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    "⬇️ Download Last Year Data", 
-                    csv_last_year, 
-                    file_name=f"last_year_{selected_sheet_last_year.lower().replace(' ', '_')}.csv", 
-                    mime="text/csv"
+                # Use simple preview display
+                display_raw_dataframe_preview(
+                    df_last_year, 
+                    "Last Year Data", 
+                    f"last_year_{selected_sheet_last_year.lower().replace(' ', '_')}"
                 )
+                
             except Exception as e:
                 st.error(f"Error reading last year sheet: {str(e)}")
     else:
         st.info("ℹ️ Upload Sales, Budget, or Last Year files to view data.")
-
-
 
 # Define column aliases for dynamic renaming
 column_aliases = {
@@ -1169,6 +1288,8 @@ with tab3:
         # Read budget data with header in first row
         df_budget = pd.read_excel(xls_budget, sheet_name=selected_sheet_budget, header=0)
         df_budget.columns = df_budget.columns.str.strip()
+        
+                
         df_budget = df_budget.dropna(how='all').reset_index(drop=True)
         
         budget_data = process_budget_data(df_budget, group_type='region')
@@ -4084,6 +4205,9 @@ with tab5:
     else:
         st.info("Please upload Sales and Budget files and select a sales sheet.")
 
+
+
+
 with tab6:
     st.header("📊 ERO-PW Data Analysis (WEST)")
     
@@ -5044,8 +5168,8 @@ with tab7:
                 st.error("❌ No 'Sales Analysis Month Wise' sheet found in the uploaded auditor file.")
                 st.write("Available sheets: " + ", ".join(xls.sheet_names))
             else:
-                # Load the sheet
-                df_sheet = pd.read_excel(xls, sheet_name=sales_analysis_sheet, header=None)
+                # Load the sheet with all columns as strings initially to avoid type issues
+                df_sheet = pd.read_excel(xls, sheet_name=sales_analysis_sheet, header=None, dtype=str)
                 
                 # Define possible headers for the tables
                 table1_possible_headers = [
@@ -5074,6 +5198,10 @@ with tab7:
                 table1.columns = rename_columns(table1.columns)
                 table1 = handle_duplicate_columns(table1)
                 
+                # Convert numeric columns to float, except the first column
+                for col in table1.columns[1:]:  # Skip first column (likely text)
+                    table1[col] = pd.to_numeric(table1[col], errors='coerce').fillna(0).astype(float)
+                
                 # Extract SALES in Value table
                 table2 = None
                 if idx2 is not None and idx2 > idx1:
@@ -5082,6 +5210,10 @@ with tab7:
                     table2.columns = table2.columns.map(str)
                     table2.columns = rename_columns(table2.columns)
                     table2 = handle_duplicate_columns(table2)
+                    
+                    # Convert numeric columns to float, except the first column
+                    for col in table2.columns[1:]:
+                        table2[col] = pd.to_numeric(table2[col], errors='coerce').fillna(0).astype(float)
                 
                 # Function to add ACCLLP row with totals from Tab3 and Tab4
                 def add_accllp_row_with_totals(table, table_type):
@@ -5109,17 +5241,14 @@ with tab7:
                     tab3_totals = {}
                     
                     if table_type == 'MT':
-                        # Check multiple possible session state keys for Tab3 MT data
                         possible_keys = ['merged_region_mt_data', 'region_analysis_data', 'region_mt_data']
                         tab3_data = None
-                        
                         for key in possible_keys:
                             if st.session_state.get(key) is not None:
                                 tab3_data = st.session_state[key]
                                 break
                         
                         if tab3_data is not None:
-                            # Try different column name variations
                             id_col_variations = ['SALES in MT', 'REGIONS', 'SALES in Tonage']
                             id_col = None
                             for col_var in id_col_variations:
@@ -5141,17 +5270,14 @@ with tab7:
                                                 pass
                     
                     elif table_type == 'Value':
-                        # Check multiple possible session state keys for Tab3 Value data
                         possible_keys = ['merged_region_value_data', 'region_value_data']
                         tab3_data = None
-                        
                         for key in possible_keys:
                             if st.session_state.get(key) is not None:
                                 tab3_data = st.session_state[key]
                                 break
                         
                         if tab3_data is not None:
-                            # Try different column name variations
                             id_col_variations = ['SALES in Value', 'REGIONS']
                             id_col = None
                             for col_var in id_col_variations:
@@ -5176,17 +5302,14 @@ with tab7:
                     tab4_totals = {}
                     
                     if table_type == 'MT':
-                        # Check multiple possible session state keys for Tab4 MT data
                         possible_keys = ['merged_product_mt_data', 'product_mt_data']
                         tab4_data = None
-                        
                         for key in possible_keys:
                             if st.session_state.get(key) is not None:
                                 tab4_data = st.session_state[key]
                                 break
                         
                         if tab4_data is not None:
-                            # Try different column name variations
                             id_col_variations = ['SALES in Tonage', 'PRODUCT NAME', 'SALES in MT']
                             id_col = None
                             for col_var in id_col_variations:
@@ -5208,17 +5331,14 @@ with tab7:
                                                 pass
                     
                     elif table_type == 'Value':
-                        # Check multiple possible session state keys for Tab4 Value data
                         possible_keys = ['merged_product_value_data', 'product_value_data']
                         tab4_data = None
-                        
                         for key in possible_keys:
                             if st.session_state.get(key) is not None:
                                 tab4_data = st.session_state[key]
                                 break
                         
                         if tab4_data is not None:
-                            # Try different column name variations
                             id_col_variations = ['SALES in Value', 'PRODUCT NAME']
                             id_col = None
                             for col_var in id_col_variations:
@@ -5241,23 +5361,16 @@ with tab7:
                     
                     # Combine totals from Tab3 and Tab4 and update both ACCLLP and TOTAL SALES rows
                     all_cols = set(tab3_totals.keys()) | set(tab4_totals.keys())
-                    combined_count = 0
-                    
                     for col in all_cols:
                         if col in updated_table.columns:
                             tab3_val = tab3_totals.get(col, 0)
                             tab4_val = tab4_totals.get(col, 0)
                             combined_val = tab3_val + tab4_val
-                            
-                            # Handle potential NaN/inf values
                             if pd.isna(combined_val) or np.isinf(combined_val):
                                 combined_val = 0.0
-                            
-                            # Store same value in both rows
                             combined_rounded = round(combined_val, 2)
                             accllp_row[col] = combined_rounded
                             total_sales_row[col] = combined_rounded
-                            combined_count += 1
                     
                     # Remove existing ACCLLP or TOTAL SALES rows if they exist
                     updated_table = updated_table[
@@ -5267,12 +5380,8 @@ with tab7:
                     # Add both ACCLLP and TOTAL SALES rows
                     accllp_df = pd.DataFrame([accllp_row])
                     total_sales_df = pd.DataFrame([total_sales_row])
-                    
-                    # Ensure column order matches
                     accllp_df = accllp_df[updated_table.columns]
                     total_sales_df = total_sales_df[updated_table.columns]
-                    
-                    # Add both rows to the table
                     updated_table = pd.concat([updated_table, accllp_df, total_sales_df], ignore_index=True)
                     
                     return updated_table
@@ -5286,91 +5395,80 @@ with tab7:
                 st.session_state.auditor_monthly_value_table = table2_with_accllp
                 
                 # Display SALES in MT table
-                st.subheader("SALES in MT (with ACCLLP and TOTAL SALES totals)")
+                st.subheader("SALES in MT")
                 if table1_with_accllp is not None and not table1_with_accllp.empty:
                     try:
-                        # Clean data for display - replace NaN/inf with 0
                         display_mt = table1_with_accllp.copy()
+                        
+                        
+                        # Clean numeric columns
                         numeric_cols = display_mt.select_dtypes(include=[np.number]).columns
                         display_mt[numeric_cols] = display_mt[numeric_cols].replace([np.inf, -np.inf], 0)
                         display_mt[numeric_cols] = display_mt[numeric_cols].fillna(0)
                         
+                        # Format numeric columns for display as strings
                         if len(display_mt) * len(display_mt.columns) <= 100000:
-                            # Format numeric columns for display
                             for col in numeric_cols:
                                 display_mt[col] = display_mt[col].apply(lambda x: f"{x:,.2f}" if pd.notna(x) else "0.00")
-                            st.dataframe(display_mt, use_container_width=True)
-                        else:
-                            st.dataframe(display_mt, use_container_width=True)
+                        
+                        st.dataframe(display_mt, use_container_width=True)
                     except Exception as e:
-                        st.warning(f"Formatting error in SALES in MT table: {str(e)} - displaying raw data")
+                        
                         st.dataframe(table1_with_accllp, use_container_width=True)
                 else:
                     st.error("❌ SALES in MT table not found or empty")
                 
                 # Display SALES in Value table
-                st.subheader("SALES in Value (with ACCLLP and TOTAL SALES totals)")
+                st.subheader("SALES in Value")
                 if table2_with_accllp is not None and not table2_with_accllp.empty:
                     try:
-                        # Clean data for display - replace NaN/inf with 0
                         display_value = table2_with_accllp.copy()
+                        
+                        
+                        
+                        # Clean numeric columns
                         numeric_cols = display_value.select_dtypes(include=[np.number]).columns
                         display_value[numeric_cols] = display_value[numeric_cols].replace([np.inf, -np.inf], 0)
                         display_value[numeric_cols] = display_value[numeric_cols].fillna(0)
                         
+                        # Format numeric columns for display as strings
                         if len(display_value) * len(display_value.columns) <= 100000:
-                            # Format numeric columns for display
                             for col in numeric_cols:
                                 display_value[col] = display_value[col].apply(lambda x: f"{x:,.2f}" if pd.notna(x) else "0.00")
-                            st.dataframe(display_value, use_container_width=True)
-                        else:
-                            st.dataframe(display_value, use_container_width=True)
+                        
+                        st.dataframe(display_value, use_container_width=True)
                     except Exception as e:
                         st.warning(f"Formatting error in SALES in Value table: {str(e)} - displaying raw data")
                         st.dataframe(table2_with_accllp, use_container_width=True)
                 else:
                     st.error("❌ SALES in Value table not found or empty")
                 
-               
                 # Check what data was available for combination
-                tab3_available = False
-                tab4_available = False
-                
-                if (st.session_state.get('merged_region_mt_data') is not None or 
-                    st.session_state.get('merged_region_value_data') is not None or
-                    st.session_state.get('region_analysis_data') is not None or
-                    st.session_state.get('region_value_data') is not None):
-                    tab3_available = True
-                
-                if (st.session_state.get('merged_product_mt_data') is not None or 
-                    st.session_state.get('merged_product_value_data') is not None or
-                    st.session_state.get('product_mt_data') is not None or
-                    st.session_state.get('product_value_data') is not None):
-                    tab4_available = True
-                
-                
+                tab3_available = any(key in st.session_state for key in [
+                    'merged_region_mt_data', 'merged_region_value_data', 'region_analysis_data', 'region_value_data'
+                ])
+                tab4_available = any(key in st.session_state for key in [
+                    'merged_product_mt_data', 'merged_product_value_data', 'product_mt_data', 'product_value_data'
+                ])
                 
                 # Single Excel download for both tables with ACCLLP
                 if ((table1_with_accllp is not None and not table1_with_accllp.empty) or 
                     (table2_with_accllp is not None and not table2_with_accllp.empty)):
                     output = BytesIO()
                     try:
-                        # Clean data before Excel export - replace NaN/inf with 0
-                        if table1_with_accllp is not None:
-                            table1_clean = table1_with_accllp.copy()
+                        # Clean data before Excel export
+                        table1_clean = table1_with_accllp.copy() if table1_with_accllp is not None else None
+                        table2_clean = table2_with_accllp.copy() if table2_with_accllp is not None else None
+                        
+                        if table1_clean is not None:
                             numeric_cols = table1_clean.select_dtypes(include=[np.number]).columns
                             table1_clean[numeric_cols] = table1_clean[numeric_cols].replace([np.inf, -np.inf], 0)
                             table1_clean[numeric_cols] = table1_clean[numeric_cols].fillna(0)
-                        else:
-                            table1_clean = None
-                            
-                        if table2_with_accllp is not None:
-                            table2_clean = table2_with_accllp.copy()
+                        
+                        if table2_clean is not None:
                             numeric_cols = table2_clean.select_dtypes(include=[np.number]).columns
                             table2_clean[numeric_cols] = table2_clean[numeric_cols].replace([np.inf, -np.inf], 0)
                             table2_clean[numeric_cols] = table2_clean[numeric_cols].fillna(0)
-                        else:
-                            table2_clean = None
                         
                         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                             workbook = writer.book
@@ -5391,74 +5489,54 @@ with tab7:
                             
                             start_row = 4
                             if table1_clean is not None and not table1_clean.empty:
-                                # Write SALES in MT table
                                 table1_clean.to_excel(writer, sheet_name='Sales_Analysis_Monthly', startrow=start_row + 3, index=False)
-                                # Add title
                                 worksheet.merge_range(
                                     start_row, 0, start_row, len(table1_clean.columns) - 1,
                                     "SALES IN MT - MONTH WISE (with ACCLLP & TOTAL SALES)", title_format
                                 )
-                                # Write headers
                                 for col_num, value in enumerate(table1_clean.columns.values):
                                     worksheet.write(start_row + 3, col_num, value, header_format)
                                 
-                                # Format data rows with special formatting for ACCLLP
                                 first_col = table1_clean.columns[0]
                                 for row_num in range(len(table1_clean)):
-                                    is_accllp = str(table1_clean.iloc[row_num, 0]).upper() == 'ACCLLP'
+                                    is_accllp = str(table1_clean.iloc[row_num, 0]).upper() in ['ACCLLP', 'TOTAL SALES']
                                     for col_num in range(len(table1_clean.columns)):
                                         value = table1_clean.iloc[row_num, col_num]
-                                        # Ensure numeric values are properly formatted
                                         if col_num > 0 and pd.api.types.is_numeric_dtype(table1_clean.iloc[:, col_num]):
                                             if pd.isna(value) or np.isinf(value):
                                                 value = 0.0
                                             else:
                                                 value = float(value)
-                                        
-                                        if col_num == 0:
-                                            fmt = accllp_format if is_accllp else text_format
-                                        else:
-                                            fmt = accllp_format if is_accllp else num_format
+                                        fmt = accllp_format if is_accllp else (text_format if col_num == 0 else num_format)
                                         worksheet.write(start_row + 4 + row_num, col_num, value, fmt)
                                 
-                                # Adjust column widths
                                 for i, col in enumerate(table1_clean.columns):
                                     max_len = max((table1_clean[col].astype(str).str.len().max(), len(str(col)))) + 2
                                     worksheet.set_column(i, i, min(max_len, 25))
                                 start_row += len(table1_clean) + 7
                             
                             if table2_clean is not None and not table2_clean.empty:
-                                # Write SALES in Value table
                                 table2_clean.to_excel(writer, sheet_name='Sales_Analysis_Monthly', startrow=start_row + 3, index=False)
-                                # Add title
                                 worksheet.merge_range(
                                     start_row, 0, start_row, len(table2_clean.columns) - 1,
                                     "SALES IN VALUE - MONTH WISE (with ACCLLP)", title_format
                                 )
-                                # Write headers
                                 for col_num, value in enumerate(table2_clean.columns.values):
                                     worksheet.write(start_row + 3, col_num, value, header_format)
                                 
-                                # Format data rows with special formatting for ACCLLP
                                 first_col = table2_clean.columns[0]
                                 for row_num in range(len(table2_clean)):
-                                    is_accllp = str(table2_clean.iloc[row_num, 0]).upper() == 'ACCLLP'
+                                    is_accllp = str(table2_clean.iloc[row_num, 0]).upper() in ['ACCLLP', 'TOTAL SALES']
                                     for col_num in range(len(table2_clean.columns)):
                                         value = table2_clean.iloc[row_num, col_num]
-                                        # Ensure numeric values are properly formatted
                                         if col_num > 0 and pd.api.types.is_numeric_dtype(table2_clean.iloc[:, col_num]):
                                             if pd.isna(value) or np.isinf(value):
                                                 value = 0.0
                                             else:
                                                 value = float(value)
-                                        
-                                        if col_num == 0:
-                                            fmt = accllp_format if is_accllp else text_format
-                                        else:
-                                            fmt = accllp_format if is_accllp else num_format
+                                        fmt = accllp_format if is_accllp else (text_format if col_num == 0 else num_format)
                                         worksheet.write(start_row + 4 + row_num, col_num, value, fmt)
                                 
-                                # Adjust column widths
                                 for i, col in enumerate(table2_clean.columns):
                                     max_len = max((table2_clean[col].astype(str).str.len().max(), len(str(col)))) + 2
                                     worksheet.set_column(i, i, min(max_len, 25))
@@ -6256,9 +6334,9 @@ with tab8:
                     
                     # Download button
                     st.download_button(
-                        label="⬇️ Download Complete Combined Excel File",
+                        label="⬇️ Download Complete Auditor Excel File",
                         data=excel_data,
-                        file_name="combined_sales_analysis_all_tabs.xlsx",
+                        file_name="Auditor Format.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key="combined_excel_download",
                         use_container_width=True
