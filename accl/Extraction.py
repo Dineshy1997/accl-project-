@@ -13,6 +13,186 @@ warnings.filterwarnings('ignore')
 pd.set_option("styler.render.max_elements", 500000)
 st.set_page_config(layout='wide')
 
+# Memory-efficient merge functions
+def safe_merge_dataframes(left_df, right_df, on_column, how='left', max_rows_threshold=100000):
+    """
+    Safely merge dataframes with memory checks and deduplication to prevent memory explosion.
+    
+    Args:
+        left_df: Left dataframe to merge
+        right_df: Right dataframe to merge  
+        on_column: Column to merge on
+        how: Type of merge ('left', 'right', 'inner', 'outer')
+        max_rows_threshold: Maximum expected rows after merge
+    
+    Returns:
+        Merged dataframe or raises informative error
+    """
+    if left_df is None or right_df is None:
+        st.error("One of the dataframes is None")
+        return left_df if right_df is None else right_df
+    
+    if left_df.empty or right_df.empty:
+        st.warning("One of the dataframes is empty")
+        return left_df if right_df.empty else right_df
+    
+    if on_column not in left_df.columns:
+        st.error(f"Column '{on_column}' not found in left dataframe")
+        return left_df
+    
+    if on_column not in right_df.columns:
+        st.error(f"Column '{on_column}' not found in right dataframe")
+        return left_df
+
+    
+    
+    # Clean and deduplicate the merge column
+    left_df = left_df.copy()
+    right_df = right_df.copy()
+    
+    # Ensure merge column is string and cleaned
+    left_df[on_column] = left_df[on_column].astype(str).str.strip().str.upper()
+    right_df[on_column] = right_df[on_column].astype(str).str.strip().str.upper()
+    
+    # Remove empty/invalid keys
+    left_df = left_df[~left_df[on_column].isin(['', 'NAN', 'NONE', 'NULL'])]
+    right_df = right_df[~right_df[on_column].isin(['', 'NAN', 'NONE', 'NULL'])]
+    
+    # Check for duplicates in merge column and warn
+    left_dups = left_df[on_column].duplicated().sum()
+    right_dups = right_df[on_column].duplicated().sum()
+    
+    if left_dups > 0:
+        
+        # Keep only the first occurrence to prevent explosion
+        left_df = left_df.drop_duplicates(subset=[on_column], keep='first')
+    
+    
+    if right_dups > 0:
+        
+        # For right dataframe, aggregate numeric columns by sum to prevent loss
+        numeric_cols = right_df.select_dtypes(include=[np.number]).columns
+        non_numeric_cols = [col for col in right_df.columns if col not in numeric_cols and col != on_column]
+        
+        if len(numeric_cols) > 0:
+            # Aggregate numeric columns by sum, keep first value for non-numeric
+            agg_dict = {col: 'sum' for col in numeric_cols}
+            if non_numeric_cols:
+                agg_dict.update({col: 'first' for col in non_numeric_cols})
+            
+            right_df = right_df.groupby(on_column).agg(agg_dict).reset_index()
+            
+        else:
+            right_df = right_df.drop_duplicates(subset=[on_column], keep='first')
+            
+    
+    # Estimate merge result size
+    estimated_rows = len(left_df) * right_df.groupby(on_column).size().max() if how == 'left' else len(left_df) + len(right_df)
+
+    estimated_cols = len(left_df.columns) + len(right_df.columns) - 1  # -1 for merge column overlap
+    
+    
+    
+    if estimated_rows > max_rows_threshold:
+        st.error(f"Estimated merge size ({estimated_rows} rows) exceeds threshold ({max_rows_threshold}). Aborting to prevent memory issues.")
+        return left_df
+    
+    # Perform the merge with error handling
+    try:
+        # Use categorical data type for merge column to save memory
+        if left_df[on_column].nunique() < len(left_df) * 0.5:  # If less than 50% unique values
+            left_df[on_column] = left_df[on_column].astype('category')
+            right_df[on_column] = right_df[on_column].astype('category')
+        
+        merged_df = left_df.merge(right_df, on=on_column, how=how, suffixes=('', '_right'))
+        
+        # Remove duplicate columns that may have been created
+        duplicate_cols = [col for col in merged_df.columns if col.endswith('_right')]
+        if duplicate_cols:
+        
+            merged_df = merged_df.drop(columns=duplicate_cols)
+        
+    
+        return merged_df
+        
+    except MemoryError as e:
+        st.error(f"Memory error during merge: {str(e)}")
+        st.info("Attempting chunk-based merge...")
+        
+        # Fallback: chunk-based merge for large datasets
+        return chunk_based_merge(left_df, right_df, on_column, how)
+        
+    except Exception as e:
+        st.error(f"Error during merge: {str(e)}")
+        return left_df
+
+def chunk_based_merge(left_df, right_df, on_column, how='left', chunk_size=10000):
+    """
+    Perform merge in chunks to handle large datasets with limited memory.
+    """
+    try:
+        st.info(f"Performing chunk-based merge with chunk size: {chunk_size}")
+        
+        merged_chunks = []
+        total_chunks = (len(left_df) // chunk_size) + 1
+        
+        for i in range(0, len(left_df), chunk_size):
+            chunk = left_df.iloc[i:i+chunk_size]
+            merged_chunk = chunk.merge(right_df, on=on_column, how=how, suffixes=('', '_right'))
+            
+            # Remove duplicate columns
+            duplicate_cols = [col for col in merged_chunk.columns if col.endswith('_right')]
+            if duplicate_cols:
+                merged_chunk = merged_chunk.drop(columns=duplicate_cols)
+            
+            merged_chunks.append(merged_chunk)
+            
+            if (i // chunk_size + 1) % 5 == 0:  # Progress update every 5 chunks
+                st.info(f"Processed chunk {i//chunk_size + 1}/{total_chunks}")
+        
+        # Combine all chunks
+        final_merged = pd.concat(merged_chunks, ignore_index=True)
+        st.success(f"Chunk-based merge completed! Final shape: {final_merged.shape}")
+        return final_merged
+        
+    except Exception as e:
+        st.error(f"Chunk-based merge also failed: {str(e)}")
+        st.info("Returning left dataframe as fallback.")
+        return left_df
+
+def optimize_dataframe_memory(df):
+    """
+    Optimize dataframe memory usage by converting data types.
+    """
+    if df is None or df.empty:
+        return df
+    
+    original_memory = df.memory_usage(deep=True).sum() / 1024**2  # MB
+    
+    # Optimize numeric columns
+    for col in df.select_dtypes(include=['int64']).columns:
+        if df[col].min() >= -32768 and df[col].max() <= 32767:
+            df[col] = df[col].astype('int16')
+        elif df[col].min() >= -2147483648 and df[col].max() <= 2147483647:
+            df[col] = df[col].astype('int32')
+    
+    for col in df.select_dtypes(include=['float64']).columns:
+        if df[col].min() >= -3.4e38 and df[col].max() <= 3.4e38:
+            df[col] = df[col].astype('float32')
+    
+    # Optimize string columns with low cardinality
+    for col in df.select_dtypes(include=['object']).columns:
+        if df[col].nunique() / len(df) < 0.5:  # Less than 50% unique values
+            df[col] = df[col].astype('category')
+    
+    new_memory = df.memory_usage(deep=True).sum() / 1024**2  # MB
+    
+    if original_memory > 0:
+        memory_reduction = (1 - new_memory/original_memory) * 100
+        st.info(f"Memory optimization: {original_memory:.1f}MB → {new_memory:.1f}MB ({memory_reduction:.1f}% reduction)")
+    
+    return df
+
 # Initialize session state
 if 'uploaded_file_auditor' not in st.session_state:
     st.session_state.uploaded_file_auditor = None
@@ -480,8 +660,6 @@ def safe_format_dataframe(df):
         st.warning(f"Error in safe_format_dataframe: {str(e)}")
         return df
 
-
-
 def display_dataframe_safely(df, title="", download_name="table"):
     """
     Safely display a DataFrame with proper formatting and error handling.
@@ -568,24 +746,6 @@ def validate_dataframe(df, name, required_cols=['REGIONS', 'PRODUCT NAME']):
         st.error(f"All '{identifier_col}' values in {name} are NaN.")
         return False
     return True
-
-def add_region_group_totals(df):
-    df = df.copy()
-    erd_sales_regions = ['COVAI', 'ERODE', 'KARUR', 'MADURAI', 'POULTRY', 'SALEM', 'TIRUPUR']
-    chn_regions = ['BGLR', 'CHENNAI', 'PONDY']
-    
-    erd_mask = df['REGIONS'].str.upper().isin(erd_sales_regions)
-    erd_total = df[erd_mask].sum(numeric_only=True).to_frame().T
-    erd_total['REGIONS'] = 'ERD SALES'
-    
-    chn_mask = df['REGIONS'].str.upper().isin(chn_regions)
-    chn_total = df[chn_mask].sum(numeric_only=True).to_frame().T
-    chn_total['REGIONS'] = 'CHN TOTAL'
-    
-    all_total = df.sum(numeric_only=True).to_frame().T
-    all_total['REGIONS'] = 'GRAND TOTAL'
-    
-    return pd.concat([df, erd_total, chn_total, all_total], ignore_index=True)
 
 def is_effectively_empty(series):
     series_clean = series.astype(str).str.strip()
@@ -811,196 +971,6 @@ def process_last_year_data(last_year_df, group_type='region'):
     
     return last_year_data
 
-def merge_auditor_sales_data(auditor_df, sales_df, budget_data=None, last_year_data=None, table_type='SALES in MT', group_type='region'):
-    auditor_df = handle_duplicate_columns(auditor_df.copy())
-    sales_df = handle_duplicate_columns(sales_df.copy())
-    
-    identifier_mapping = {
-        'region': {
-            'BGLR': ['BGLR', 'BANGALORE', 'BANGALURU'],
-            'CHENNAI': ['CHENNAI', 'CHENNAI CITY'],
-            'COVAI': ['COVAI', 'COIMBATORE'],
-            'ERODE': ['ERODE'],
-            'KARUR': ['KARUR'],
-            'MADURAI': ['MADURAI'],
-            'PONDY': ['PONDY', 'PONDICHERRY'],
-            'POULTRY': ['POULTRY'],
-            'SALEM': ['SALEM'],
-            'TIRUPUR': ['TIRUPUR', 'TIRUPPUR'],
-            'ERD SALES': ['ERD SALES'],
-            'CHN TOTAL': ['CHN TOTAL'],
-            'GRAND TOTAL': ['GRAND TOTAL']
-        },
-        'product': {
-            'PRODUCT A': ['PRODUCT A', 'PROD A'],
-            'PRODUCT B': ['PRODUCT B', 'PROD B'],
-        },
-        'product_region': {
-            'PRODUCT A': ['PRODUCT A', 'PROD A'],
-            'PRODUCT B': ['PRODUCT B', 'PROD B'],
-        }
-    }
-    
-    mapping = identifier_mapping.get(group_type, {})
-    
-    auditor_df.columns = auditor_df.columns.str.strip()
-    sales_df.columns = sales_df.columns.str.strip()
-    
-    identifier_col_auditor = None
-    identifier_col_names = ['REGIONS', 'REGION', 'BRANCH'] if group_type == 'region' else ['PRODUCT', 'PRODUCT GROUP', 'PRODUCT NAME']
-    for col in auditor_df.columns:
-        col_upper = str(col).strip().upper()
-        if any(r in col_upper for r in identifier_col_names):
-            identifier_col_auditor = col
-            break
-    
-    if not identifier_col_auditor:
-        for col in auditor_df.columns:
-            for i in range(min(5, len(auditor_df))):
-                cell_value = str(auditor_df[col].iloc[i]).strip().upper()
-                for identifier, aliases in mapping.items():
-                    if any(alias in cell_value for alias in aliases):
-                        identifier_col_auditor = col
-                        break
-                if identifier_col_auditor:
-                    break
-            if identifier_col_auditor:
-                break
-    
-    if not identifier_col_auditor:
-        identifier_col_auditor = find_column(auditor_df, identifier_col_names[0], threshold=80)
-        if not identifier_col_auditor:
-            st.error(f"Could not find {group_type.capitalize()} column in auditor dataset.")
-            return auditor_df
-    
-    identifier_col_sales = None
-    for col in sales_df.columns:
-        col_upper = str(col).strip().upper()
-        if any(r in col_upper for r in identifier_col_names):
-            identifier_col_sales = col
-            break
-    
-    if not identifier_col_sales:
-        identifier_col_sales = find_column(sales_df, identifier_col_names[0], threshold=80)
-        if not identifier_col_sales:
-            st.error(f"Could not find {group_type.capitalize()} column in sales dataset.")
-            return auditor_df
-    
-    budget_cols = [col for col in auditor_df.columns if col.lower().startswith('budget')]
-    budget_column_mapping = {col: col for col in budget_cols}
-    
-    merged_df = auditor_df.copy()
-    
-    for budget_col in budget_cols:
-        merged_df[budget_col] = np.nan
-    
-    if budget_data is not None:
-        for _, sales_row in sales_df.iterrows():
-            identifier = sales_row.get(identifier_col_sales)
-            if not identifier:
-                continue
-                
-            for mapped_identifier, aliases in mapping.items():
-                if str(identifier).strip().upper() in [str(ar).strip().upper() for ar in aliases]:
-                    for alias in aliases:
-                        mask = merged_df[identifier_col_auditor].str.strip().str.upper() == str(alias).strip().upper()
-                        if mask.any():
-                            for col in sales_df.columns:
-                                if col.startswith('Budget-'):
-                                    target_col = col.replace('_MT', '').replace('_Value', '')
-                                    if target_col in budget_column_mapping:
-                                        merged_df.loc[mask, budget_column_mapping[target_col]] = sales_row[col]
-                            if 'Actual' in sales_row and 'Month' in sales_row:
-                                month = sales_row['Month']
-                                act_col = None
-                                for col in merged_df.columns:
-                                    if col.startswith('Act-') and month.lower() in col.lower():
-                                        act_col = col
-                                        break
-                                if act_col:
-                                    merged_df.loc[mask, act_col] = sales_row['Actual']
-                            break
-    
-    if last_year_data is not None:
-        ly_cols = [col for col in last_year_data.columns if col.startswith('LY-')]
-        for ly_col in ly_cols:
-            if ly_col not in merged_df.columns:
-                merged_df[ly_col] = np.nan
-        for _, ly_row in last_year_data.iterrows():
-            identifier = ly_row.get('REGIONS' if group_type == 'region' else 'PRODUCT NAME')
-            if not identifier:
-                continue
-            for mapped_identifier, aliases in mapping.items():
-                if str(identifier).strip().upper() in [str(ar).strip().upper() for ar in aliases]:
-                    for alias in aliases:
-                        mask = merged_df[identifier_col_auditor].str.strip().str.upper() == str(alias).strip().upper()
-                        if mask.any():
-                            for col in ly_cols:
-                                if col in merged_df.columns:
-                                    merged_df.loc[mask, col] = ly_row[col]
-                            break
-    
-    act_columns = [col for col in merged_df.columns if col.startswith('Act-')]
-    for act_col in act_columns:
-        if 'YTD' in act_col:
-            ytd_match = re.match(r'Act[- ]*YTD[-–\s]*(\d{2})[-–\s]*(\d{2})\s*\((.*?)\)', act_col, re.IGNORECASE)
-            if ytd_match:
-                start_year, end_year, period = ytd_match.groups()
-                period = period.replace('June', 'Jun').replace('July', 'Jul').replace('August', 'Aug').replace('September', 'Sep').replace('October', 'Oct').replace('November', 'Nov').replace('December', 'Dec')
-                ytd_base = f"YTD-{start_year}-{end_year} ({period})"
-                gr_ytd_col = f"Gr-{ytd_base}"
-                ach_ytd_col = f"Ach-{ytd_base}"
-                merged_df[gr_ytd_col] = merged_df[act_col]
-                merged_df[ach_ytd_col] = merged_df[act_col]
-        else:
-            monthly_match = re.match(r'Act-(\w{3,})-(\d{2})', act_col, re.IGNORECASE)
-            if monthly_match:
-                month, year = monthly_match.groups()
-                month = month.capitalize()
-                gr_col = f"Gr-{month}-{year}"
-                ach_col = f"Ach-{month}-{year}"
-                merged_df[gr_col] = merged_df[act_col]
-                merged_df[ach_col] = merged_df[act_col]
-
-    ytd_columns = [col for col in merged_df.columns if 'YTD' in col and 'Act' not in col and 'L,Y' not in col]
-    for ytd_col in ytd_columns:
-        ytd_match = re.match(r'YTD[-–\s]*(\d{2})[-–\s]*(\d{2})\s*\((.*?)\)', ytd_col, re.IGNORECASE)
-        if ytd_match:
-            start_year, end_year, period = ytd_match.groups()
-            period = period.replace('June', 'Jun').replace('July', 'Jul').replace('August', 'Aug').replace('September', 'Sep').replace('October', 'Oct').replace('November', 'Nov').replace('December', 'Dec')
-            months = period.split('to')
-            start_month = months[0].strip()
-            end_month = months[1].strip()
-            month_list = []
-            month_order = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar']
-            start_idx = month_order.index(start_month)
-            end_idx = month_order.index(end_month)
-            for i in range(start_idx, end_idx + 1):
-                month_list.append(month_order[i])
-            year = start_year if start_idx <= end_idx else end_year
-            year_ly = str(int(year) - 1) if start_idx <= end_idx else str(int(year) - 1)
-
-            budget_cols = [f"Budget-{m}-{year}" for m in month_list if f"Budget-{m}-{year}" in merged_df.columns]
-            ly_cols = [f"LY-{m}-{year_ly}" for m in month_list if f"LY-{m}-{year_ly}" in merged_df.columns]
-            act_cols = [f"Act-{m}-{year}" for m in month_list if f"Act-{m}-{year}" in merged_df.columns]
-
-            if budget_cols:
-                merged_df[ytd_col] = merged_df[budget_cols].sum(axis=1)
-            if ly_cols:
-                ly_ytd_col = f"YTD-{start_year}-{end_year} ({period})L,Y"
-                merged_df[ly_ytd_col] = merged_df[ly_cols].sum(axis=1)
-            if act_cols:
-                act_ytd_col = f"Act-YTD-{start_year}-{end_year} ({period})"
-                merged_df[act_ytd_col] = merged_df[act_cols].sum(axis=1)
-                gr_ytd_col = f"Gr-YTD-{start_year}-{end_year} ({period})"
-                ach_ytd_col = f"Ach-YTD-{start_year}-{end_year} ({period})"
-                merged_df[gr_ytd_col] = merged_df[act_ytd_col]
-                merged_df[ach_ytd_col] = merged_df[act_ytd_col]
-
-    return merged_df
-
-
-# Sidebar File Uploaders
 with st.sidebar:
     st.header("📁 File Uploads")
     st.session_state.uploaded_file_budget = st.file_uploader(
@@ -1051,8 +1021,6 @@ with st.sidebar:
         )
         st.session_state.selected_sheets_sales = selected_sheets_sales
 
-        
-
 # Last Year Sheet Selection Sidebar
 with st.sidebar:
     st.header("📄 Total Sales Selection")
@@ -1084,7 +1052,6 @@ with st.sidebar:
         
         if is_region_analysis or is_product_analysis or is_sales_analysis_month_wise:
             table_label = "Region Analysis" if is_region_analysis else "Product Analysis"
-
 
 # Main tabs
 st.title("📊 ACL Extraction")
@@ -1203,7 +1170,6 @@ with tab2:
     if st.session_state.uploaded_file_sales or st.session_state.uploaded_file_budget or st.session_state.uploaded_file_last_year:
         if st.session_state.uploaded_file_sales and 'selected_sheets_sales' in st.session_state:
             
-            
             # Create tabs for each selected sales sheet
             sales_tabs = st.tabs([f"Sheet: {sheet}" for sheet in st.session_state.selected_sheets_sales])
             
@@ -1273,14 +1239,12 @@ with tab2:
 # Define column aliases for dynamic renaming
 column_aliases = {
     'Date': ['Month Format', 'Month', 'Date', 'Time Period', 'Period', 'Month Format-Date'],
-    'Product Name': ['Type(Make)', 'Product Group', 'Product', 'Item Group', 'Type'],
-    'Value': ['Value', 'Sales Value', 'Revenue', 'Total Amount', 'Amount'],  # For df_sales
+    'Product Name': ['Type(Make)', 'Product Group'],
+    'Value': ['Value', 'Sales Value',  'Total Amount', 'Amount'],  # For df_sales
     'Amount': ['Amount', 'Total Amount', 'Sales Amount', 'Value', 'Sales Value'],  # For df_last_year
-    'Branch': ['Branch.1', 'Branch', 'Region', 'Location', 'Area'],
+    'Branch': ['Branch.1', 'Branch'],
     'Actual Quantity': ['Actual Quantity', 'Acutal Quantity', 'Quantity', 'Sales Quantity', 'Qty', 'Volume']
 }
-
-
 
 with tab3:
     st.header("📊 Region Month-wise Analysis")
@@ -1289,7 +1253,6 @@ with tab3:
         df_budget = pd.read_excel(xls_budget, sheet_name=selected_sheet_budget, header=0)
         df_budget.columns = df_budget.columns.str.strip()
         
-                
         df_budget = df_budget.dropna(how='all').reset_index(drop=True)
         
         budget_data = process_budget_data(df_budget, group_type='region')
@@ -1517,12 +1480,12 @@ with tab3:
                 
                 actual_mt = pd.DataFrame({'REGIONS': result_mt['REGIONS']})
                 if 'actual_mt_current' in locals():
-                    actual_mt = actual_mt.merge(actual_mt_current, on='REGIONS', how='left')
+                    actual_mt = safe_merge_dataframes(actual_mt, actual_mt_current, on_column='REGIONS', how='left')
                 if 'actual_mt_last' in locals():
-                    actual_mt = actual_mt.merge(actual_mt_last, on='REGIONS', how='left')
+                    actual_mt = safe_merge_dataframes(actual_mt, actual_mt_last, on_column='REGIONS', how='left')
                 st.session_state.actual_mt_data = actual_mt
                 
-                result_mt = result_mt.merge(actual_mt, on='REGIONS', how='left')
+                result_mt = safe_merge_dataframes(result_mt, actual_mt, on_column='REGIONS', how='left')
                 
                 # Calculate Growth and Achievement
                 for month in months:
@@ -1593,7 +1556,6 @@ with tab3:
                     file_name=f"region_budget_qty_{selected_sheet_budget}.csv",
                     mime="text/csv"
                 )
-        
         with tab_value:
             value_cols = [col for col in budget_data.columns if col.endswith('_Value')]
             value_cols = [col for col in value_cols if f'Budget-April{str(last_year)[-2:]}dec-{str(current_year)[-2:]}' not in col]
@@ -1709,11 +1671,6 @@ with tab3:
                                 aggfunc='sum'
                             ).reset_index().fillna(0)
                             
-                            # Check for January-March 2026
-                            expected_cols = [f'Act-{m}-26' for m in ['Jan', 'Feb', 'Mar']]
-                            missing_cols = [col for col in expected_cols if col not in actual_value_current.columns]
-                            if missing_cols:
-                                pass
                         except Exception as e:
                             st.error(f"Error in sales value grouping: {str(e)}")
                             actual_value_current = pd.DataFrame({'REGIONS': result_value['REGIONS']})
@@ -1793,23 +1750,18 @@ with tab3:
                                         aggfunc='sum'
                                     ).reset_index().fillna(0)
                                     
-                                    # Check for January-March 2025
-                                    expected_cols = [f'LY-{m}-25' for m in ['Jan', 'Feb', 'Mar']]
-                                    missing_cols = [col for col in expected_cols if col not in actual_value_last.columns]
-                                    if missing_cols:
-                                        st.warning(f"Missing Last Year data for: {', '.join(missing_cols)}. Ensure xls_last_year includes January-March 2025.")
                                 except Exception as e:
                                     st.error(f"Error in last year value grouping: {str(e)}")
                                     actual_value_last = pd.DataFrame({'REGIONS': result_value['REGIONS']})
                 
                 actual_value = pd.DataFrame({'REGIONS': result_value['REGIONS']})
                 if 'actual_value_current' in locals():
-                    actual_value = actual_value.merge(actual_value_current, on='REGIONS', how='left')
+                    actual_value = safe_merge_dataframes(actual_value, actual_value_current, on_column='REGIONS', how='left')
                 if 'actual_value_last' in locals():
-                    actual_value = actual_value.merge(actual_value_last, on='REGIONS', how='left')
+                    actual_value = safe_merge_dataframes(actual_value, actual_value_last, on_column='REGIONS', how='left')
                 st.session_state.actual_value_data = actual_value
                 
-                result_value = result_value.merge(actual_value, on='REGIONS', how='left')
+                result_value = safe_merge_dataframes(result_value, actual_value, on_column='REGIONS', how='left')
                 
                 # Calculate Growth and Achievement
                 for month in months:
@@ -1880,7 +1832,7 @@ with tab3:
                     file_name=f"region_budget_actual_value_{selected_sheet_budget}.csv",
                     mime="text/csv"
                 )
-        
+
         with tab_merge:
             if st.session_state.uploaded_file_auditor and st.session_state.region_analysis_data is not None and 'selected_sheet_auditor' in locals():
                 st.subheader("🔀 Merge Preview with Auditor Data")
@@ -2248,6 +2200,8 @@ with tab3:
                 st.info("ℹ️ Upload auditor file and generate region data first.")
     else: 
         st.info("ℹ️ Please upload the Budget file first.")
+
+
 
 def find_column(df, possible_names, case_sensitive=False):
     # Placeholder for finding column names
@@ -3265,6 +3219,7 @@ with tab4:
             
     else: 
         st.info("ℹ️ Please upload both Sales and Budget files and select appropriate sheets.")
+
 with tab5:
     st.header("📊 TS-PW Data Analysis (NORTH)")
     
