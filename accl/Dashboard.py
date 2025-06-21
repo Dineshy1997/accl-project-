@@ -5,11 +5,19 @@ import os
 import gc
 from io import BytesIO
 from pptx import Presentation
-from pptx.util import Inches
+from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN
 import numpy as np
 from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
+
+# Matplotlib imports for PPT generation
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import seaborn as sns
 
 # Set Streamlit page configuration
 st.set_page_config(
@@ -85,6 +93,11 @@ BRANCH_EXCLUDE_TERMS = ['Total', 'TOTAL', 'Grand', 'GRAND', 'CHN Total', 'ERD SA
 def optimize_memory():
     gc.collect()
 
+def is_streamlit_cloud():
+    """Check if running on Streamlit Cloud"""
+    import os
+    return os.getenv('STREAMLIT_SHARING_MODE') is not None or 'streamlit.io' in os.getenv('HOSTNAME', '')
+
 # Utility functions
 def safe_convert_value(x):
     try:
@@ -121,6 +134,194 @@ def find_table_end(df, start_idx):
         if any(term in row_text for term in ['TOTAL SALES', 'GRAND TOTAL', 'OVERALL TOTAL']):
             return i + 1
     return len(df)
+
+# Matplotlib Chart Creation for PPT
+def create_matplotlib_chart(data, x_col, y_col, chart_type, title, color_override=None):
+    """Create matplotlib chart and return as BytesIO object for PPT insertion."""
+    try:
+        # Set style and figure size
+        plt.style.use('seaborn-v0_8')
+        fig, ax = plt.subplots(figsize=(12, 8))
+        
+        # Determine colors
+        if color_override:
+            if color_override == '#FF8C00':
+                main_color = '#FF8C00'  # Orange for Act
+                palette = ['#FF8C00', '#FFB347', '#FF7F00', '#FF6347', '#FF4500']
+            else:
+                main_color = color_override
+                palette = [color_override]
+        else:
+            main_color = '#2E86AB'  # Default blue
+            palette = ['#2E86AB', '#A23B72', '#F18F01', '#C73E1D', '#556B2F']
+        
+        if chart_type.lower() == 'pie':
+            # Pie chart
+            colors = sns.color_palette("Set3", len(data))
+            wedges, texts, autotexts = ax.pie(
+                data[y_col], 
+                labels=data[x_col], 
+                autopct='%1.1f%%',
+                colors=colors,
+                startangle=90,
+                textprops={'fontsize': 12, 'fontweight': 'bold'}
+            )
+            
+            # Make percentage text more visible
+            for autotext in autotexts:
+                autotext.set_color('white')
+                autotext.set_fontweight('bold')
+                autotext.set_fontsize(11)
+                
+        elif chart_type.lower() == 'line':
+            # Line chart - NO VALUE LABELS
+            ax.plot(data[x_col], data[y_col], 
+                   marker='o', linewidth=3, markersize=8, 
+                   color=main_color, markerfacecolor='white', 
+                   markeredgewidth=2, markeredgecolor=main_color)
+            
+            # Format y-axis
+            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:,.0f}'))
+            ax.grid(True, alpha=0.3)
+            
+        else:  # Bar chart (default)
+            # Handle grouped data for budget vs actual
+            if 'Metric' in data.columns and len(data['Metric'].unique()) > 1:
+                # Grouped bar chart - NO VALUE LABELS
+                metrics = data['Metric'].unique()
+                x_pos = range(len(data[x_col].unique()))
+                width = 0.35
+                
+                for i, metric in enumerate(metrics):
+                    metric_data = data[data['Metric'] == metric]
+                    color = '#2E86AB' if 'budget' in metric.lower() else '#FF8C00'
+                    ax.bar([x + width*i for x in x_pos], 
+                          metric_data[y_col], 
+                          width, 
+                          label=metric, 
+                          color=color,
+                          alpha=0.8,
+                          edgecolor='darkblue',
+                          linewidth=1)
+                
+                ax.set_xticks([x + width/2 for x in x_pos])
+                ax.set_xticklabels(data[x_col].unique(), rotation=0)  # Force straight labels
+                ax.legend(fontsize=12, loc='upper right')
+            else:
+                # Regular bar chart - NO VALUE LABELS
+                bars = ax.bar(data[x_col], data[y_col], 
+                             color=main_color, alpha=0.8, 
+                             edgecolor='darkblue', linewidth=1)
+                
+                # NO VALUE LABELS ON BARS FOR PPT
+            
+            # Format y-axis
+            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:,.0f}'))
+            ax.grid(True, axis='y', alpha=0.3)
+        
+        # Set title and labels
+        ax.set_title(title, fontsize=16, fontweight='bold', pad=20)
+        ax.set_xlabel(x_col, fontsize=14, fontweight='bold')
+        if chart_type.lower() != 'pie':
+            ax.set_ylabel(y_col, fontsize=14, fontweight='bold')
+        
+        # FORCE STRAIGHT X-AXIS LABELS FOR ALL PPT CHARTS
+        if chart_type.lower() != 'pie':
+            plt.xticks(rotation=0, ha='center')  # Always straight labels for PPT
+        
+        # Adjust layout
+        plt.tight_layout()
+        
+        # Save to BytesIO
+        img_buffer = BytesIO()
+        plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight', 
+                   facecolor='white', edgecolor='none')
+        img_buffer.seek(0)
+        
+        # Clear the figure
+        plt.clf()
+        plt.close()
+        
+        return img_buffer
+        
+    except Exception as e:
+        st.error(f"Could not generate chart image: {str(e)}")
+        plt.clf()
+        plt.close()
+        return None
+
+def add_data_table_to_slide(slide, data, x_col, y_col):
+    """Add a data table to a PowerPoint slide."""
+    try:
+        # Prepare data for table
+        if len(data.columns) > 10:
+            # Show only first 10 columns if too many
+            display_data = data.iloc[:, :10]
+        else:
+            display_data = data
+        
+        # Limit rows to prevent overcrowding
+        if len(display_data) > 15:
+            display_data = display_data.head(15)
+        
+        rows = len(display_data) + 1  # +1 for header
+        cols = len(display_data.columns)
+        
+        # Add table
+        table = slide.shapes.add_table(
+            rows, cols, 
+            Inches(0.5), Inches(1.5), 
+            Inches(9), Inches(5)
+        ).table
+        
+        # Set column headers
+        for col_idx, col_name in enumerate(display_data.columns):
+            cell = table.cell(0, col_idx)
+            cell.text = str(col_name)
+            cell.text_frame.paragraphs[0].font.bold = True
+            cell.text_frame.paragraphs[0].font.size = Pt(12)
+            cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+            
+            # Header background color
+            fill = cell.fill
+            fill.solid()
+            fill.fore_color.rgb = RGBColor(47, 117, 181)  # Blue header
+            
+            # Header text color
+            cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
+        
+        # Add data rows
+        for row_idx, (_, row) in enumerate(display_data.iterrows()):
+            for col_idx, value in enumerate(row):
+                cell = table.cell(row_idx + 1, col_idx)
+                if pd.isna(value):
+                    cell.text = ""
+                elif isinstance(value, (int, float)):
+                    cell.text = f"{value:,.2f}" if isinstance(value, float) else f"{value:,}"
+                else:
+                    cell.text = str(value)
+                
+                cell.text_frame.paragraphs[0].font.size = Pt(10)
+                cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+                
+                # Alternating row colors
+                if row_idx % 2 == 0:
+                    fill = cell.fill
+                    fill.solid()
+                    fill.fore_color.rgb = RGBColor(242, 242, 242)  # Light gray
+        
+        # Add note if data was truncated
+        if len(data) > 15 or len(data.columns) > 10:
+            note_shape = slide.shapes.add_textbox(
+                Inches(0.5), Inches(6.8), Inches(9), Inches(0.5)
+            )
+            note_frame = note_shape.text_frame
+            note_frame.text = f"Note: Showing first {min(15, len(data))} rows and {min(10, len(data.columns))} columns of {len(data)} total rows."
+            note_frame.paragraphs[0].font.size = Pt(10)
+            note_frame.paragraphs[0].font.italic = True
+            
+    except Exception as e:
+        st.error(f"Could not add data table to slide: {str(e)}")
 
 def create_plotly_chart(data, x_col, y_col, chart_type, title, color_override=None):
     default_color = color_override if color_override else '#2E86AB'
@@ -200,81 +401,233 @@ def create_plotly_chart(data, x_col, y_col, chart_type, title, color_override=No
     return fig, config
 
 def create_ppt_with_chart(title, chart_data, x_col, y_col, chart_type='bar', color_override=None):
-    ppt = Presentation()
-    slide = ppt.slides.add_slide(ppt.slide_layouts[5])
-    
-    title_shape = slide.shapes.title
-    if title_shape:
-        title_shape.text = title
-    else:
-        txBox = slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(8), Inches(1))
-        tf = txBox.text_frame
-        tf.text = title
-    
-    if chart_data is None or chart_data.empty:
-        st.error(f"Error: No data provided for {title}.")
-        error_box = slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1))
-        ef = error_box.text_frame
-        ef.text = "Error: No data available"
-        ppt_bytes = BytesIO()
-        ppt.save(ppt_bytes)
-        ppt_bytes.seek(0)
-        return ppt_bytes
-    
-    if y_col not in chart_data.columns:
-        st.error(f"Error: Column {y_col} not found in data for {title}.")
-        error_box = slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1))
-        ef = error_box.text_frame
-        ef.text = f"Error: Column {y_col} not found"
-        ppt_bytes = BytesIO()
-        ppt.save(ppt_bytes)
-        ppt_bytes.seek(0)
-        return ppt_bytes
-    
-    if not pd.api.types.is_numeric_dtype(chart_data[y_col]):
-        st.error(f"Error: Column {y_col} is not numeric for {title}. Cannot create chart.")
-        error_box = slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1))
-        ef = error_box.text_frame
-        ef.text = f"Error: No numeric data available for {y_col}"
-        ppt_bytes = BytesIO()
-        ppt.save(ppt_bytes)
-        ppt_bytes.seek(0)
-        return ppt_bytes
-    
-    if chart_type == 'pie':
-        chart_data = chart_data[chart_data[y_col] > 0].copy()
-        if chart_data.empty:
-            st.warning(f"No positive values available for pie chart in {title}. Skipping chart creation.")
+    """Create PowerPoint presentation with matplotlib charts (Streamlit Cloud compatible)."""
+    try:
+        ppt = Presentation()
+        slide = ppt.slides.add_slide(ppt.slide_layouts[5])
+        
+        title_shape = slide.shapes.title
+        if title_shape:
+            title_shape.text = title
+        else:
+            txBox = slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(8), Inches(1))
+            tf = txBox.text_frame
+            tf.text = title
+        
+        if chart_data is None or chart_data.empty:
+            st.error(f"Error: No data provided for {title}.")
             error_box = slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1))
             ef = error_box.text_frame
-            ef.text = f"No positive values available for {y_col} pie chart"
+            ef.text = "Error: No data available"
             ppt_bytes = BytesIO()
             ppt.save(ppt_bytes)
             ppt_bytes.seek(0)
             return ppt_bytes
-    
-    # Create Plotly figure
-    fig, _ = create_plotly_chart(chart_data, x_col, y_col, chart_type, title, color_override)
-    
-    # Save Plotly figure as image
-    try:
-        img_bytes = fig.to_image(format="png", width=1200, height=800, scale=2)
-        img_buffer = BytesIO(img_bytes)
         
-        # Add image to slide
-        slide.shapes.add_picture(img_buffer, Inches(1), Inches(1.5), width=Inches(8))
+        if y_col not in chart_data.columns:
+            st.error(f"Error: Column {y_col} not found in data for {title}.")
+            error_box = slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1))
+            ef = error_box.text_frame
+            ef.text = f"Error: Column {y_col} not found"
+            ppt_bytes = BytesIO()
+            ppt.save(ppt_bytes)
+            ppt_bytes.seek(0)
+            return ppt_bytes
+        
+        if not pd.api.types.is_numeric_dtype(chart_data[y_col]):
+            st.error(f"Error: Column {y_col} is not numeric for {title}. Cannot create chart.")
+            error_box = slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1))
+            ef = error_box.text_frame
+            ef.text = f"Error: No numeric data available for {y_col}"
+            ppt_bytes = BytesIO()
+            ppt.save(ppt_bytes)
+            ppt_bytes.seek(0)
+            return ppt_bytes
+        
+        if chart_type == 'pie':
+            chart_data = chart_data[chart_data[y_col] > 0].copy()
+            if chart_data.empty:
+                st.warning(f"No positive values available for pie chart in {title}. Skipping chart creation.")
+                error_box = slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1))
+                ef = error_box.text_frame
+                ef.text = f"No positive values available for {y_col} pie chart"
+                ppt_bytes = BytesIO()
+                ppt.save(ppt_bytes)
+                ppt_bytes.seek(0)
+                return ppt_bytes
+        
+        # Try matplotlib first (for cloud compatibility)
+        try:
+            img_buffer = create_matplotlib_chart(chart_data, x_col, y_col, chart_type, title, color_override)
+            if img_buffer:
+                slide.shapes.add_picture(img_buffer, Inches(1), Inches(1.5), width=Inches(8))
+            else:
+                raise Exception("Matplotlib chart generation failed")
+        except Exception as matplotlib_error:
+            # Fallback to Plotly if matplotlib fails
+            try:
+                fig, _ = create_plotly_chart(chart_data, x_col, y_col, chart_type, title, color_override)
+                img_bytes = fig.to_image(format="png", width=1200, height=800, scale=2)
+                img_buffer = BytesIO(img_bytes)
+                slide.shapes.add_picture(img_buffer, Inches(1), Inches(1.5), width=Inches(8))
+            except Exception as plotly_error:
+                # Final fallback with text placeholder
+                st.warning(f"Could not add chart image to PPT: {plotly_error}")
+                text_box = slide.shapes.add_textbox(Inches(1), Inches(2), Inches(8), Inches(4))
+                text_frame = text_box.text_frame
+                text_frame.text = f"Chart: {title}\n(Image generation not available in this environment)"
+        
+        ppt_bytes = BytesIO()
+        ppt.save(ppt_bytes)
+        ppt_bytes.seek(0)
+        return ppt_bytes
+        
     except Exception as e:
-        # Fallback for cloud environments with limited image processing
-        st.warning(f"Could not add chart image to PPT: {e}")
-        # Add text placeholder instead
-        text_box = slide.shapes.add_textbox(Inches(1), Inches(2), Inches(8), Inches(4))
-        text_frame = text_box.text_frame
-        text_frame.text = f"Chart: {title}\n(Image generation not available in this environment)"
-    
-    ppt_bytes = BytesIO()
-    ppt.save(ppt_bytes)
-    ppt_bytes.seek(0)
-    return ppt_bytes
+        st.error(f"Could not create PPT: {str(e)}")
+        return None
+
+def create_master_ppt_with_matplotlib(all_data, table_name, selected_sheet, visual_type):
+    """Create master PPT with all visualizations using matplotlib - CHARTS ONLY, NO TABLES."""
+    try:
+        master_ppt = Presentation()
+        
+        # Add title slide
+        title_slide_layout = master_ppt.slide_layouts[0]
+        title_slide = master_ppt.slides.add_slide(title_slide_layout)
+        title_slide.shapes.title.text = f"Complete Analysis Report - {table_name}"
+        if title_slide.shapes.placeholders[1]:
+            title_slide.shapes.placeholders[1].text = f"Sheet: {selected_sheet}\nGenerated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        
+        for label, data in all_data:
+            if data is not None and (not isinstance(data, pd.DataFrame) or not data.empty):
+                try:
+                    # Determine chart configuration based on label
+                    if label == "Budget vs Actual":
+                        if 'Month' in data.columns and 'Value' in data.columns and 'Metric' in data.columns:
+                            chart_data = data
+                            x_col = "Month"
+                            y_col = "Value"
+                            chart_type = visual_type.lower().replace(" chart", "")
+                            color_override = None  # Will use default colors for grouped data
+                        else:
+                            continue
+                    elif label in ["Branch Performance", "Product Performance"]:
+                        if len(data.columns) >= 2:
+                            x_col = data.columns[0]
+                            y_col = data.columns[1]
+                            chart_data = data
+                            chart_type = visual_type.lower().replace(" chart", "")
+                            color_override = None
+                        else:
+                            continue
+                    elif label in ["Branch Monthwise", "Product Monthwise"]:
+                        if 'Month' in data.columns and 'Value' in data.columns:
+                            chart_data = data
+                            x_col = "Month"
+                            y_col = "Value"
+                            chart_type = visual_type.lower().replace(" chart", "")
+                            color_override = None
+                        else:
+                            continue
+                    elif "YTD" in label:
+                        if 'Period' in data.columns:
+                            chart_data = data
+                            x_col = "Period"
+                            y_col = label.replace("YTD ", "")
+                            chart_type = visual_type.lower().replace(" chart", "")
+                            color_override = '#FF8C00' if 'Act' in label else None
+                        elif len(data.columns) >= 2:
+                            chart_data = data
+                            x_col = data.columns[0]
+                            y_col = data.columns[1]
+                            chart_type = visual_type.lower().replace(" chart", "")
+                            color_override = '#FF8C00' if 'Act' in label else None
+                        else:
+                            continue
+                    else:
+                        # Monthly comparisons (Budget, LY, Act, Gr, Ach)
+                        if "Month" in data.columns:
+                            label_clean = label.replace(",", "").replace(" ", "")
+                            if label_clean in data.columns:
+                                chart_data = data
+                                x_col = "Month"
+                                y_col = label_clean
+                                chart_type = visual_type.lower().replace(" chart", "")
+                                color_override = '#FF8C00' if label == "Act" else None
+                            elif "Value" in data.columns:
+                                chart_data = data
+                                x_col = "Month"
+                                y_col = "Value"
+                                chart_type = visual_type.lower().replace(" chart", "")
+                                color_override = '#FF8C00' if label == "Act" else None
+                        elif "Period" in data.columns:
+                            label_clean = label.replace(",", "").replace(" ", "")
+                            if label_clean in data.columns:
+                                chart_data = data
+                                x_col = "Period"
+                                y_col = label_clean
+                                chart_type = visual_type.lower().replace(" chart", "")
+                                color_override = '#FF8C00' if label == "Act" else None
+                            elif "Value" in data.columns:
+                                chart_data = data
+                                x_col = "Period"
+                                y_col = "Value"
+                                chart_type = visual_type.lower().replace(" chart", "")
+                                color_override = '#FF8C00' if label == "Act" else None
+                        else:
+                            continue
+                    
+                    if chart_data is None or x_col is None or y_col is None:
+                        continue
+                    
+                    # Add ONLY chart slide - NO DATA TABLES
+                    chart_slide_layout = master_ppt.slide_layouts[6]  # Blank layout
+                    slide = master_ppt.slides.add_slide(chart_slide_layout)
+                    
+                    # Add slide title
+                    title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.2), Inches(9), Inches(0.8))
+                    title_frame = title_shape.text_frame
+                    title_frame.text = f"{label} Analysis - {table_name}"
+                    title_frame.paragraphs[0].font.size = Pt(24)
+                    title_frame.paragraphs[0].font.bold = True
+                    title_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+                    
+                    # Generate matplotlib chart with straight x-axis labels
+                    img_buffer = create_matplotlib_chart(chart_data, x_col, y_col, chart_type, 
+                                                        f"{label} Analysis - {table_name}", color_override)
+                    
+                    if img_buffer:
+                        # Add chart image to slide - LARGER SIZE since no table needed
+                        slide.shapes.add_picture(
+                            img_buffer, 
+                            Inches(0.5), 
+                            Inches(1.2), 
+                            width=Inches(9), 
+                            height=Inches(6.5)  # Larger chart without table
+                        )
+                    else:
+                        # Add text placeholder if image generation fails
+                        text_box = slide.shapes.add_textbox(Inches(1), Inches(3), Inches(8), Inches(2))
+                        text_frame = text_box.text_frame
+                        text_frame.text = f"Chart: {label}\n(Image generation not available)"
+                        text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+                    
+                    # NO DATA TABLE SLIDES - CHARTS ONLY
+                    
+                except Exception as e:
+                    st.warning(f"Error creating chart for {label}: {e}")
+                    continue
+        
+        # Save to BytesIO
+        master_ppt_buffer = BytesIO()
+        master_ppt.save(master_ppt_buffer)
+        master_ppt_buffer.seek(0)
+        
+        return master_ppt_buffer.getvalue()
+        
+    except Exception as e:
+        st.error(f"Could not create master PPT: {str(e)}")
+        return None
 
 def ensure_numeric_data(data, y_col):
     if y_col not in data.columns:
@@ -491,7 +844,7 @@ if uploaded_file:
                         st.error("Could not find column headers for Table 1.")
                         st.dataframe(table1)
             
-            elif table_choice == "Table 2: SALES IN TONAGE" and table2_start is not None:
+            elif table_choice == "Table 2: SALES IN VALUE" and table2_start is not None:
                 if sheet_index >= 1 and sheet_index <= 4:
                     table2_end = find_table_end(df_sheet, table2_start)
                     table2 = df_sheet.iloc[table2_start:table2_end].dropna(how='all').reset_index(drop=True)
@@ -529,7 +882,7 @@ if uploaded_file:
                             st.download_button(
                                 "⬇️ Download Table 2 as CSV", 
                                 csv2, 
-                                "sales_in_tonage.csv", 
+                                "sales_in_value.csv", 
                                 "text/csv",
                                 key="download_table2_csv"
                             )
@@ -541,7 +894,7 @@ if uploaded_file:
                 else:
                     st.warning("Table 2 is empty or contains no valid data.")
         else:
-            st.warning("No tables ('SALES IN MT' or 'SALES IN TONAGE') found in the sheet.")
+            st.warning("No tables ('SALES IN MT' or 'SALES IN VALUE') found in the sheet.")
             df_sheet_clean = make_jsonly_serializable(df_sheet)
             st.dataframe(df_sheet_clean, use_container_width=True)
             csv = df_sheet_clean.to_csv(index=False).encode('utf-8')
@@ -1497,7 +1850,7 @@ if uploaded_file:
             product_performance_data = plot_product_performance(tabs_dict["Product Performance"], visual_type)
             product_monthwise_data = plot_product_monthwise(tabs_dict["Product Monthwise"], visual_type)
 
-            # Generate master PPT for all visualizations
+            # Generate master PPT for all visualizations - CHARTS ONLY, NO TABLES
             all_data = [
                 ("Budget vs Actual", budget_vs_actual_data),
                 ("Budget", budget_data),
@@ -1520,193 +1873,72 @@ if uploaded_file:
                 st.sidebar.markdown("---")
                 st.sidebar.subheader("📊 Download All Visuals")
                 
-                master_ppt = Presentation()
-                
-                for label, data in all_data:
-                    if data is not None and (not isinstance(data, pd.DataFrame) or not data.empty):
+                if st.sidebar.button("🔄 Generate Master PPT", help="Create PPT with all charts (NO tables, straight x-axis labels)"):
+                    with st.spinner("Generating PowerPoint with all charts..."):
                         try:
-                            # Determine chart configuration based on label
-                            if label == "Budget vs Actual":
-                                if 'Month' in data.columns and 'Value' in data.columns and 'Metric' in data.columns:
-                                    chart_data = data
-                                    x_col = "Month"
-                                    y_col = "Value"
-                                    chart_type = visual_type.lower().replace(" chart", "")
-                                    color_override = None  # Will use default colors for grouped data
-                                else:
-                                    continue
-                            elif label in ["Branch Performance", "Product Performance"]:
-                                if len(data.columns) >= 2:
-                                    x_col = data.columns[0]
-                                    y_col = data.columns[1]
-                                    chart_data = data
-                                    chart_type = visual_type.lower().replace(" chart", "")
-                                    color_override = None
-                                else:
-                                    continue
-                            elif label in ["Branch Monthwise", "Product Monthwise"]:
-                                if 'Month' in data.columns and 'Value' in data.columns:
-                                    chart_data = data
-                                    x_col = "Month"
-                                    y_col = "Value"
-                                    chart_type = visual_type.lower().replace(" chart", "")
-                                    color_override = None
-                                else:
-                                    continue
-                            elif "YTD" in label:
-                                if 'Period' in data.columns:
-                                    chart_data = data
-                                    x_col = "Period"
-                                    y_col = label.replace("YTD ", "")
-                                    chart_type = visual_type.lower().replace(" chart", "")
-                                    color_override = '#FF8C00' if 'Act' in label else None
-                                elif len(data.columns) >= 2:
-                                    chart_data = data
-                                    x_col = data.columns[0]
-                                    y_col = data.columns[1]
-                                    chart_type = visual_type.lower().replace(" chart", "")
-                                    color_override = '#FF8C00' if 'Act' in label else None
-                                else:
-                                    continue
-                            else:
-                                # Monthly comparisons (Budget, LY, Act, Gr, Ach)
-                                if "Month" in data.columns:
-                                    label_clean = label.replace(",", "").replace(" ", "")
-                                    if label_clean in data.columns:
-                                        chart_data = data
-                                        x_col = "Month"
-                                        y_col = label_clean
-                                        chart_type = visual_type.lower().replace(" chart", "")
-                                        color_override = '#FF8C00' if label == "Act" else None
-                                    elif "Value" in data.columns:
-                                        chart_data = data
-                                        x_col = "Month"
-                                        y_col = "Value"
-                                        chart_type = visual_type.lower().replace(" chart", "")
-                                        color_override = '#FF8C00' if label == "Act" else None
-                                elif "Period" in data.columns:
-                                    label_clean = label.replace(",", "").replace(" ", "")
-                                    if label_clean in data.columns:
-                                        chart_data = data
-                                        x_col = "Period"
-                                        y_col = label_clean
-                                        chart_type = visual_type.lower().replace(" chart", "")
-                                        color_override = '#FF8C00' if label == "Act" else None
-                                    elif "Value" in data.columns:
-                                        chart_data = data
-                                        x_col = "Period"
-                                        y_col = "Value"
-                                        chart_type = visual_type.lower().replace(" chart", "")
-                                        color_override = '#FF8C00' if label == "Act" else None
-                                else:
-                                    continue
+                            master_ppt_bytes = create_master_ppt_with_matplotlib(
+                                all_data, 
+                                table_name, 
+                                selected_sheet, 
+                                visual_type
+                            )
                             
-                            if chart_data is None or x_col is None or y_col is None:
-                                continue
-                                
-                            slide = master_ppt.slides.add_slide(master_ppt.slide_layouts[6])
-                            
-                            # Create the actual chart based on type and data
-                            if label == "Budget vs Actual" and chart_type != 'pie':
-                                # Special handling for Budget vs Actual grouped bar chart
-                                fig = go.Figure()
-                                budget_data_chart = chart_data[chart_data['Metric'] == 'Budget']
-                                act_data_chart = chart_data[chart_data['Metric'] == 'Act']
-                                
-                                if not budget_data_chart.empty:
-                                    fig.add_trace(go.Bar(
-                                        x=budget_data_chart['Month'],
-                                        y=budget_data_chart['Value'],
-                                        name='Budget',
-                                        marker_color='#2E86AB',
-                                        hovertemplate='<b>%{x}</b><br>Budget: %{y:,.0f}<extra></extra>'
-                                    ))
-                                
-                                if not act_data_chart.empty:
-                                    fig.add_trace(go.Bar(
-                                        x=act_data_chart['Month'],
-                                        y=act_data_chart['Value'],
-                                        name='Act',
-                                        marker_color='#FF8C00',
-                                        hovertemplate='<b>%{x}</b><br>Actual: %{y:,.0f}<extra></extra>'
-                                    ))
-                                
-                                fig.update_layout(
-                                    title={'text': f"{label} Analysis - {table_name}", 'x': 0.5, 'xanchor': 'center', 'font': {'size': 20}},
-                                    xaxis_title=x_col,
-                                    yaxis_title=y_col,
-                                    font={'size': 14},
-                                    plot_bgcolor='white',
-                                    paper_bgcolor='white',
-                                    height=600,
-                                    margin={'l': 80, 'r': 80, 't': 100, 'b': 80},
-                                    showlegend=True,
-                                    barmode='group',
-                                    hovermode='x unified'
+                            if master_ppt_bytes:
+                                st.sidebar.success("✅ Master PPT generated successfully!")
+                                st.sidebar.download_button(
+                                    "⬇️ Download Master PPT (Charts Only)",
+                                    master_ppt_bytes,
+                                    f"charts_only_{selected_sheet}.pptx",
+                                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                    key=f"download_master_ppt_{selected_sheet}_{sheet_index}"
                                 )
-                                fig.update_xaxes(title_font={'size': 16}, tickfont={'size': 14})
-                                fig.update_yaxes(title_font={'size': 16}, tickfont={'size': 14})
                             else:
-                                # Regular chart creation
-                                fig, _ = create_plotly_chart(
-                                    chart_data, 
-                                    x_col, 
-                                    y_col, 
-                                    chart_type, 
-                                    f"{label} Analysis - {table_name}",
-                                    color_override
-                                )
-                            
-                            # Force straight x-axis labels for YTD charts
-                            if "YTD" in label:
-                                fig.update_xaxes(tickangle=0)
-                            
-                            try:
-                                img_bytes = fig.to_image(format="png", width=1200, height=800, scale=2)
-                                img_buffer = BytesIO(img_bytes)
+                                st.sidebar.error("❌ Failed to generate master PPT")
                                 
-                                # Add title text box
-                                txBox = slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(8), Inches(1))
-                                tf = txBox.text_frame
-                                tf.text = f"{label} Analysis - {table_name} - {selected_sheet}"
-                                tf.paragraphs[0].font.size = Inches(0.25)
-                                tf.paragraphs[0].font.bold = True
-                                
-                                # Add the actual chart image
-                                slide.shapes.add_picture(img_buffer, Inches(1), Inches(1.5), width=Inches(8))
-                            
-                            except Exception as img_error:
-                                # Fallback if image generation fails
-                                st.warning(f"Could not generate image for {label}: {img_error}")
-                                txBox = slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(8), Inches(1))
-                                tf = txBox.text_frame
-                                tf.text = f"{label} Analysis - {table_name} - {selected_sheet}"
-                                tf.paragraphs[0].font.size = Inches(0.25)
-                                tf.paragraphs[0].font.bold = True
-                                
-                                error_box = slide.shapes.add_textbox(Inches(1), Inches(2), Inches(8), Inches(4))
-                                ef = error_box.text_frame
-                                ef.text = f"Chart: {label}\n(Image generation not available)"
-                            
                         except Exception as e:
-                            st.warning(f"Error creating chart for {label}: {e}")
-                            continue
+                            st.sidebar.error(f"❌ Error generating master PPT: {str(e)}")
                 
-                master_ppt_bytes = BytesIO()
-                master_ppt.save(master_ppt_bytes)
-                master_ppt_bytes.seek(0)
-                
-                st.sidebar.download_button(
-                    "⬇️ Download All Charts as PPT",
-                    master_ppt_bytes,
-                    "all_visuals.pptx",
-                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    key=f"download_all_charts_ppt_{selected_sheet}_{sheet_index}"
-                )
+                # Alternative individual download approach
+                st.sidebar.markdown("#### 📄 Individual Chart Downloads")
+                st.sidebar.info("💡 All PPT downloads contain ONLY clean charts (no values, no tables, straight x-axis labels)")
 
             optimize_memory()
 
 else:
     st.info("Please upload an Excel file to begin analysis.")
     
+    # Sample data demonstration
+    with st.expander("🎭 Try with Sample Data"):
+        if st.button("Load Sample Data"):
+            # Create sample Excel-like data
+            sample_data = {
+                'Region': ['North', 'South', 'East', 'West', 'Central', 'Northeast', 'Southwest'],
+                'Budget-Apr-24': [150000, 180000, 200000, 170000, 160000, 140000, 190000],
+                'Act-Apr-24': [145000, 185000, 195000, 175000, 158000, 138000, 192000],
+                'Budget-May-24': [155000, 185000, 205000, 175000, 165000, 145000, 195000],
+                'Act-May-24': [152000, 188000, 198000, 178000, 162000, 142000, 198000],
+                'Budget-Jun-24': [160000, 190000, 210000, 180000, 170000, 150000, 200000],
+                'Act-Jun-24': [158000, 192000, 205000, 182000, 168000, 148000, 203000],
+                'YTD-25-26 (Apr to Jun) Budget': [465000, 555000, 615000, 525000, 495000, 435000, 585000],
+                'YTD-25-26 (Apr to Jun) Act': [455000, 565000, 598000, 535000, 488000, 428000, 593000]
+            }
+            
+            sample_df = pd.DataFrame(sample_data)
+            
+            # Save sample data to session state or display it
+            st.success("✅ Sample data loaded! Here's a preview:")
+            st.dataframe(sample_df, use_container_width=True)
+            
+            # Provide download option for sample data
+            sample_csv = sample_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                "⬇️ Download Sample Data as CSV",
+                sample_csv,
+                "sample_sales_data.csv",
+                "text/csv",
+                help="Download this sample data to test the dashboard features"
+            )
+            
+            st.info("💡 **How to test:**\n1. Download the sample data above\n2. Save it as an Excel file (.xlsx)\n3. Upload it using the file uploader in the sidebar\n4. Explore all the visualization features!")
+
 optimize_memory()
