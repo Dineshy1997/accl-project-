@@ -11,6 +11,7 @@ streamlit_plotly_events
 python-dotenv
 google-generativeai
 python-Levenshtein
+kaleido
 
 
 # File requirements
