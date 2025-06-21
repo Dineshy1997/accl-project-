@@ -12,6 +12,7 @@ python-dotenv
 google-generativeai
 python-Levenshtein
 kaleido
+seaborn
 
 
 # File requirements
