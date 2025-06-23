@@ -87,7 +87,7 @@ add_cloud_css()
 st.title("📊 Excel Dashboard - Data Table & Visualizations")
 
 # Define exclusion terms for branches
-BRANCH_EXCLUDE_TERMS = ['Total', 'TOTAL', 'Grand', 'GRAND', 'CHN Total', 'ERD SALES', 'North Total', 'WEST SALES', 'GROUP COMPANIES']
+BRANCH_EXCLUDE_TERMS = ['CHN Total', 'ERD SALES', 'North Total', 'WEST SALES', 'GROUP COMPANIES']
 
 # Memory management
 def optimize_memory():
@@ -132,7 +132,7 @@ def find_table_end(df, start_idx):
     for i in range(start_idx, len(df)):
         row_text = ' '.join(str(cell) for cell in df.iloc[i].values if pd.notna(cell)).upper()
         if any(term in row_text for term in ['TOTAL SALES', 'GRAND TOTAL', 'OVERALL TOTAL']):
-            return i + 1
+            return i + 1  # Include the "TOTAL SALES" row
     return len(df)
 
 # Matplotlib Chart Creation for PPT
@@ -511,8 +511,33 @@ def create_master_ppt_with_matplotlib(all_data, table_name, selected_sheet, visu
                             color_override = None  # Will use default colors for grouped data
                         else:
                             continue
-                    elif label in ["Branch Performance", "Product Performance"]:
-                        if len(data.columns) >= 2:
+                    elif label == "Branch Performance":
+                        # ✅ FIX: Handle standardized Branch Performance data
+                        if 'Branch' in data.columns and 'Performance' in data.columns:
+                            chart_data = data
+                            x_col = "Branch"
+                            y_col = "Performance"
+                            chart_type = visual_type.lower().replace(" chart", "")
+                            color_override = None
+                        elif len(data.columns) >= 2:
+                            # Fallback for legacy data structure
+                            x_col = data.columns[0]
+                            y_col = data.columns[1]
+                            chart_data = data
+                            chart_type = visual_type.lower().replace(" chart", "")
+                            color_override = None
+                        else:
+                            continue
+                    elif label == "Product Performance":
+                        # ✅ FIX: Handle standardized Product Performance data
+                        if 'Product' in data.columns and 'Performance' in data.columns:
+                            chart_data = data
+                            x_col = "Product"
+                            y_col = "Performance"
+                            chart_type = visual_type.lower().replace(" chart", "")
+                            color_override = None
+                        elif len(data.columns) >= 2:
+                            # Fallback for legacy data structure
                             x_col = data.columns[0]
                             y_col = data.columns[1]
                             chart_data = data
@@ -807,7 +832,7 @@ if uploaded_file:
                     header_row_idx = None
                     for i in range(min(5, len(table1))):
                         row_text = ' '.join(str(cell) for cell in table1.iloc[i].values if pd.notna(cell))
-                        if re.search(r'\b(budget|ly|act|gr|ach)\b', row_text, re.IGNORECASE):
+                        if re.search(r'\b(?:budget|ly|act|gr|ach)\b', row_text, re.IGNORECASE):
                             header_row_idx = i
                             break
                     
@@ -825,7 +850,7 @@ if uploaded_file:
                                 st.warning("Table 1 is empty after processing, cannot delete first row.")
                         
                         if sheet_index == 1 and not table1.empty:
-                            table1 = table1[~table1[table1.columns[0]].str.contains('REGIONS', case=False, na=False)].reset_index(drop=True)
+                            table1 = table1[~table1[table1.columns[0]].str.contains('REGIONS', case=False, na=False, regex=True)].reset_index(drop=True)
                         
                         if not table1.empty:
                             table1 = make_jsonly_serializable(table1)
@@ -855,7 +880,7 @@ if uploaded_file:
                     header_row_idx = None
                     for i in range(min(5, len(table2))):
                         row_text = ' '.join(str(cell) for cell in table2.iloc[i].values if pd.notna(cell))
-                        if re.search(r'\b(budget|ly|act|gr|ach)\b', row_text, re.IGNORECASE):
+                        if re.search(r'\b(?:budget|ly|act|gr|ach)\b', row_text, re.IGNORECASE):
                             header_row_idx = i
                             break
                     
@@ -873,7 +898,7 @@ if uploaded_file:
                                 st.warning("Table 2 is empty after processing, cannot delete first row.")
                         
                         if sheet_index == 1 and not table2.empty:
-                            table2 = table2[~table2[table2.columns[0]].str.contains('REGIONS', case=False, na=False)].reset_index(drop=True)
+                            table2 = table2[~table2[table2.columns[0]].str.contains('REGIONS', case=False, na=False, regex=True)].reset_index(drop=True)
                         
                         if not table2.empty:
                             table2 = make_jsonly_serializable(table2)
@@ -937,39 +962,37 @@ if uploaded_file:
             if sheet_index >= 1 and sheet_index <= 4:
                 table1_end = find_table_end(df_sheet, idx1 + 1)
                 if idx2 is not None:
-                    table1_end = min(table1_end, idx2)
+                    table1_end = min(table1_end, idx2)  # Ensure table1_end includes "TOTAL SALES"
             else:
                 table1_end = idx2 if idx2 is not None else len(df_sheet)
             
-            table1 = df_sheet.iloc[idx1+1:table1_end].dropna(how='all').reset_index(drop=True)
-            table1.columns = df_sheet.iloc[idx1].apply(lambda x: str(x).strip() if pd.notna(x) else '')
+            # Extract Table 1, including the header row
+            table1 = df_sheet.iloc[idx1:table1_end].dropna(how='all').reset_index(drop=True)
             
             if not table1.empty:
-                first_row = table1.iloc[0]
-                first_cell = str(first_row[0]).strip().lower() if pd.notna(first_row[0]) else ""
-                is_subheader = (first_cell == "" or 
-                               first_cell.startswith("unnamed") or 
-                               any(term.lower() in first_cell for term in BRANCH_EXCLUDE_TERMS))
-                if is_subheader:
-                    table1 = table1.drop(index=0).reset_index(drop=True)
+                # Use the first row as the header
+                table1.columns = table1.iloc[0].apply(lambda x: str(x).strip() if pd.notna(x) else '')
+                table1 = table1.iloc[1:].reset_index(drop=True)
+                
+                # ✅ NO FILTERING HERE - Keep all rows including NORTH TOTAL, WEST SALES, etc.
+                # Filtering will be applied only in specific visualizations where needed
 
             if idx2 is not None:
                 if sheet_index >= 1 and sheet_index <= 4:
                     table2_end = find_table_end(df_sheet, idx2 + 1)
-                    table2 = df_sheet.iloc[idx2+1:table2_end].dropna(how='all').reset_index(drop=True)
                 else:
-                    table2 = df_sheet.iloc[idx2+1:].dropna(how='all').reset_index(drop=True)
+                    table2_end = len(df_sheet)
                 
-                table2.columns = df_sheet.iloc[idx2].apply(lambda x: str(x).strip() if pd.notna(x) else '')
+                # Extract Table 2, including the header row
+                table2 = df_sheet.iloc[idx2:table2_end].dropna(how='all').reset_index(drop=True)
                 
                 if not table2.empty:
-                    first_row = table2.iloc[0]
-                    first_cell = str(first_row[0]).strip().lower() if pd.notna(first_row[0]) else ""
-                    is_subheader = (first_cell == "" or 
-                                   first_cell.startswith("unnamed") or 
-                                   any(term.lower() in first_cell for term in BRANCH_EXCLUDE_TERMS))
-                    if is_subheader:
-                        table2 = table2.drop(index=0).reset_index(drop=True)
+                    # Use the first row as the header
+                    table2.columns = table2.iloc[0].apply(lambda x: str(x).strip() if pd.notna(x) else '')
+                    table2 = table2.iloc[1:].reset_index(drop=True)
+                    
+                    # ✅ NO FILTERING HERE - Keep all rows including NORTH TOTAL, WEST SALES, etc.
+                    # Filtering will be applied only in specific visualizations where needed
             else:
                 table2 = None
 
@@ -1032,12 +1055,9 @@ if uploaded_file:
             product_list = []
 
             def extract_unique_values(df, first_col, exclude_terms=None):
-                if exclude_terms is None:
-                    exclude_terms = ['Total', 'TOTAL', 'Grand', 'GRAND', 'CHN Total', 'ERD SALES']
-                
-                valid_rows = df[~df[first_col].str.contains('|'.join(exclude_terms), na=False, case=False)]
-                valid_rows = valid_rows[valid_rows[first_col].notna()]
-                
+                # ✅ No exclusion by default - show all data in filtered table view
+                # Exclusion terms will be applied only in specific visualizations
+                valid_rows = df[df[first_col].notna()]
                 unique_values = valid_rows[first_col].astype(str).str.strip().unique()
                 return sorted(unique_values)
 
@@ -1173,6 +1193,7 @@ if uploaded_file:
                 
                     chart_data = filtered_df[[first_col] + selected_budget_cols + selected_act_cols].copy()
                 
+                    # ✅ Keep all data including NORTH TOTAL, WEST SALES for Budget vs Actual comparison
                     for col in selected_budget_cols + selected_act_cols:
                         chart_data[col] = pd.to_numeric(chart_data[col].astype(str).str.replace(',', ''), 
                                                        errors='coerce')
@@ -1306,6 +1327,7 @@ if uploaded_file:
                 
                     chart_data = filtered_df[[first_col] + plot_cols].copy()
                 
+                    # ✅ Keep all data including NORTH TOTAL, WEST SALES for monthly comparisons
                     for col in plot_cols:
                         chart_data[col] = pd.to_numeric(chart_data[col].astype(str).str.replace(',', ''), 
                                                        errors='coerce')
@@ -1380,7 +1402,7 @@ if uploaded_file:
                             if (re.search(r'ach-ytd[-–\s]*\d{2}[-–\s]*\d{2}\s*\([^)]*\)', col_str, re.IGNORECASE) and
                                 column_filter(col)):
                                 ytd_cols.append(col)
-                            elif (re.search(r'(ytd[-–\s]*\d{2}[-–\s]*\d{2}\s*\([^)]*\).*ach|ach.*ytd[-–\s]*\d{2}[-–\s]*\d{2}\s*\([^)]*\))', col_str, re.IGNORECASE) and
+                            elif (re.search(r'(?:ytd[-–\s]*\d{2}[-–\s]*\d{2}\s*\([^)]*\).*ach|ach.*ytd[-–\s]*\d{2}[-–\s]*\d{2}\s*\([^)]*\))', col_str, re.IGNORECASE) and
                                   column_filter(col)):
                                 ytd_cols.append(col)
                         else:
@@ -1433,6 +1455,7 @@ if uploaded_file:
                     comparison_data.columns = [first_col] + clean_labels
                     comparison_data = comparison_data[sorted_cols]
                     
+                    # ✅ Keep all data including NORTH TOTAL, WEST SALES for YTD comparisons
                     for col in clean_labels:
                         comparison_data[col] = pd.to_numeric(comparison_data[col].astype(str).str.replace(',', ''), errors='coerce')
                     
@@ -1491,7 +1514,7 @@ if uploaded_file:
                 with tab:
                     if not is_branch_analysis:
                         st.info("This visualization is only available for region analysis sheets")
-                        return
+                        return None
                 
                     ytd_act_col = None
                     for col in table_df.columns:
@@ -1503,27 +1526,37 @@ if uploaded_file:
                 
                     if ytd_act_col is None:
                         st.warning("Could not find YTD Act column for region performance analysis")
-                        return
+                        return None
                 
                     first_col = table_df.columns[0]
                     regions_df = table_df[~table_df[first_col].str.contains('|'.join(BRANCH_EXCLUDE_TERMS), na=False, case=False)].copy()
+                    # Remove rows starting with "GRAND TOTAL", "TOTAL SALES", or "OVERALL TOTAL"
+                    regions_df = regions_df[~regions_df[first_col].str.contains(
+                        r'^(?:TOTAL SALES|GRAND TOTAL|OVERALL TOTAL)', na=False, case=False, regex=True
+                    )].copy()
                     regions_df = regions_df.dropna(subset=[first_col, ytd_act_col])
                 
                     if regions_df.empty:
                         st.warning("No branch data available after filtering")
-                        return
+                        return None
                 
                     regions_df[ytd_act_col] = pd.to_numeric(regions_df[ytd_act_col].astype(str).str.replace(',', ''), errors='coerce')
                     regions_df = regions_df.dropna(subset=[ytd_act_col])
                 
                     if not ensure_numeric_data(regions_df, ytd_act_col):
                         st.warning("No numeric data available for region performance")
-                        return
+                        return None
                 
                     regions_df = regions_df.sort_values(by=ytd_act_col, ascending=False)
                     
+                    # ✅ FIX: Create a clean dataframe with only the columns we need
+                    # This ensures the master PPT gets the correct data structure
+                    clean_regions_df = regions_df[[first_col, ytd_act_col]].copy()
+                    clean_regions_df.columns = ['Branch', 'Performance']  # Standardize column names
+                    
                     st.markdown(f"### Branch Performance Analysis - {table_name}")
                     
+                    # Use the original data for display but return the clean data
                     display_visualization(tab, "Branch Performance", regions_df, first_col, ytd_act_col, visual_type)
                     
                     col1, col2, col3 = st.columns(3)
@@ -1548,13 +1581,13 @@ if uploaded_file:
                         bottom_5 = regions_df.tail(5)[[first_col, ytd_act_col]]
                         st.dataframe(bottom_5, use_container_width=True, hide_index=True)
                 
-                    regions_df = make_jsonly_serializable(regions_df)
+                    clean_regions_df = make_jsonly_serializable(clean_regions_df)
                     ppt_type = 'bar' if visual_type == "Bar Chart" else 'line' if visual_type == "Line Chart" else 'pie'
                     ppt_bytes = create_ppt_with_chart(
                         f"Branch Performance - {table_name} - {selected_sheet}",
-                        regions_df,
-                        first_col,
-                        ytd_act_col,
+                        clean_regions_df,  # ✅ Use clean data
+                        'Branch',          # ✅ Use standardized column name
+                        'Performance',     # ✅ Use standardized column name
                         ppt_type
                     )
                 
@@ -1565,7 +1598,7 @@ if uploaded_file:
                         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                         key=f"download_region_performance_ppt_{selected_sheet}_{sheet_index}"
                     )
-                    return regions_df
+                    return clean_regions_df  # ✅ Return clean data for master PPT
 
             def plot_branch_monthwise(tab, visual_type):
                 with tab:
@@ -1577,7 +1610,7 @@ if uploaded_file:
                     for col in table_df.columns:
                         col_str = str(col).lower()
                         for year in years:
-                            if (re.search(rf'\bact\b.*(apr|may|jun|jul|aug|sep|oct|nov|dec|jan|feb|mar)[-\s]*{year}', col_str, re.IGNORECASE) and 'ytd' not in col_str):
+                            if (re.search(rf'\bact\b.*(?:apr|may|jun|jul|aug|sep|oct|nov|dec|jan|feb|mar)[-\s]*{re.escape(year)}', col_str, re.IGNORECASE) and 'ytd' not in col_str):
                                 act_cols.append(col)
                 
                     if not act_cols:
@@ -1597,7 +1630,12 @@ if uploaded_file:
                     act_cols_sorted = sorted(act_cols, key=get_sort_key)
                 
                     first_col = table_df.columns[0]
-                    regions_df = table_df[~table_df[first_col].str.contains('|'.join(BRANCH_EXCLUDE_TERMS), na=False, case=False)].copy()
+                    # ✅ Apply filtering here for Branch Monthwise visualization
+                    regions_df = table_df[~table_df[first_col].str.contains('|'.join(BRANCH_EXCLUDE_TERMS), na=False, case=False, regex=True)].copy()
+                    # Remove total rows for monthwise analysis
+                    regions_df = regions_df[~regions_df[first_col].str.contains(
+                        r'^(?:TOTAL SALES|GRAND TOTAL|OVERALL TOTAL)', na=False, case=False, regex=True
+                    )].copy()
                     monthwise_data = regions_df[[first_col] + act_cols_sorted].copy()
                     
                     clean_col_names = []
@@ -1663,7 +1701,7 @@ if uploaded_file:
                 with tab:
                     if not is_product_analysis:
                         st.info("This visualization is only available for product analysis sheets")
-                        return
+                        return None
                 
                     ytd_act_col = None
                     for col in table_df.columns:
@@ -1675,7 +1713,7 @@ if uploaded_file:
                 
                     if ytd_act_col is None:
                         st.warning("Could not find YTD Act column for product performance analysis")
-                        return
+                        return None
                 
                     first_col = table_df.columns[0]
                     exclude_terms = ['Total', 'TOTAL', 'Grand', 'GRAND', 'Total Sales']
@@ -1684,19 +1722,24 @@ if uploaded_file:
                 
                     if products_df.empty:
                         st.warning("No product data available after filtering")
-                        return
+                        return None
                 
                     products_df[ytd_act_col] = pd.to_numeric(products_df[ytd_act_col].astype(str).str.replace(',', ''), errors='coerce')
                     products_df = products_df.dropna(subset=[ytd_act_col])
                 
                     if not ensure_numeric_data(products_df, ytd_act_col):
                         st.warning("No numeric data available for product performance")
-                        return
+                        return None
                 
                     products_df = products_df.sort_values(by=ytd_act_col, ascending=False)
                     
+                    # ✅ FIX: Create a clean dataframe with only the columns we need
+                    clean_products_df = products_df[[first_col, ytd_act_col]].copy()
+                    clean_products_df.columns = ['Product', 'Performance']  # Standardize column names
+                    
                     st.markdown("### Product Performance Analysis")
                     
+                    # Use the original data for display but return the clean data
                     display_visualization(tab, "Product Performance", products_df, first_col, ytd_act_col, visual_type)
                     
                     col1, col2, col3 = st.columns(3)
@@ -1721,13 +1764,13 @@ if uploaded_file:
                         bottom_5 = products_df.tail(5)[[first_col, ytd_act_col]]
                         st.dataframe(bottom_5, use_container_width=True, hide_index=True)
                 
-                    products_df = make_jsonly_serializable(products_df)
+                    clean_products_df = make_jsonly_serializable(clean_products_df)
                     ppt_type = 'bar' if visual_type == "Bar Chart" else 'line' if visual_type == "Line Chart" else 'pie'
                     ppt_bytes = create_ppt_with_chart(
                         f"Product Performance - {selected_sheet}",
-                        products_df,
-                        first_col,
-                        ytd_act_col,
+                        clean_products_df,  # ✅ Use clean data
+                        'Product',          # ✅ Use standardized column name
+                        'Performance',      # ✅ Use standardized column name
                         ppt_type
                     )
                 
@@ -1738,7 +1781,7 @@ if uploaded_file:
                         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                         key=f"download_product_performance_ppt_{selected_sheet}_{sheet_index}"
                     )
-                    return products_df
+                    return clean_products_df  # ✅ Return clean data for master PPT
 
             def plot_product_monthwise(tab, visual_type):
                 with tab:
@@ -1750,7 +1793,7 @@ if uploaded_file:
                     for col in table_df.columns:
                         col_str = str(col).lower()
                         for year in years:
-                            if (re.search(rf'\bact\b.*(apr|may|jun|jul|aug|sep|oct|nov|dec|jan|feb|mar)[-\s]*{year}', col_str, re.IGNORECASE) and 'ytd' not in col_str):
+                            if (re.search(rf'\bact\b.*(?:apr|may|jun|jul|aug|sep|oct|nov|dec|jan|feb|mar)[-\s]*{re.escape(year)}', col_str, re.IGNORECASE) and 'ytd' not in col_str):
                                 act_cols.append(col)
                 
                     if not act_cols:
@@ -1770,8 +1813,13 @@ if uploaded_file:
                     act_cols_sorted = sorted(act_cols, key=get_sort_key)
                 
                     first_col = table_df.columns[0]
+                    # ✅ Apply filtering here for Product Monthwise visualization
                     exclude_terms = ['Total', 'TOTAL', 'Grand', 'GRAND', 'Total Sales']
-                    products_df = table_df[~table_df[first_col].str.contains('|'.join(exclude_terms), na=False, case=False)].copy()
+                    products_df = table_df[~table_df[first_col].str.contains('|'.join(exclude_terms), na=False, case=False, regex=True)].copy()
+                    # Remove total rows for monthwise analysis
+                    products_df = products_df[~products_df[first_col].str.contains(
+                        r'^(?:TOTAL SALES|GRAND TOTAL|OVERALL TOTAL)', na=False, case=False, regex=True
+                    )].copy()
                     monthwise_data = products_df[[first_col] + act_cols_sorted].copy()
                     
                     clean_col_names = []
@@ -1907,38 +1955,6 @@ if uploaded_file:
 else:
     st.info("Please upload an Excel file to begin analysis.")
     
-    # Sample data demonstration
-    with st.expander("🎭 Try with Sample Data"):
-        if st.button("Load Sample Data"):
-            # Create sample Excel-like data
-            sample_data = {
-                'Region': ['North', 'South', 'East', 'West', 'Central', 'Northeast', 'Southwest'],
-                'Budget-Apr-24': [150000, 180000, 200000, 170000, 160000, 140000, 190000],
-                'Act-Apr-24': [145000, 185000, 195000, 175000, 158000, 138000, 192000],
-                'Budget-May-24': [155000, 185000, 205000, 175000, 165000, 145000, 195000],
-                'Act-May-24': [152000, 188000, 198000, 178000, 162000, 142000, 198000],
-                'Budget-Jun-24': [160000, 190000, 210000, 180000, 170000, 150000, 200000],
-                'Act-Jun-24': [158000, 192000, 205000, 182000, 168000, 148000, 203000],
-                'YTD-25-26 (Apr to Jun) Budget': [465000, 555000, 615000, 525000, 495000, 435000, 585000],
-                'YTD-25-26 (Apr to Jun) Act': [455000, 565000, 598000, 535000, 488000, 428000, 593000]
-            }
-            
-            sample_df = pd.DataFrame(sample_data)
-            
-            # Save sample data to session state or display it
-            st.success("✅ Sample data loaded! Here's a preview:")
-            st.dataframe(sample_df, use_container_width=True)
-            
-            # Provide download option for sample data
-            sample_csv = sample_df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                "⬇️ Download Sample Data as CSV",
-                sample_csv,
-                "sample_sales_data.csv",
-                "text/csv",
-                help="Download this sample data to test the dashboard features"
-            )
-            
-            st.info("💡 **How to test:**\n1. Download the sample data above\n2. Save it as an Excel file (.xlsx)\n3. Upload it using the file uploader in the sidebar\n4. Explore all the visualization features!")
+    
 
 optimize_memory()
