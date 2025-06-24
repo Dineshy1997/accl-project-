@@ -7,6 +7,7 @@ from io import BytesIO
 import warnings
 from fuzzywuzzy import process
 import traceback
+import Levenshtein
 
 # Configuration
 warnings.filterwarnings('ignore')
@@ -17,7 +18,7 @@ st.set_page_config(layout='wide')
 def safe_merge_dataframes(left_df, right_df, on_column, how='left', max_rows_threshold=100000):
     """
     Safely merge dataframes with memory checks and deduplication to prevent memory explosion.
-    
+    strea
     Args:
         left_df: Left dataframe to merge
         right_df: Right dataframe to merge  
@@ -1246,6 +1247,8 @@ column_aliases = {
     'Actual Quantity': ['Actual Quantity', 'Acutal Quantity', 'Quantity', 'Sales Quantity', 'Qty', 'Volume']
 }
 
+
+
 with tab3:
     st.header("📊 Region Month-wise Analysis")
     if st.session_state.uploaded_file_budget and 'selected_sheet_budget' in locals():
@@ -1307,6 +1310,16 @@ with tab3:
                     )
                     result_mt = result_mt.merge(temp_df, on='REGIONS', how='left')
                 
+                # Standardize region names
+                result_mt['REGIONS'] = result_mt['REGIONS'].str.strip().str.upper()
+                
+                # Round budget values to 2 decimal places to avoid small value issues
+                for col in result_mt.columns:
+                    if col.startswith('Budget-'):
+                        result_mt[col] = result_mt[col].round(2)
+                        # Optional: Set budget values less than 0.1 to NaN to avoid inflated percentages
+                        # result_mt[col] = result_mt[col].where(result_mt[col] >= 0.1, np.nan)
+                
                 # Process current year sales data
                 if st.session_state.uploaded_file_sales and 'selected_sheets_sales' in st.session_state:
                     all_sales_data = []
@@ -1337,7 +1350,7 @@ with tab3:
                             st.warning(f"Required columns not found in sales sheet '{sheet_name}'. Expected: Branch.1, Date, Actual Quantity. Found: {df_sales.columns.tolist()}")
                             continue
                         
-                        df_sales['Actual Quantity'] = pd.to_numeric(df_sales[qty_col], errors='coerce')
+                        df_sales['Actual Quantity'] = pd.to_numeric(df_sales[qty_col], errors='coerce').fillna(0)
                         
                         # Robust date parsing
                         try:
@@ -1388,11 +1401,7 @@ with tab3:
                                 aggfunc='sum'
                             ).reset_index().fillna(0)
                             
-                            # Check for January-March 2026
-                            expected_cols = [f'Act-{m}-26' for m in ['Jan', 'Feb', 'Mar']]
-                            missing_cols = [col for col in expected_cols if col not in actual_mt_current.columns]
-                            if missing_cols:
-                                pass
+                            
                         except Exception as e:
                             st.error(f"Error in sales quantity grouping: {str(e)}")
                             actual_mt_current = pd.DataFrame({'REGIONS': result_mt['REGIONS']})
@@ -1425,7 +1434,7 @@ with tab3:
                         st.warning(f"Required columns not found in last year sheet '{selected_sheet_last_year}'. Expected: Branch.1, Date, Actual Quantity. Found: {df_last_year.columns.tolist()}")
                         actual_mt_last = pd.DataFrame({'REGIONS': result_mt['REGIONS']})
                     else:
-                        df_last_year['Actual Quantity'] = pd.to_numeric(df_last_year[qty_col], errors='coerce')
+                        df_last_year['Actual Quantity'] = pd.to_numeric(df_last_year[qty_col], errors='coerce').fillna(0)
                         
                         # Robust date parsing for last year
                         try:
@@ -1469,11 +1478,7 @@ with tab3:
                                     aggfunc='sum'
                                 ).reset_index().fillna(0)
                                 
-                                # Check for January-March 2025
-                                expected_cols = [f'LY-{m}-25' for m in ['Jan', 'Feb', 'Mar']]
-                                missing_cols = [col for col in expected_cols if col not in actual_mt_last.columns]
-                                if missing_cols:
-                                    st.warning(f"Missing Last Year data for: {', '.join(missing_cols)}. Ensure xls_last_year includes January-March 2025.")
+                                
                             except Exception as e:
                                 st.error(f"Error in last year quantity grouping: {str(e)}")
                                 actual_mt_last = pd.DataFrame({'REGIONS': result_mt['REGIONS']})
@@ -1486,6 +1491,13 @@ with tab3:
                 st.session_state.actual_mt_data = actual_mt
                 
                 result_mt = safe_merge_dataframes(result_mt, actual_mt, on_column='REGIONS', how='left')
+                
+                # Round actual values (Act- columns) to 2 decimal places
+                for col in result_mt.columns:
+                    if col.startswith('Act-'):
+                        result_mt[col] = result_mt[col].round(2)
+                
+                
                 
                 # Calculate Growth and Achievement
                 for month in months:
@@ -1518,6 +1530,8 @@ with tab3:
                     result_mt[ach_col] = np.nan
                     
                     if budget_col in result_mt.columns and actual_col in result_mt.columns and ly_col in result_mt.columns:
+                        
+                        
                         result_mt[gr_col] = (
                             (result_mt[actual_col] - result_mt[ly_col]) /
                             result_mt[ly_col].replace(0, np.nan) * 100
@@ -1556,6 +1570,7 @@ with tab3:
                     file_name=f"region_budget_qty_{selected_sheet_budget}.csv",
                     mime="text/csv"
                 )
+        
         with tab_value:
             value_cols = [col for col in budget_data.columns if col.endswith('_Value')]
             value_cols = [col for col in value_cols if f'Budget-April{str(last_year)[-2:]}dec-{str(current_year)[-2:]}' not in col]
@@ -1585,6 +1600,16 @@ with tab3:
                         columns={f'{month_col}_Value': f'LY-{orig_month}'}
                     )
                     result_value = result_value.merge(temp_df, on='REGIONS', how='left')
+                
+                # Standardize region names
+                result_value['REGIONS'] = result_value['REGIONS'].str.strip().str.upper()
+                
+                # Round budget values to 2 decimal places to avoid small value issues
+                for col in result_value.columns:
+                    if col.startswith('Budget-'):
+                        result_value[col] = result_value[col].round(2)
+                        # Optional: Set budget values less than 0.1 to NaN to avoid inflated percentages
+                        # result_value[col] = result_value[col].where(result_value[col] >= 0.1, np.nan)
                 
                 # Process current year sales data
                 if st.session_state.uploaded_file_sales and 'selected_sheets_sales' in st.session_state:
@@ -1617,11 +1642,11 @@ with tab3:
                             continue
                         
                         try:
-                            df_sales[value_col] = pd.to_numeric(df_sales[value_col], errors='coerce')
+                            df_sales[value_col] = pd.to_numeric(df_sales[value_col], errors='coerce').fillna(0)
                         except ValueError as e:
                             st.error(f"Error converting Value column to numeric in sales data: {str(e)}")
                             continue
-                        
+                            
                         # Robust date parsing
                         try:
                             df_sales['Date'] = pd.to_datetime(df_sales[date_col], errors='coerce')
@@ -1671,6 +1696,7 @@ with tab3:
                                 aggfunc='sum'
                             ).reset_index().fillna(0)
                             
+                           
                         except Exception as e:
                             st.error(f"Error in sales value grouping: {str(e)}")
                             actual_value_current = pd.DataFrame({'REGIONS': result_value['REGIONS']})
@@ -1704,7 +1730,7 @@ with tab3:
                         actual_value_last = pd.DataFrame({'REGIONS': result_value['REGIONS']})
                     else:
                         try:
-                            df_last_year[amount_col] = pd.to_numeric(df_last_year[amount_col], errors='coerce')
+                            df_last_year[amount_col] = pd.to_numeric(df_last_year[amount_col], errors='coerce').fillna(0)
                         except ValueError as e:
                             st.error(f"Error converting Amount column to numeric in last year data: {str(e)}")
                             actual_value_last = pd.DataFrame({'REGIONS': result_value['REGIONS']})
@@ -1749,7 +1775,7 @@ with tab3:
                                         values='LY_Actual',
                                         aggfunc='sum'
                                     ).reset_index().fillna(0)
-                                    
+                                   
                                 except Exception as e:
                                     st.error(f"Error in last year value grouping: {str(e)}")
                                     actual_value_last = pd.DataFrame({'REGIONS': result_value['REGIONS']})
@@ -1762,6 +1788,12 @@ with tab3:
                 st.session_state.actual_value_data = actual_value
                 
                 result_value = safe_merge_dataframes(result_value, actual_value, on_column='REGIONS', how='left')
+                
+                # Round actual values (Act- columns) to 2 decimal places
+                for col in result_value.columns:
+                    if col.startswith('Act-'):
+                        result_value[col] = result_value[col].round(2)
+                
                 
                 # Calculate Growth and Achievement
                 for month in months:
@@ -1783,17 +1815,19 @@ with tab3:
                     gr_col = (
                         f'Gr-{month}-{str(current_year)[-2:]}'
                         if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                        else f'Gr-{month}-{str(next_year)[-2:]}'
+                        else f'Gr-{month}-${str(next_year)[-2:]}'
                     )
                     ach_col = (
                         f'Ach-{month}-{str(current_year)[-2:]}'
                         if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                        else f'Ach-{month}-{str(next_year)[-2:]}'
+                        else f'Ach-{month}-${str(next_year)[-2:]}'
                     )
                     result_value[gr_col] = np.nan
                     result_value[ach_col] = np.nan
                     
                     if budget_col in result_value.columns and actual_col in result_value.columns and ly_col in result_value.columns:
+                        
+                        
                         result_value[gr_col] = (
                             (result_value[actual_col] - result_value[ly_col]) /
                             result_value[ly_col].replace(0, np.nan) * 100
@@ -1858,7 +1892,7 @@ with tab3:
                             mt_table = df_auditor.iloc[mt_data_start:value_idx].dropna(how='all')
                         else:
                             mt_table = df_auditor.iloc[mt_data_start:].dropna(how='all')
-                        original_columns = df_auditor.iloc[mt_idx]
+                        original_columns = df_auditor.iloc[mt_idx].values
                         renamed_columns = ['SALES in MT'] + list(original_columns[1:])
                         mt_table.columns = renamed_columns
                         mt_table.columns = rename_columns(mt_table.columns)
@@ -1866,16 +1900,17 @@ with tab3:
                         mt_table['SALES in MT'] = mt_table['SALES in MT'].astype(str).str.strip().str.upper()
                         for col in mt_table.columns[1:]:
                             mt_table[col] = pd.to_numeric(mt_table[col], errors='coerce').fillna(0)
+                        
                         numeric_cols = mt_table.select_dtypes(include=[np.number]).columns
                         mt_table[numeric_cols] = mt_table[numeric_cols].astype(float).round(2)
                         st.session_state.auditor_mt_table = mt_table
                     
                     if value_idx is not None:
                         value_table = df_auditor.iloc[value_data_start:].dropna(how='all')
-                        original_columns = df_auditor.iloc[value_idx]
+                        original_columns = df_auditor.iloc[value_idx].values
                         renamed_columns = ['SALES in Value'] + list(original_columns[1:])
                         value_table.columns = renamed_columns
-                        value_table.columns = rename_columns(renamed_columns)
+                        value_table.columns = rename_columns(value_table.columns)
                         value_table = handle_duplicate_columns(value_table)
                         value_table['SALES in Value'] = value_table['SALES in Value'].astype(str).str.strip().str.upper()
                         for col in value_table.columns[1:]:
@@ -1928,15 +1963,15 @@ with tab3:
                             merged_mt_data = pd.concat([merged_mt_data, pd.DataFrame([grand_total_row])], ignore_index=True)
                         
                         ytd_periods = {
-                            f'YTD-{year_suffix} (Apr to Jun)Budget': [f'Budget-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun']],
-                            f'YTD-{year_suffix} (Apr to Sep)Budget': [f'Budget-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep']],
-                            f'YTD-{year_suffix} (Apr to Dec)Budget': [f'Budget-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']],
-                            f'YTD-{year_suffix} (Apr to Mar)Budget': [f'Budget-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']] +
+                            f'ytd-{year_suffix} (Apr to Jun)Budget': [f'Budget-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun']],
+                            f'ytd-{year_suffix} (Apr to Sep)Budget': [f'Budget-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep']],
+                            f'ytd-{year_suffix} (Apr to Dec)Budget': [f'Budget-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']],
+                            f'ytd-{year_suffix} (Apr to Mar)Budget': [f'Budget-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']] +
                                                                      [f'Budget-{m}-{str(next_year)[-2:]}' for m in ['Jan', 'Feb', 'Mar']],
-                            f'YTD-{ly_year_suffix} (Apr to Jun)LY': [f'LY-{m}-{str(last_year)[-2:]}' for m in ['Apr', 'May', 'Jun']],
-                            f'YTD-{ly_year_suffix} (Apr to Sep)LY': [f'LY-{m}-{str(last_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep']],
-                            f'YTD-{ly_year_suffix} (Apr to Dec)LY': [f'LY-{m}-{str(last_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']],
-                            f'YTD-{ly_year_suffix} (Apr to Mar)LY': [f'LY-{m}-{str(last_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']] +
+                            f'ytd-{ly_year_suffix} (Apr to Jun)LY': [f'LY-{m}-{str(last_year)[-2:]}' for m in ['Apr', 'May', 'Jun']],
+                            f'ytd-{ly_year_suffix} (Apr to Sep)LY': [f'LY-{m}-{str(last_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep']],
+                            f'ytd-{ly_year_suffix} (Apr to Dec)LY': [f'LY-{m}-{str(last_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']],
+                            f'ytd-{ly_year_suffix} (Apr to Mar)LY': [f'LY-{m}-{str(last_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']] +
                                                                     [f'LY-{m}-{str(current_year)[-2:]}' for m in ['Jan', 'Feb', 'Mar']],
                             f'Act-YTD-{year_suffix} (Apr to Jun)': [f'Act-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun']],
                             f'Act-YTD-{year_suffix} (Apr to Sep)': [f'Act-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep']],
@@ -1951,10 +1986,10 @@ with tab3:
                                 merged_mt_data[ytd_col] = merged_mt_data[valid_months].sum(axis=1, skipna=True).astype(float).round(2)
                         
                         ytd_pairs = [
-                            ('Apr to Jun', f'YTD-{year_suffix} (Apr to Jun)Budget', f'YTD-{ly_year_suffix} (Apr to Jun)LY', f'Act-YTD-{year_suffix} (Apr to Jun)'),
-                            ('Apr to Sep', f'YTD-{year_suffix} (Apr to Sep)Budget', f'YTD-{ly_year_suffix} (Apr to Sep)LY', f'Act-YTD-{year_suffix} (Apr to Sep)'),
-                            ('Apr to Dec', f'YTD-{year_suffix} (Apr to Dec)Budget', f'YTD-{ly_year_suffix} (Apr to Dec)LY', f'Act-YTD-{year_suffix} (Apr to Dec)'),
-                            ('Apr to Mar', f'YTD-{year_suffix} (Apr to Mar)Budget', f'YTD-{ly_year_suffix} (Apr to Mar)LY', f'Act-YTD-{year_suffix} (Apr to Mar)')
+                            ('Apr to Jun', f'ytd-{year_suffix} (Apr to Jun)Budget', f'ytd-{ly_year_suffix} (Apr to Jun)LY', f'Act-YTD-{year_suffix} (Apr to Jun)'),
+                            ('Apr to Sep', f'ytd-{year_suffix} (Apr to Sep)Budget', f'ytd-{ly_year_suffix} (Apr to Sep)LY', f'Act-YTD-{year_suffix} (Apr to Sep)'),
+                            ('Apr to Dec', f'ytd-{year_suffix} (Apr to Dec)Budget', f'ytd-{ly_year_suffix} (Apr to Dec)LY', f'Act-YTD-{year_suffix} (Apr to Dec)'),
+                            ('Apr to Mar', f'ytd-{year_suffix} (Apr to Mar)Budget', f'ytd-{ly_year_suffix} (Apr to Mar)LY', f'Act-YTD-{year_suffix} (Apr to Mar)')
                         ]
                         
                         for period, budget_col, ly_col, act_col in ytd_pairs:
@@ -1975,15 +2010,16 @@ with tab3:
                     if st.session_state.auditor_value_table is not None and not result_value.empty:
                         merged_value_data = st.session_state.auditor_value_table.copy()
                         common_columns = set(merged_value_data.columns) & set(result_value.columns) - {'SALES in Value'}
+                        
                         if common_columns:
                             for col in common_columns:
                                 for region in merged_value_data['SALES in Value']:
                                     if region in result_value['SALES in Value'].values and region not in ['GRAND TOTAL', 'NORTH TOTAL', 'WEST SALES']:
-                                        region_value = result_value.loc[result_value['SALES in Value'] == region, col].values
-                                        if len(region_value) > 0:
-                                            merged_value_data.loc[merged_value_data['SALES in Value'] == region, col] = region_value[0]
+                                     region_value = result_value.loc[result_value['SALES in Value'] == region, col].values
+                                    if len(region_value) > 0:
+                                        merged_value_data.loc[merged_value_data['SALES in Value'] == region, col] = region_value[0]
                         
-                        for col in merged_value_data.columns:
+                        for col in merged_value_data.columns[1:]:
                             if col != 'SALES in Value':
                                 merged_value_data[col] = pd.to_numeric(merged_value_data[col], errors='coerce').fillna(0)
                         
@@ -2006,18 +2042,18 @@ with tab3:
                                 sum_value = merged_value_data[merged_value_data['SALES in Value'].isin(valid_west_regions)][col].sum().round(2)
                                 merged_value_data.loc[west_mask, col] = sum_value
                         
-                        for ytd_col, months in ytd_periods.items():
+                        for ytd, months in ytd_periods.items():
                             valid_months = [month for month in months if month in merged_value_data.columns]
                             if valid_months:
                                 merged_value_data[ytd_col] = merged_value_data[valid_months].sum(axis=1, skipna=True).astype(float).round(2)
                         
-                        for period, budget_col, ly_col, act_col in ytd_pairs:
+                        for period in ytd_pairs:
                             if all(col in merged_value_data.columns for col in [budget_col, ly_col, act_col]):
-                                merged_value_data[f'Gr-YTD-{year_suffix} ({period})'] = (
+                                merged_value_data[f'Gr-YTD- + {year_suffix} ({period})'] = (
                                     ((merged_value_data[act_col] - merged_value_data[ly_col]) /
                                      merged_value_data[ly_col].replace(0, np.nan)) * 100
                                 ).fillna(0).astype(float).round(2)
-                                merged_value_data[f'Ach-YTD-{year_suffix} ({period})'] = (
+                                merged_value_data[f'Ach-YTD- + {year_suffix} ({period})'] = (
                                     (merged_value_data[act_col] /
                                      merged_value_data[budget_col].replace(0, np.nan)) * 100
                                 ).fillna(0).astype(float).round(2)
@@ -2025,8 +2061,8 @@ with tab3:
                         if not merged_value_data.empty:
                             grand_total_mask = merged_value_data['SALES in Value'] == 'GRAND TOTAL'
                             if grand_total_mask.any():
-                                non_total_data = merged_value_data[~grand_total_mask & 
-                                                                  ~merged_value_data['SALES in Value'].isin(['NORTH TOTAL', 'WEST SALES'])]
+                                non_total_data = merged_value_data[~ ~grand_total_mask & 
+                                               ~merged_value_data['SALES in Value'].isin(['NORTH TOTAL', 'WEST SALES'])]
                                 total_sums = non_total_data.select_dtypes(include=[np.number]).sum().round(2)
                                 for col in total_sums.index:
                                     merged_value_data.loc[grand_total_mask, col] = total_sums[col]
@@ -2037,6 +2073,9 @@ with tab3:
                     # Store merged data in session state
                     st.session_state.merged_region_mt_data = merged_mt_data
                     st.session_state.merged_region_value_data = merged_value_data
+                    
+                    
+            
                     
                     # Display merged data
                     if not merged_mt_data.empty:
@@ -2106,7 +2145,7 @@ with tab3:
                             )
                             worksheet.merge_range(
                                 2, 0, 2, num_cols - 1,
-                                f"REGION WISE REVIEW FOR THE YR {current_year} VS {next_year}",
+                                f"REGION WISE REPORT FOR THE YR {current_year} VS {next_year}",
                                 title_format
                             )
                             start_row = 4
@@ -2128,21 +2167,21 @@ with tab3:
                                     total_row_idx = start_row + 1 + grand_total_idx
                                     for col_idx in range(len(merged_mt_data.columns)):
                                         worksheet.write(total_row_idx, col_idx, 
-                                                        merged_mt_data.iloc[grand_total_idx, col_idx], total_format)
+                                            merged_mt_data.iloc[grand_total_idx, col_idx], total_format)
                                 north_total_mask = merged_mt_data['SALES in MT'] == 'NORTH TOTAL'
                                 if north_total_mask.any():
                                     north_total_idx = merged_mt_data.index[north_total_mask][0]
                                     north_row_idx = start_row + 1 + north_total_idx
                                     for col_idx in range(len(merged_mt_data.columns)):
                                         worksheet.write(north_row_idx, col_idx, 
-                                                        merged_mt_data.iloc[north_total_idx, col_idx], north_total_format)
+                                            merged_mt_data.iloc[north_total_idx, col_idx], north_total_format)
                                 west_sales_mask = merged_mt_data['SALES in MT'] == 'WEST SALES'
                                 if west_sales_mask.any():
                                     west_sales_idx = merged_mt_data.index[west_sales_mask][0]
                                     west_row_idx = start_row + 1 + west_sales_idx
                                     for col_idx in range(len(merged_mt_data.columns)):
                                         worksheet.write(west_row_idx, col_idx, 
-                                                        merged_mt_data.iloc[west_sales_idx, col_idx], west_sales_format)
+                                            merged_mt_data.iloc[west_sales_idx, col_idx], west_sales_format)
                                 for i, col in enumerate(merged_mt_data.columns):
                                     max_len = max((merged_mt_data[col].astype(str).str.len().max(), len(str(col)))) + 2
                                     worksheet.set_column(i, i, max_len)
@@ -2166,21 +2205,21 @@ with tab3:
                                     total_row_idx = start_row + 1 + grand_total_idx
                                     for col_idx in range(len(merged_value_data.columns)):
                                         worksheet.write(total_row_idx, col_idx, 
-                                                        merged_value_data.iloc[grand_total_idx, col_idx], total_format)
+                                            merged_value_data.iloc[grand_total_idx, col_idx], total_format)
                                 north_total_mask = merged_value_data['SALES in Value'] == 'NORTH TOTAL'
                                 if north_total_mask.any():
                                     north_total_idx = merged_value_data.index[north_total_mask][0]
                                     north_row_idx = start_row + 1 + north_total_idx
                                     for col_idx in range(len(merged_value_data.columns)):
                                         worksheet.write(north_row_idx, col_idx, 
-                                                        merged_value_data.iloc[north_total_idx, col_idx], north_total_format)
+                                            merged_value_data.iloc[north_total_idx, col_idx], north_total_format)
                                 west_sales_mask = merged_value_data['SALES in Value'] == 'WEST SALES'
                                 if west_sales_mask.any():
                                     west_sales_idx = merged_value_data.index[west_sales_mask][0]
                                     west_row_idx = start_row + 1 + west_sales_idx
                                     for col_idx in range(len(merged_value_data.columns)):
                                         worksheet.write(west_row_idx, col_idx, 
-                                                        merged_value_data.iloc[west_sales_idx, col_idx], west_sales_format)
+                                            merged_value_data.iloc[west_sales_idx, col_idx], west_sales_format)
                                 for i, col in enumerate(merged_value_data.columns):
                                     max_len = max((merged_value_data[col].astype(str).str.len().max(), len(str(col)))) + 2
                                     worksheet.set_column(i, i, max_len)
@@ -2192,17 +2231,14 @@ with tab3:
                             data=excel_data,
                             file_name="merged_region_data.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="region_merge_download"
+                            key="region_data_download"
                         )
                 else:
                     st.info("ℹ️ No region sheet found in auditor file. Please ensure a sheet with 'region' in its name exists.")
             else: 
                 st.info("ℹ️ Upload auditor file and generate region data first.")
-    else: 
+    else:  
         st.info("ℹ️ Please upload the Budget file first.")
-
-
-
 def find_column(df, possible_names, case_sensitive=False):
     # Placeholder for finding column names
     # Should return the matching column name or None
@@ -2532,7 +2568,7 @@ with tab4:
 
                         csv_mt = result_product_mt.to_csv(index=False).encode('utf-8')
                         st.download_button(
-                            "⬇️ Download Budget Tonage Data",
+                            "⬇️ Download Product Tonage Data",
                             csv_mt,
                             file_name=f"product_budget_qty_{selected_sheet_budget}_{fiscal_year_str}.csv",
                             mime="text/csv"
@@ -2779,7 +2815,7 @@ with tab4:
 
                         csv_value = result_product_value.to_csv(index=False).encode('utf-8')
                         st.download_button(
-                            "⬇️ Download Budget and Actual Value Data",
+                            "⬇️ Download Product Value Data",
                             csv_value,
                             file_name=f"product_budget_actual_value_{selected_sheet_budget}_{fiscal_year_str}.csv",
                             mime="text/csv"
@@ -3220,6 +3256,7 @@ with tab4:
     else: 
         st.info("ℹ️ Please upload both Sales and Budget files and select appropriate sheets.")
 
+
 with tab5:
     st.header("📊 TS-PW Data Analysis (NORTH)")
     
@@ -3621,7 +3658,7 @@ with tab5:
                             
                             excel_data = output.getvalue()
                             st.download_button(
-                                label="⬇️ Download Budget Tonage as Excel",
+                                label="⬇️ Download TS-PW Tonage as Excel",
                                 data=excel_data,
                                 file_name=f"ts_pw_monthly_budget_tonage_north_{fiscal_year_str}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -3824,7 +3861,7 @@ with tab5:
                             
                             excel_data = output.getvalue()
                             st.download_button(
-                                label="⬇️ Download Budget Value as Excel",
+                                label="⬇️ Download TS-PW Value as Excel",
                                 data=excel_data,
                                 file_name=f"ts_pw_monthly_budget_value_north_{fiscal_year_str}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -4560,7 +4597,7 @@ with tab6:
                             
                             excel_data = output.getvalue()
                             st.download_button(
-                                label="⬇️ Download Budget Tonage as Excel",
+                                label="⬇️ Download ERO-PW Tonage as Excel",
                                 data=excel_data,
                                 file_name=f"ero_pw_monthly_budget_tonage_west_{fiscal_year_str}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -4762,7 +4799,7 @@ with tab6:
                             
                             excel_data = output.getvalue()
                             st.download_button(
-                                label="⬇️ Download Budget Value as Excel",
+                                label="⬇️ Download ERO-PW Value as Excel",
                                 data=excel_data,
                                 file_name=f"ero_pw_monthly_budget_value_west_{fiscal_year_str}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -5104,6 +5141,12 @@ with tab6:
     else:
         st.warning("Please ensure all required files are uploaded and sheets are selected.")
 
+import streamlit as st
+import pandas as pd
+import re
+import numpy as np
+from io import BytesIO
+
 with tab7:
     st.header("📊 Sales Analysis Month-wise")
     
@@ -5153,6 +5196,11 @@ with tab7:
                 table1.columns = rename_columns(table1.columns)
                 table1 = handle_duplicate_columns(table1)
                 
+                # Enforce custom headers for ORGANIZATION NAME row in SALES in MT
+                if len(table1.columns) == 55:  # Match the expected 55 columns (1 + 54 data columns)
+                    custom_headers_mt = ["ORGANIZATION NAME"] + ["MT"] * 27 + ["%"] * 27  # 27 MT + 27 % = 54
+                    table1.columns = custom_headers_mt[:len(table1.columns)]
+                
                 # Convert numeric columns to float, except the first column
                 for col in table1.columns[1:]:  # Skip first column (likely text)
                     table1[col] = pd.to_numeric(table1[col], errors='coerce').fillna(0).astype(float)
@@ -5165,6 +5213,11 @@ with tab7:
                     table2.columns = table2.columns.map(str)
                     table2.columns = rename_columns(table2.columns)
                     table2 = handle_duplicate_columns(table2)
+                    
+                    # Enforce custom headers for ORGANIZATION NAME row in SALES in Value
+                    if len(table2.columns) == 55:  # Match the expected 55 columns (1 + 54 data columns)
+                        custom_headers_value = ["ORGANIZATION NAME"] + ["Rs"] * 27 + ["%"] * 27  # 27 Rs + 27 % = 54
+                        table2.columns = custom_headers_value[:len(table2.columns)]
                     
                     # Convert numeric columns to float, except the first column
                     for col in table2.columns[1:]:
@@ -5355,20 +5408,25 @@ with tab7:
                     try:
                         display_mt = table1_with_accllp.copy()
                         
-                        
                         # Clean numeric columns
                         numeric_cols = display_mt.select_dtypes(include=[np.number]).columns
                         display_mt[numeric_cols] = display_mt[numeric_cols].replace([np.inf, -np.inf], 0)
                         display_mt[numeric_cols] = display_mt[numeric_cols].fillna(0)
                         
-                        # Format numeric columns for display as strings
+                        # Replace 0.00 with empty string in numeric columns
+                        for col in numeric_cols:
+                            display_mt[col] = display_mt[col].apply(lambda x: "" if x == 0.00 else x)
+                        
+                        # Format numeric columns for display as strings (only for valid numbers)
                         if len(display_mt) * len(display_mt.columns) <= 100000:
                             for col in numeric_cols:
-                                display_mt[col] = display_mt[col].apply(lambda x: f"{x:,.2f}" if pd.notna(x) else "0.00")
+                                display_mt[col] = display_mt[col].apply(
+                                    lambda x: f"{float(x):,.2f}" if pd.notna(pd.to_numeric(x, errors='coerce')) and x != 0.00 else x
+                                )
                         
                         st.dataframe(display_mt, use_container_width=True)
                     except Exception as e:
-                        
+                        st.warning(f"Formatting error in SALES in MT table: {str(e)} - displaying raw data")
                         st.dataframe(table1_with_accllp, use_container_width=True)
                 else:
                     st.error("❌ SALES in MT table not found or empty")
@@ -5379,17 +5437,21 @@ with tab7:
                     try:
                         display_value = table2_with_accllp.copy()
                         
-                        
-                        
                         # Clean numeric columns
                         numeric_cols = display_value.select_dtypes(include=[np.number]).columns
                         display_value[numeric_cols] = display_value[numeric_cols].replace([np.inf, -np.inf], 0)
                         display_value[numeric_cols] = display_value[numeric_cols].fillna(0)
                         
-                        # Format numeric columns for display as strings
+                        # Replace 0.00 with empty string in numeric columns
+                        for col in numeric_cols:
+                            display_value[col] = display_value[col].apply(lambda x: "" if x == 0.00 else x)
+                        
+                        # Format numeric columns for display as strings (only for valid numbers)
                         if len(display_value) * len(display_value.columns) <= 100000:
                             for col in numeric_cols:
-                                display_value[col] = display_value[col].apply(lambda x: f"{x:,.2f}" if pd.notna(x) else "0.00")
+                                display_value[col] = display_value[col].apply(
+                                    lambda x: f"{float(x):,.2f}" if pd.notna(pd.to_numeric(x, errors='coerce')) and x != 0.00 else x
+                                )
                         
                         st.dataframe(display_value, use_container_width=True)
                     except Exception as e:
@@ -5419,11 +5481,17 @@ with tab7:
                             numeric_cols = table1_clean.select_dtypes(include=[np.number]).columns
                             table1_clean[numeric_cols] = table1_clean[numeric_cols].replace([np.inf, -np.inf], 0)
                             table1_clean[numeric_cols] = table1_clean[numeric_cols].fillna(0)
+                            # Replace 0.00 with empty string for Excel export
+                            for col in numeric_cols:
+                                table1_clean[col] = table1_clean[col].apply(lambda x: "" if x == 0.00 else x)
                         
                         if table2_clean is not None:
                             numeric_cols = table2_clean.select_dtypes(include=[np.number]).columns
                             table2_clean[numeric_cols] = table2_clean[numeric_cols].replace([np.inf, -np.inf], 0)
                             table2_clean[numeric_cols] = table2_clean[numeric_cols].fillna(0)
+                            # Replace 0.00 with empty string for Excel export
+                            for col in numeric_cols:
+                                table2_clean[col] = table2_clean[col].apply(lambda x: "" if x == 0.00 else x)
                         
                         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                             workbook = writer.book
@@ -5463,7 +5531,7 @@ with tab7:
                                             else:
                                                 value = float(value)
                                         fmt = accllp_format if is_accllp else (text_format if col_num == 0 else num_format)
-                                        worksheet.write(start_row + 4 + row_num, col_num, value, fmt)
+                                        worksheet.write(start_row + 4 + row_num, col_num, value if value != 0.00 else "", fmt)
                                 
                                 for i, col in enumerate(table1_clean.columns):
                                     max_len = max((table1_clean[col].astype(str).str.len().max(), len(str(col)))) + 2
@@ -5490,7 +5558,7 @@ with tab7:
                                             else:
                                                 value = float(value)
                                         fmt = accllp_format if is_accllp else (text_format if col_num == 0 else num_format)
-                                        worksheet.write(start_row + 4 + row_num, col_num, value, fmt)
+                                        worksheet.write(start_row + 4 + row_num, col_num, value if value != 0.00 else "", fmt)
                                 
                                 for i, col in enumerate(table2_clean.columns):
                                     max_len = max((table2_clean[col].astype(str).str.len().max(), len(str(col)))) + 2
