@@ -1106,13 +1106,13 @@ with tab1:
                     st.sidebar.subheader("Select Table to Display")
                     table_choice_auditor = st.sidebar.radio(
                         "Choose table:",
-                        ["Table 1: SALES in MT/Tonnage", "Table 2: SALES in Value"],
+                        ["Table 1: SALES in MT/Tonage", "Table 2: SALES in Value"],
                         key="table_choice_auditor",
-                        index=0 if st.session_state.get('table_choice_auditor', "Table 1: SALES in MT/Tonnage") == "Table 1: SALES in MT/Tonnage" else 1
+                        index=0 if st.session_state.get('table_choice_auditor', "Table 1: SALES in MT/Tonage") == "Table 1: SALES in MT/Tonage" else 1
                     )
                     
                     table_df = None
-                    if table_choice_auditor == "Table 1: SALES in MT/Tonnage" and table1 is not None:
+                    if table_choice_auditor == "Table 1: SALES in MT/Tonage" and table1 is not None:
                         table_df = table1
                     elif table_choice_auditor == "Table 2: SALES in Value" and table2 is not None:
                         table_df = table2
@@ -1120,13 +1120,13 @@ with tab1:
                     if table_df is None:
                         available_tables = []
                         if table1 is not None:
-                            available_tables.append("Table 1: SALES in MT/Tonnage")
+                            available_tables.append("Table 1: SALES in MT/Tonage")
                         if table2 is not None:
                             available_tables.append("Table 2: SALES in Value")
                         
                         if available_tables:
                             table_choice_auditor = available_tables[0]
-                            table_df = table1 if table_choice_auditor == "Table 1: SALES in MT/Tonnage" else table2
+                            table_df = table1 if table_choice_auditor == "Table 1: SALES in MT/Tonage" else table2
                         else:
                             st.error("No valid tables found in the sheet")
                             st.stop()
@@ -1239,7 +1239,7 @@ with tab2:
 
 # Define column aliases for dynamic renaming
 column_aliases = {
-    'Date': ['Month Format', 'Month', 'Date', 'Time Period', 'Period', 'Month Format-Date'],
+    'Date': ['Month Format', 'Month', 'Date'],
     'Product Name': ['Type(Make)', 'Product Group'],
     'Value': ['Value', 'Sales Value',  'Total Amount', 'Amount'],  # For df_sales
     'Amount': ['Amount', 'Total Amount', 'Sales Amount', 'Value', 'Sales Value'],  # For df_last_year
@@ -1251,994 +1251,1264 @@ column_aliases = {
 
 with tab3:
     st.header("📊 Region Month-wise Analysis")
-    if st.session_state.uploaded_file_budget and 'selected_sheet_budget' in locals():
-        # Read budget data with header in first row
-        df_budget = pd.read_excel(xls_budget, sheet_name=selected_sheet_budget, header=0)
-        df_budget.columns = df_budget.columns.str.strip()
-        
-        df_budget = df_budget.dropna(how='all').reset_index(drop=True)
-        
-        budget_data = process_budget_data(df_budget, group_type='region')
-        st.session_state.budget_data = budget_data
-        if budget_data is None:
-            st.error("Budget data processing failed.")
-            st.stop()
-            
-        # Determine current, next, and last year dynamically
-        current_year = datetime.now().year
-        next_year = current_year + 1
-        last_year = current_year - 1
-        year_suffix = f"{str(current_year)[-2:]}-{str(next_year)[-2:]}"
-        ly_year_suffix = f"{str(last_year)[-2:]}-{str(current_year)[-2:]}"
-        
-        # Define month order (April to March)
-        months = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar']
-        
-        tab_mt, tab_value, tab_merge = st.tabs(["SALES in MT", "SALES in Value", "Merge Preview"])
-        
-        with tab_mt:
-            mt_cols = [col for col in budget_data.columns if col.endswith('_MT')]
-            # Exclude any aggregated budget columns
-            mt_cols = [col for col in mt_cols if f'Budget-April{str(last_year)[-2:]}dec-{str(current_year)[-2:]}' not in col]
-            
-            if mt_cols:
-                # Include current year budget columns
-                month_cols = sorted(set(col.replace('_MT', '') for col in mt_cols 
-                                       if not (col.endswith(f'-{str(last_year)[-2:]}') or col.endswith(f'-{str(current_year)[-2:]}'))))
-                # Include last year columns (both year suffixes)
-                last_year_cols = sorted(set(col.replace('_MT', '') for col in mt_cols 
-                                           if col.endswith(f'-{str(last_year)[-2:]}') or col.endswith(f'-{str(current_year)[-2:]}')))
-                
-                result_mt = pd.DataFrame()
-                for month_col in month_cols:
-                    temp_df = budget_data[['REGIONS', f'{month_col}_MT']].rename(
-                        columns={f'{month_col}_MT': month_col}
-                    )
-                    if result_mt.empty:
-                        result_mt = temp_df
-                    else:
-                        result_mt = result_mt.merge(temp_df, on='REGIONS', how='outer')
-                
-                for month_col in last_year_cols:
-                    # Handle both year suffixes for last year
-                    if month_col.endswith(f'-{str(last_year)[-2:]}'):
-                        orig_month = month_col.replace(f'-{str(last_year)[-2:]}', '')
-                    else:
-                        orig_month = month_col.replace(f'-{str(current_year)[-2:]}', '')
-                    temp_df = budget_data[['REGIONS', f'{month_col}_MT']].rename(
-                        columns={f'{month_col}_MT': f'LY-{orig_month}'}
-                    )
-                    result_mt = result_mt.merge(temp_df, on='REGIONS', how='left')
-                
-                # Standardize region names
-                result_mt['REGIONS'] = result_mt['REGIONS'].str.strip().str.upper()
-                
-                # Round budget values to 2 decimal places to avoid small value issues
-                for col in result_mt.columns:
-                    if col.startswith('Budget-'):
-                        result_mt[col] = result_mt[col].round(2)
-                        # Optional: Set budget values less than 0.1 to NaN to avoid inflated percentages
-                        # result_mt[col] = result_mt[col].where(result_mt[col] >= 0.1, np.nan)
-                
-                # Process current year sales data
-                if st.session_state.uploaded_file_sales and 'selected_sheets_sales' in st.session_state:
-                    all_sales_data = []
-                    for sheet_name in st.session_state.selected_sheets_sales:
-                        df_sales = pd.read_excel(xls_sales, sheet_name=sheet_name, header=0)
-                        if isinstance(df_sales.columns, pd.MultiIndex):
-                            df_sales.columns = ['_'.join(col).strip() for col in df_sales.columns.values]
-                        df_sales = handle_duplicate_columns(df_sales)
-                        
-                        branch_col = find_column(df_sales, column_aliases['Branch'])
-                        date_col = find_column(df_sales, column_aliases['Date'])
-                        qty_col = find_column(df_sales, column_aliases['Actual Quantity'])
-                        
-                        rename_dict = {}
-                        if date_col:
-                            rename_dict[date_col] = 'Date'
-                        if branch_col:
-                            rename_dict[branch_col] = 'Branch.1'
-                        if qty_col:
-                            rename_dict[qty_col] = 'Actual Quantity'
-                        df_sales = df_sales.rename(columns=rename_dict)
-                        
-                        branch_col = "Branch.1" if "Branch.1" in df_sales.columns else None
-                        date_col = "Date" if "Date" in df_sales.columns else None
-                        qty_col = "Actual Quantity" if "Actual Quantity" in df_sales.columns else None
-                        
-                        if not (branch_col and date_col and qty_col):
-                            st.warning(f"Required columns not found in sales sheet '{sheet_name}'. Expected: Branch.1, Date, Actual Quantity. Found: {df_sales.columns.tolist()}")
-                            continue
-                        
-                        df_sales['Actual Quantity'] = pd.to_numeric(df_sales[qty_col], errors='coerce').fillna(0)
-                        
-                        # Robust date parsing
-                        try:
-                            df_sales['Date'] = pd.to_datetime(df_sales[date_col], errors='coerce')
-                            if df_sales['Date'].isna().all():
-                                df_sales['Month'] = df_sales[date_col].str.strip().str[:3]
-                                df_sales['Year'] = df_sales[date_col].str.extract(r'(\d{4})')[0]
-                            else:
-                                df_sales['Month'] = df_sales['Date'].dt.strftime('%b')
-                                df_sales['Year'] = df_sales['Date'].dt.year
-                        except Exception as e:
-                            st.warning(f"Date parsing failed for sheet '{sheet_name}': {str(e)}. Attempting string extraction.")
-                            df_sales['Month'] = df_sales[date_col].str.strip().str[:3]
-                            df_sales['Year'] = df_sales[date_col].str.extract(r'(\d{4})')[0]
-                        
-                        # Validate and clean Year
-                        df_sales['Year'] = pd.to_numeric(df_sales['Year'], errors='coerce').fillna(0).astype(int)
-                        if df_sales['Year'].eq(0).any():
-                            df_sales.loc[df_sales['Year'] == 0, 'Year'] = current_year
-                        
-                        # Ensure Month is valid
-                        valid_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                        df_sales = df_sales[df_sales['Month'].isin(valid_months)]
-                        if df_sales.empty:
-                            st.warning(f"No valid months found in sheet '{sheet_name}'. Skipping.")
-                            continue
-                        
-                        all_sales_data.append(df_sales)
-                    
-                    if all_sales_data:
-                        combined_sales = pd.concat(all_sales_data, ignore_index=True)
-                        
-                        try:
-                            sales_agg_current = combined_sales.groupby(['Branch.1', 'Month', 'Year'])['Actual Quantity'].sum().reset_index()
-                            sales_agg_current.columns = ['REGIONS', 'Month', 'Year', 'Actual']
-                            sales_agg_current['REGIONS'] = sales_agg_current['REGIONS'].str.strip().str.upper()
-                            
-                            # Ensure Year is integer and format Month_Year correctly
-                            sales_agg_current['Year'] = sales_agg_current['Year'].astype(int)
-                            sales_agg_current['Month_Year'] = sales_agg_current.apply(
-                                lambda x: f'Act-{x["Month"]}-{str(x["Year"])[-2:]}', axis=1
-                            )
-                            
-                            actual_mt_current = sales_agg_current.pivot_table(
-                                index='REGIONS',
-                                columns='Month_Year',
-                                values='Actual',
-                                aggfunc='sum'
-                            ).reset_index().fillna(0)
-                            
-                            
-                        except Exception as e:
-                            st.error(f"Error in sales quantity grouping: {str(e)}")
-                            actual_mt_current = pd.DataFrame({'REGIONS': result_mt['REGIONS']})
-                
-                # Process last year data (April to March)
-                if st.session_state.uploaded_file_last_year and 'selected_sheet_last_year' in locals():
-                    df_last_year = pd.read_excel(xls_last_year, sheet_name=selected_sheet_last_year, header=0)
-                    if isinstance(df_last_year.columns, pd.MultiIndex):
-                        df_last_year.columns = ['_'.join(col).strip() for col in df_last_year.columns.values]
-                    df_last_year = handle_duplicate_columns(df_last_year)
-                    
-                    branch_col = find_column(df_last_year, column_aliases['Branch'])
-                    date_col = find_column(df_last_year, column_aliases['Date'])
-                    qty_col = find_column(df_last_year, column_aliases['Actual Quantity'])
-                    
-                    rename_dict = {}
-                    if date_col:
-                        rename_dict[date_col] = 'Date'
-                    if branch_col:
-                        rename_dict[branch_col] = 'Branch.1'
-                    if qty_col:
-                        rename_dict[qty_col] = 'Actual Quantity'
-                    df_last_year = df_last_year.rename(columns=rename_dict)
-                    
-                    branch_col = "Branch.1" if "Branch.1" in df_last_year.columns else None
-                    date_col = "Date" if "Date" in df_last_year.columns else None
-                    qty_col = "Actual Quantity" if "Actual Quantity" in df_last_year.columns else None
-                    
-                    if not (branch_col and date_col and qty_col):
-                        st.warning(f"Required columns not found in last year sheet '{selected_sheet_last_year}'. Expected: Branch.1, Date, Actual Quantity. Found: {df_last_year.columns.tolist()}")
-                        actual_mt_last = pd.DataFrame({'REGIONS': result_mt['REGIONS']})
-                    else:
-                        df_last_year['Actual Quantity'] = pd.to_numeric(df_last_year[qty_col], errors='coerce').fillna(0)
-                        
-                        # Robust date parsing for last year
-                        try:
-                            df_last_year['Date'] = pd.to_datetime(df_last_year[date_col], errors='coerce')
-                            if df_last_year['Date'].isna().all():
-                                df_last_year['Month'] = df_last_year[date_col].str.strip().str[:3]
-                                df_last_year['Year'] = df_last_year[date_col].str.extract(r'(\d{4})')[0]
-                            else:
-                                df_last_year['Month'] = df_last_year['Date'].dt.strftime('%b')
-                                df_last_year['Year'] = df_last_year['Date'].dt.year
-                        except Exception as e:
-                            st.warning(f"Date parsing failed for last year sheet '{selected_sheet_last_year}': {str(e)}. Attempting string extraction.")
-                            df_last_year['Month'] = df_last_year[date_col].str.strip().str[:3]
-                            df_last_year['Year'] = df_last_year[date_col].str.extract(r'(\d{4})')[0]
-                        
-                        # Validate and clean Year
-                        df_last_year['Year'] = pd.to_numeric(df_last_year['Year'], errors='coerce').fillna(0).astype(int)
-                        if df_last_year['Year'].eq(0).any():
-                            st.warning(f"Invalid or missing years found in last year sheet '{selected_sheet_last_year}'. Defaulting to last year ({last_year}).")
-                            df_last_year.loc[df_last_year['Year'] == 0, 'Year'] = last_year
-                        
-                        # Ensure Month is valid
-                        valid_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                        df_last_year = df_last_year[df_last_year['Month'].isin(valid_months)]
-                        if df_last_year.empty:
-                            st.warning(f"No valid months found in last year sheet '{selected_sheet_last_year}'. Skipping.")
-                            actual_mt_last = pd.DataFrame({'REGIONS': result_mt['REGIONS']})
-                        else:
-                            try:
-                                last_year_agg = df_last_year.groupby(['Branch.1', 'Month', 'Year'])['Actual Quantity'].sum().reset_index()
-                                last_year_agg.columns = ['REGIONS', 'Month', 'Year', 'LY_Actual']
-                                last_year_agg['REGIONS'] = last_year_agg['REGIONS'].str.strip().str.upper()
-                                last_year_agg['Month_Year'] = last_year_agg.apply(
-                                    lambda x: f'LY-{x["Month"]}-{str(x["Year"])[-2:]}', axis=1
-                                )
-                                
-                                actual_mt_last = last_year_agg.pivot_table(
-                                    index='REGIONS',
-                                    columns='Month_Year',
-                                    values='LY_Actual',
-                                    aggfunc='sum'
-                                ).reset_index().fillna(0)
-                                
-                                
-                            except Exception as e:
-                                st.error(f"Error in last year quantity grouping: {str(e)}")
-                                actual_mt_last = pd.DataFrame({'REGIONS': result_mt['REGIONS']})
-                
-                actual_mt = pd.DataFrame({'REGIONS': result_mt['REGIONS']})
-                if 'actual_mt_current' in locals():
-                    actual_mt = safe_merge_dataframes(actual_mt, actual_mt_current, on_column='REGIONS', how='left')
-                if 'actual_mt_last' in locals():
-                    actual_mt = safe_merge_dataframes(actual_mt, actual_mt_last, on_column='REGIONS', how='left')
-                st.session_state.actual_mt_data = actual_mt
-                
-                result_mt = safe_merge_dataframes(result_mt, actual_mt, on_column='REGIONS', how='left')
-                
-                # Round actual values (Act- columns) to 2 decimal places
-                for col in result_mt.columns:
-                    if col.startswith('Act-'):
-                        result_mt[col] = result_mt[col].round(2)
-                
-                
-                
-                # Calculate Growth and Achievement
-                for month in months:
-                    budget_col = (
-                        f'Budget-{month}-{str(current_year)[-2:]}'
-                        if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                        else f'Budget-{month}-{str(next_year)[-2:]}'
-                    )
-                    actual_col = (
-                        f'Act-{month}-{str(current_year)[-2:]}'
-                        if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                        else f'Act-{month}-{str(next_year)[-2:]}'
-                    )
-                    ly_col = (
-                        f'LY-{month}-{str(last_year)[-2:]}'
-                        if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                        else f'LY-{month}-{str(current_year)[-2:]}'
-                    )
-                    gr_col = (
-                        f'Gr-{month}-{str(current_year)[-2:]}'
-                        if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                        else f'Gr-{month}-{str(next_year)[-2:]}'
-                    )
-                    ach_col = (
-                        f'Ach-{month}-{str(current_year)[-2:]}'
-                        if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                        else f'Ach-{month}-{str(next_year)[-2:]}'
-                    )
-                    result_mt[gr_col] = np.nan
-                    result_mt[ach_col] = np.nan
-                    
-                    if budget_col in result_mt.columns and actual_col in result_mt.columns and ly_col in result_mt.columns:
-                        
-                        
-                        result_mt[gr_col] = (
-                            (result_mt[actual_col] - result_mt[ly_col]) /
-                            result_mt[ly_col].replace(0, np.nan) * 100
-                        ).round(2)
-                        result_mt[ach_col] = (
-                            (result_mt[actual_col] /
-                             result_mt[budget_col].replace(0, np.nan)) * 100
-                        ).round(2)
-                
-                exclude_regions = ['NORTH TOTAL', 'WEST SALES', 'GRAND TOTAL']
-                valid_regions = result_mt[~result_mt['REGIONS'].isin(exclude_regions)]
-                grand_total_row = {'REGIONS': 'GRAND TOTAL'}
-                numeric_cols = valid_regions.select_dtypes(include=[np.number]).columns
-                for col in numeric_cols:
-                    grand_total_row[col] = valid_regions[col].sum().round(2)
-                
-                result_mt = result_mt[result_mt['REGIONS'] != 'GRAND TOTAL']
-                result_mt = pd.concat([result_mt, pd.DataFrame([grand_total_row])], ignore_index=True)
-                
-                result_mt = result_mt.rename(columns={'REGIONS': 'SALES in MT'})
-                st.session_state.region_analysis_data = result_mt
-                
-                st.subheader("Region-wise Budget and Actual Quantity (Month-wise)")
-                try:
-                    styled_df = safe_format_dataframe(result_mt)
-                    numeric_cols = styled_df.select_dtypes(include=[np.number]).columns
-                    formatter = {col: "{:,.2f}" for col in numeric_cols}
-                    st.dataframe(styled_df.style.format(formatter), use_container_width=True)
-                except:
-                    st.dataframe(result_mt, use_container_width=True)
-                
-                csv_mt = result_mt.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    "⬇️ Download Budget Quantity Data",
-                    csv_mt,
-                    file_name=f"region_budget_qty_{selected_sheet_budget}.csv",
-                    mime="text/csv"
+    
+    # Get current date and determine fiscal year (same logic as tab4)
+    current_date = datetime.now()
+    current_year = current_date.year
+    if current_date.month >= 4:
+        fiscal_year_start = current_year
+        fiscal_year_end = current_year + 1
+    else:
+        fiscal_year_start = current_year - 1
+        fiscal_year_end = current_year
+    fiscal_year_str = f"{str(fiscal_year_start)[-2:]}-{str(fiscal_year_end)[-2:]}"
+    last_fiscal_year_start = fiscal_year_start - 1
+    last_fiscal_year_end = fiscal_year_end - 1
+    last_fiscal_year_str = f"{str(last_fiscal_year_start)[-2:]}-{str(last_fiscal_year_end)[-2:]}"
+    
+    # Define months for April to March
+    months = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar']
+    
+    # Define regional classifications
+    north_regions = ['BGLR', 'CHENNAI', 'PONDY']
+    west_regions = ['COVAI', 'ERODE', 'MADURAI', 'POULTRY', 'KARUR', 'SALEM', 'TIRUPUR']
+    
+    selected_sheet_budget = None
+    if st.session_state.get('uploaded_file_budget'):
+        xls_budget = pd.ExcelFile(st.session_state.uploaded_file_budget)
+        budget_sheet_names = xls_budget.sheet_names
+        if budget_sheet_names:
+            selected_sheet_budget = budget_sheet_names[0]
+            if 'budget_sheet_selection' in st.session_state:
+                selected_sheet_budget = st.session_state.budget_sheet_selection
+    
+    if (st.session_state.get('uploaded_file_sales') and st.session_state.get('uploaded_file_budget') and 
+        'selected_sheets_sales' in st.session_state and selected_sheet_budget):
+        try:
+            xls_budget = pd.ExcelFile(st.session_state.uploaded_file_budget)
+            df_budget = pd.read_excel(xls_budget, sheet_name=selected_sheet_budget)
+            df_budget.columns = df_budget.columns.str.strip()
+            df_budget = df_budget.dropna(how='all').reset_index(drop=True)
+
+            budget_data = process_budget_data(df_budget, group_type='region')
+            if budget_data is None:
+                st.error("Failed to process budget data for regions.")
+                st.stop()
+            st.session_state.region_budget_data = budget_data
+
+            required_cols = ['REGIONS']
+            if all(col in budget_data.columns for col in required_cols):
+                # Define YTD periods dynamically (same as tab4)
+                ytd_periods = {}
+                ytd_periods[f'YTD-{fiscal_year_str} (Apr to Jun)Budget'] = [f'Budget-{month}-{str(fiscal_year_start)[-2:]}' for month in months[:3]]
+                ytd_periods[f'YTD-{fiscal_year_str} (Apr to Sep)Budget'] = [f'Budget-{month}-{str(fiscal_year_start)[-2:]}' for month in months[:6]]
+                ytd_periods[f'YTD-{fiscal_year_str} (Apr to Dec)Budget'] = [f'Budget-{month}-{str(fiscal_year_start)[-2:]}' for month in months[:9]]
+                ytd_periods[f'YTD-{fiscal_year_str} (Apr to Mar)Budget'] = (
+                    [f'Budget-{month}-{str(fiscal_year_start)[-2:]}' for month in months[:9]] +
+                    [f'Budget-{month}-{str(fiscal_year_end)[-2:]}' for month in months[9:]]
                 )
-        
-        with tab_value:
-            value_cols = [col for col in budget_data.columns if col.endswith('_Value')]
-            value_cols = [col for col in value_cols if f'Budget-April{str(last_year)[-2:]}dec-{str(current_year)[-2:]}' not in col]
-            
-            if value_cols:
-                month_cols = sorted(set(col.replace('_Value', '') for col in value_cols 
-                                       if not (col.endswith(f'-{str(last_year)[-2:]}') or col.endswith(f'-{str(current_year)[-2:]}'))))
-                last_year_cols = sorted(set(col.replace('_Value', '') for col in value_cols 
-                                           if col.endswith(f'-{str(last_year)[-2:]}') or col.endswith(f'-{str(current_year)[-2:]}')))
-                
-                result_value = pd.DataFrame()
-                for month_col in month_cols:
-                    temp_df = budget_data[['REGIONS', f'{month_col}_Value']].rename(
-                        columns={f'{month_col}_Value': month_col}
-                    )
-                    if result_value.empty:
-                        result_value = temp_df
-                    else:
-                        result_value = result_value.merge(temp_df, on='REGIONS', how='outer')
-                
-                for month_col in last_year_cols:
-                    if month_col.endswith(f'-{str(last_year)[-2:]}'):
-                        orig_month = month_col.replace(f'-{str(last_year)[-2:]}', '')
-                    else:
-                        orig_month = month_col.replace(f'-{str(current_year)[-2:]}', '')
-                    temp_df = budget_data[['REGIONS', f'{month_col}_Value']].rename(
-                        columns={f'{month_col}_Value': f'LY-{orig_month}'}
-                    )
-                    result_value = result_value.merge(temp_df, on='REGIONS', how='left')
-                
-                # Standardize region names
-                result_value['REGIONS'] = result_value['REGIONS'].str.strip().str.upper()
-                
-                # Round budget values to 2 decimal places to avoid small value issues
-                for col in result_value.columns:
-                    if col.startswith('Budget-'):
-                        result_value[col] = result_value[col].round(2)
-                        # Optional: Set budget values less than 0.1 to NaN to avoid inflated percentages
-                        # result_value[col] = result_value[col].where(result_value[col] >= 0.1, np.nan)
-                
-                # Process current year sales data
-                if st.session_state.uploaded_file_sales and 'selected_sheets_sales' in st.session_state:
-                    all_sales_data = []
-                    for sheet_name in st.session_state.selected_sheets_sales:
-                        df_sales = pd.read_excel(xls_sales, sheet_name=sheet_name, header=0)
-                        if isinstance(df_sales.columns, pd.MultiIndex):
-                            df_sales.columns = ['_'.join(col).strip() for col in df_sales.columns.values]
-                        df_sales = handle_duplicate_columns(df_sales)
-                        
-                        branch_col = find_column(df_sales, column_aliases['Branch'])
-                        date_col = find_column(df_sales, column_aliases['Date'])
-                        value_col = find_column(df_sales, column_aliases['Value'])
-                        
-                        rename_dict = {}
-                        if date_col:
-                            rename_dict[date_col] = 'Date'
-                        if branch_col:
-                            rename_dict[branch_col] = 'Branch.1'
-                        if value_col:
-                            rename_dict[value_col] = 'Value'
-                        df_sales = df_sales.rename(columns=rename_dict)
-                        
-                        branch_col = "Branch.1" if "Branch.1" in df_sales.columns else None
-                        date_col = "Date" if "Date" in df_sales.columns else None
-                        value_col = "Value" if "Value" in df_sales.columns else None
-                        
-                        if not (branch_col and date_col and value_col):
-                            st.warning(f"Required columns not found in sales sheet '{sheet_name}'. Expected: Branch.1, Date, Value. Found: {df_sales.columns.tolist()}")
-                            continue
-                        
-                        try:
-                            df_sales[value_col] = pd.to_numeric(df_sales[value_col], errors='coerce').fillna(0)
-                        except ValueError as e:
-                            st.error(f"Error converting Value column to numeric in sales data: {str(e)}")
-                            continue
-                            
-                        # Robust date parsing
-                        try:
-                            df_sales['Date'] = pd.to_datetime(df_sales[date_col], errors='coerce')
-                            if df_sales['Date'].isna().all():
-                                df_sales['Month'] = df_sales[date_col].str.strip().str[:3]
-                                df_sales['Year'] = df_sales[date_col].str.extract(r'(\d{4})')[0]
-                            else:
-                                df_sales['Month'] = df_sales['Date'].dt.strftime('%b')
-                                df_sales['Year'] = df_sales['Date'].dt.year
-                        except Exception as e:
-                            st.warning(f"Date parsing failed for sheet '{sheet_name}': {str(e)}. Attempting string extraction.")
-                            df_sales['Month'] = df_sales[date_col].str.strip().str[:3]
-                            df_sales['Year'] = df_sales[date_col].str.extract(r'(\d{4})')[0]
-                        
-                        # Validate and clean Year
-                        df_sales['Year'] = pd.to_numeric(df_sales['Year'], errors='coerce').fillna(0).astype(int)
-                        if df_sales['Year'].eq(0).any():
-                            df_sales.loc[df_sales['Year'] == 0, 'Year'] = current_year
-                        
-                        # Ensure Month is valid
-                        valid_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                        df_sales = df_sales[df_sales['Month'].isin(valid_months)]
-                        if df_sales.empty:
-                            st.warning(f"No valid months found in sheet '{sheet_name}'. Skipping.")
-                            continue
-                        
-                        all_sales_data.append(df_sales)
-                    
-                    if all_sales_data:
-                        combined_sales = pd.concat(all_sales_data, ignore_index=True)
-                        
-                        try:
-                            sales_agg_current = combined_sales.groupby(['Branch.1', 'Month', 'Year'])['Value'].sum().reset_index()
-                            sales_agg_current.columns = ['REGIONS', 'Month', 'Year', 'Actual']
-                            sales_agg_current['REGIONS'] = sales_agg_current['REGIONS'].str.strip().str.upper()
-                            
-                            # Ensure Year is integer and format Month_Year correctly
-                            sales_agg_current['Year'] = sales_agg_current['Year'].astype(int)
-                            sales_agg_current['Month_Year'] = sales_agg_current.apply(
-                                lambda x: f'Act-{x["Month"]}-{str(x["Year"])[-2:]}', axis=1
-                            )
-                            
-                            actual_value_current = sales_agg_current.pivot_table(
-                                index='REGIONS',
-                                columns='Month_Year',
-                                values='Actual',
-                                aggfunc='sum'
-                            ).reset_index().fillna(0)
-                            
-                           
-                        except Exception as e:
-                            st.error(f"Error in sales value grouping: {str(e)}")
-                            actual_value_current = pd.DataFrame({'REGIONS': result_value['REGIONS']})
-                
-                # Process last year data (April to March)
-                if st.session_state.uploaded_file_last_year and 'selected_sheet_last_year' in locals():
-                    df_last_year = pd.read_excel(xls_last_year, sheet_name=selected_sheet_last_year, header=0)
-                    if isinstance(df_last_year.columns, pd.MultiIndex):
-                        df_last_year.columns = ['_'.join(col).strip() for col in df_last_year.columns.values]
-                    df_last_year = handle_duplicate_columns(df_last_year)
-                    
-                    branch_col = find_column(df_last_year, column_aliases['Branch'])
-                    date_col = find_column(df_last_year, column_aliases['Date'])
-                    amount_col = find_column(df_last_year, column_aliases['Amount'])
-                    
-                    rename_dict = {}
-                    if date_col:
-                        rename_dict[date_col] = 'Date'
-                    if branch_col:
-                        rename_dict[branch_col] = 'Branch.1'
-                    if amount_col:
-                        rename_dict[amount_col] = 'Amount'
-                    df_last_year = df_last_year.rename(columns=rename_dict)
-                    
-                    branch_col = "Branch.1" if "Branch.1" in df_last_year.columns else None
-                    date_col = "Date" if "Date" in df_last_year.columns else None
-                    amount_col = "Amount" if "Amount" in df_last_year.columns else None
-                    
-                    if not (branch_col and date_col and amount_col):
-                        st.warning(f"Required columns not found in last year sheet '{selected_sheet_last_year}'. Expected: Branch.1, Date, Amount. Found: {df_last_year.columns.tolist()}")
-                        actual_value_last = pd.DataFrame({'REGIONS': result_value['REGIONS']})
-                    else:
-                        try:
-                            df_last_year[amount_col] = pd.to_numeric(df_last_year[amount_col], errors='coerce').fillna(0)
-                        except ValueError as e:
-                            st.error(f"Error converting Amount column to numeric in last year data: {str(e)}")
-                            actual_value_last = pd.DataFrame({'REGIONS': result_value['REGIONS']})
-                        else:
-                            try:
-                                df_last_year['Date'] = pd.to_datetime(df_last_year[date_col], errors='coerce')
-                                if df_last_year['Date'].isna().all():
-                                    df_last_year['Month'] = df_last_year[date_col].str.strip().str[:3]
-                                    df_last_year['Year'] = df_last_year[date_col].str.extract(r'(\d{4})')[0]
-                                else:
-                                    df_last_year['Month'] = df_last_year['Date'].dt.strftime('%b')
-                                    df_last_year['Year'] = df_last_year['Date'].dt.year
-                            except Exception as e:
-                                st.warning(f"Date parsing failed for last year sheet '{selected_sheet_last_year}': {str(e)}. Attempting string extraction.")
-                                df_last_year['Month'] = df_last_year[date_col].str.strip().str[:3]
-                                df_last_year['Year'] = df_last_year[date_col].str.extract(r'(\d{4})')[0]
-                            
-                            # Validate and clean Year
-                            df_last_year['Year'] = pd.to_numeric(df_last_year['Year'], errors='coerce').fillna(0).astype(int)
-                            if df_last_year['Year'].eq(0).any():
-                                st.warning(f"Invalid or missing years found in last year sheet '{selected_sheet_last_year}'. Defaulting to last year ({last_year}).")
-                                df_last_year.loc[df_last_year['Year'] == 0, 'Year'] = last_year
-                            
-                            # Ensure Month is valid
-                            valid_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                            df_last_year = df_last_year[df_last_year['Month'].isin(valid_months)]
-                            if df_last_year.empty:
-                                st.warning(f"No valid months found in last year sheet '{selected_sheet_last_year}'. Skipping.")
-                                actual_value_last = pd.DataFrame({'REGIONS': result_value['REGIONS']})
-                            else:
-                                try:
-                                    last_year_agg = df_last_year.groupby(['Branch.1', 'Month', 'Year'])['Amount'].sum().reset_index()
-                                    last_year_agg.columns = ['REGIONS', 'Month', 'Year', 'LY_Actual']
-                                    last_year_agg['REGIONS'] = last_year_agg['REGIONS'].str.strip().str.upper()
-                                    last_year_agg['Month_Year'] = last_year_agg.apply(
-                                        lambda x: f'LY-{x["Month"]}-{str(x["Year"])[-2:]}', axis=1
-                                    )
-                                    
-                                    actual_value_last = last_year_agg.pivot_table(
-                                        index='REGIONS',
-                                        columns='Month_Year',
-                                        values='LY_Actual',
-                                        aggfunc='sum'
-                                    ).reset_index().fillna(0)
-                                   
-                                except Exception as e:
-                                    st.error(f"Error in last year value grouping: {str(e)}")
-                                    actual_value_last = pd.DataFrame({'REGIONS': result_value['REGIONS']})
-                
-                actual_value = pd.DataFrame({'REGIONS': result_value['REGIONS']})
-                if 'actual_value_current' in locals():
-                    actual_value = safe_merge_dataframes(actual_value, actual_value_current, on_column='REGIONS', how='left')
-                if 'actual_value_last' in locals():
-                    actual_value = safe_merge_dataframes(actual_value, actual_value_last, on_column='REGIONS', how='left')
-                st.session_state.actual_value_data = actual_value
-                
-                result_value = safe_merge_dataframes(result_value, actual_value, on_column='REGIONS', how='left')
-                
-                # Round actual values (Act- columns) to 2 decimal places
-                for col in result_value.columns:
-                    if col.startswith('Act-'):
-                        result_value[col] = result_value[col].round(2)
-                
-                
-                # Calculate Growth and Achievement
-                for month in months:
-                    budget_col = (
-                        f'Budget-{month}-{str(current_year)[-2:]}'
-                        if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                        else f'Budget-{month}-{str(next_year)[-2:]}'
-                    )
-                    actual_col = (
-                        f'Act-{month}-{str(current_year)[-2:]}'
-                        if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                        else f'Act-{month}-{str(next_year)[-2:]}'
-                    )
-                    ly_col = (
-                        f'LY-{month}-{str(last_year)[-2:]}'
-                        if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                        else f'LY-{month}-{str(current_year)[-2:]}'
-                    )
-                    gr_col = (
-                        f'Gr-{month}-{str(current_year)[-2:]}'
-                        if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                        else f'Gr-{month}-${str(next_year)[-2:]}'
-                    )
-                    ach_col = (
-                        f'Ach-{month}-{str(current_year)[-2:]}'
-                        if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                        else f'Ach-{month}-${str(next_year)[-2:]}'
-                    )
-                    result_value[gr_col] = np.nan
-                    result_value[ach_col] = np.nan
-                    
-                    if budget_col in result_value.columns and actual_col in result_value.columns and ly_col in result_value.columns:
-                        
-                        
-                        result_value[gr_col] = (
-                            (result_value[actual_col] - result_value[ly_col]) /
-                            result_value[ly_col].replace(0, np.nan) * 100
-                        ).round(2)
-                        result_value[ach_col] = (
-                            (result_value[actual_col] /
-                             result_value[budget_col].replace(0, np.nan)) * 100
-                        ).round(2)
-                
-                exclude_regions = ['NORTH TOTAL', 'WEST SALES', 'GRAND TOTAL']
-                valid_regions = result_value[~result_value['REGIONS'].isin(exclude_regions)]
-                grand_total_row = {'REGIONS': 'GRAND TOTAL'}
-                numeric_cols = valid_regions.select_dtypes(include=[np.number]).columns
-                for col in numeric_cols:
-                    grand_total_row[col] = valid_regions[col].sum().round(2)
-                
-                result_value = result_value[result_value['REGIONS'] != 'GRAND TOTAL']
-                result_value = pd.concat([result_value, pd.DataFrame([grand_total_row])], ignore_index=True)
-                
-                result_value = result_value.rename(columns={'REGIONS': 'SALES in Value'})
-                st.session_state.region_value_data = result_value
-                
-                st.subheader("Region-wise Budget and Actual Value (Month-wise)")
-                try:
-                    styled_df = safe_format_dataframe(result_value)
-                    numeric_cols = styled_df.select_dtypes(include=[np.number]).columns
-                    formatter = {col: "{:,.2f}" for col in numeric_cols}
-                    st.dataframe(styled_df.style.format(formatter), use_container_width=True)
-                except:
-                    st.dataframe(result_value, use_container_width=True)
-                
-                csv_value = result_value.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    "⬇️ Download Budget and Actual Value Data",
-                    csv_value,
-                    file_name=f"region_budget_actual_value_{selected_sheet_budget}.csv",
-                    mime="text/csv"
+                ytd_periods[f'YTD-{last_fiscal_year_str} (Apr to Jun)LY'] = [f'LY-{month}-{str(last_fiscal_year_start)[-2:]}' for month in months[:3]]
+                ytd_periods[f'YTD-{last_fiscal_year_str} (Apr to Sep)LY'] = [f'LY-{month}-{str(last_fiscal_year_start)[-2:]}' for month in months[:6]]
+                ytd_periods[f'YTD-{last_fiscal_year_str} (Apr to Dec)LY'] = [f'LY-{month}-{str(last_fiscal_year_start)[-2:]}' for month in months[:9]]
+                ytd_periods[f'YTD-{last_fiscal_year_str} (Apr to Mar)LY'] = (
+                    [f'LY-{month}-{str(last_fiscal_year_start)[-2:]}' for month in months[:9]] +
+                    [f'LY-{month}-{str(last_fiscal_year_end)[-2:]}' for month in months[9:]]
+                )
+                ytd_periods[f'Act-YTD-{fiscal_year_str} (Apr to Jun)'] = [f'Act-{month}-{str(fiscal_year_start)[-2:]}' for month in months[:3]]
+                ytd_periods[f'Act-YTD-{fiscal_year_str} (Apr to Sep)'] = [f'Act-{month}-{str(fiscal_year_start)[-2:]}' for month in months[:6]]
+                ytd_periods[f'Act-YTD-{fiscal_year_str} (Apr to Dec)'] = [f'Act-{month}-{str(fiscal_year_start)[-2:]}' for month in months[:9]]
+                ytd_periods[f'Act-YTD-{fiscal_year_str} (Apr to Mar)'] = (
+                    [f'Act-{month}-{str(fiscal_year_start)[-2:]}' for month in months[:9]] +
+                    [f'Act-{month}-{str(fiscal_year_end)[-2:]}' for month in months[9:]]
                 )
 
-        with tab_merge:
-            if st.session_state.uploaded_file_auditor and st.session_state.region_analysis_data is not None and 'selected_sheet_auditor' in locals():
-                st.subheader("🔀 Merge Preview with Auditor Data")
-                xls_auditor = pd.ExcelFile(st.session_state.uploaded_file_auditor)
+                tab_mt, tab_value, tab_merge = st.tabs(["SALES in MT", "SALES in Value", "Merge Preview"])
                 
-                region_sheet = None
-                for sheet in xls_auditor.sheet_names:
-                    if 'region' in sheet.lower():
-                        region_sheet = sheet
-                        break
-                
-                if region_sheet:
-                    df_auditor = pd.read_excel(xls_auditor, sheet_name=region_sheet, header=None)
+                with tab_mt:
+                    mt_cols = [col for col in budget_data.columns if col.endswith('_MT')]
+                    mt_cols = [col for col in mt_cols if not col.endswith(f'-{last_fiscal_year_start}_MT')]
                     
-                    mt_table_headers = ["SALES in MT", "SALES IN MT"]
-                    value_table_headers = ["SALES in Value", "SALES IN VALUE"]
-                    
-                    mt_idx, mt_data_start = extract_tables(df_auditor, mt_table_headers)
-                    value_idx, value_data_start = extract_tables(df_auditor, value_table_headers)
-                    
-                    if mt_idx is not None:
-                        if value_idx is not None and value_idx > mt_idx:
-                            mt_table = df_auditor.iloc[mt_data_start:value_idx].dropna(how='all')
-                        else:
-                            mt_table = df_auditor.iloc[mt_data_start:].dropna(how='all')
-                        original_columns = df_auditor.iloc[mt_idx].values
-                        renamed_columns = ['SALES in MT'] + list(original_columns[1:])
-                        mt_table.columns = renamed_columns
-                        mt_table.columns = rename_columns(mt_table.columns)
-                        mt_table = handle_duplicate_columns(mt_table)
-                        mt_table['SALES in MT'] = mt_table['SALES in MT'].astype(str).str.strip().str.upper()
-                        for col in mt_table.columns[1:]:
-                            mt_table[col] = pd.to_numeric(mt_table[col], errors='coerce').fillna(0)
+                    if mt_cols:
+                        month_cols = sorted(set(col.replace('_MT', '') for col in mt_cols if not col.endswith(f'-{last_fiscal_year_start}_MT')))
+                        last_year_cols = sorted(set(col.replace('_MT', '') for col in budget_data.columns if col.endswith(f'-{last_fiscal_year_start}_MT')))
                         
-                        numeric_cols = mt_table.select_dtypes(include=[np.number]).columns
-                        mt_table[numeric_cols] = mt_table[numeric_cols].astype(float).round(2)
-                        st.session_state.auditor_mt_table = mt_table
-                    
-                    if value_idx is not None:
-                        value_table = df_auditor.iloc[value_data_start:].dropna(how='all')
-                        original_columns = df_auditor.iloc[value_idx].values
-                        renamed_columns = ['SALES in Value'] + list(original_columns[1:])
-                        value_table.columns = renamed_columns
-                        value_table.columns = rename_columns(value_table.columns)
-                        value_table = handle_duplicate_columns(value_table)
-                        value_table['SALES in Value'] = value_table['SALES in Value'].astype(str).str.strip().str.upper()
-                        for col in value_table.columns[1:]:
-                            value_table[col] = pd.to_numeric(value_table[col], errors='coerce').fillna(0)
-                        numeric_cols = value_table.select_dtypes(include=[np.number]).columns
-                        value_table[numeric_cols] = value_table[numeric_cols].astype(float).round(2)
-                        st.session_state.auditor_value_table = value_table
-                    
-                    merged_mt_data = pd.DataFrame()
-                    if st.session_state.auditor_mt_table is not None and not result_mt.empty:
-                        merged_mt_data = st.session_state.auditor_mt_table.copy()
+                        result_mt = budget_data[['REGIONS']].copy()
                         
-                        for col in merged_mt_data.columns[1:]:
-                            merged_mt_data[col] = pd.to_numeric(merged_mt_data[col], errors='coerce').fillna(0)
-                        numeric_cols = merged_mt_data.select_dtypes(include=[np.number]).columns
+                        for month_col in month_cols:
+                            if f'{month_col}_MT' in budget_data.columns:
+                                result_mt[month_col] = budget_data[f'{month_col}_MT']
                         
-                        north_regions = ['BGLR', 'CHENNAI', 'PONDY']
-                        west_regions = ['COVAI', 'ERODE', 'MADURAI', 'POULTRY', 'KARUR', 'SALEM', 'TIRUPUR']
-                        valid_north_regions = [r for r in north_regions if r in merged_mt_data['SALES in MT'].values]
-                        valid_west_regions = [r for r in west_regions if r in merged_mt_data['SALES in MT'].values]
+                        for month_col in last_year_cols:
+                            orig_month = month_col.replace(f'-{last_fiscal_year_start}', '')
+                            if f'{month_col}_MT' in budget_data.columns:
+                                result_mt[f'LY-{orig_month}'] = budget_data[f'{month_col}_MT']
                         
-                        common_columns = set(merged_mt_data.columns) & set(result_mt.columns) - {'SALES in MT'}
-                        if common_columns:
-                            for col in common_columns:
-                                for region in merged_mt_data['SALES in MT']:
-                                    if region in result_mt['SALES in MT'].values and region not in ['GRAND TOTAL', 'NORTH TOTAL', 'WEST SALES']:
-                                        region_value = result_mt.loc[result_mt['SALES in MT'] == region, col].values
-                                        if len(region_value) > 0:
-                                            merged_mt_data.loc[merged_mt_data['SALES in MT'] == region, col] = region_value[0]
+                        # Standardize region names (same logic as tab4)
+                        result_mt['REGIONS'] = result_mt['REGIONS'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
+
+                        actual_mt_data = {}
+                        selected_sheet_last_year = st.session_state.get('last_year_sheet')
                         
-                        if valid_north_regions and 'NORTH TOTAL' in merged_mt_data['SALES in MT'].values:
-                            for col in numeric_cols:
-                                sum_value = merged_mt_data[merged_mt_data['SALES in MT'].isin(valid_north_regions)][col].sum().round(2)
-                                merged_mt_data.loc[merged_mt_data['SALES in MT'] == 'NORTH TOTAL', col] = sum_value
-                        
-                        west_mask = merged_mt_data['SALES in MT'] == 'WEST SALES'
-                        if valid_west_regions and west_mask.any():
-                            for col in numeric_cols:
-                                sum_value = merged_mt_data[merged_mt_data['SALES in MT'].isin(valid_west_regions)][col].sum().round(2)
-                                merged_mt_data.loc[west_mask, col] = sum_value
-                        
-                        if 'GRAND TOTAL' in merged_mt_data['SALES in MT'].values:
-                            for col in numeric_cols:
-                                sum_value = merged_mt_data[~merged_mt_data['SALES in MT'].isin(['NORTH TOTAL', 'WEST SALES', 'GRAND TOTAL'])][col].sum().round(2)
-                                merged_mt_data.loc[merged_mt_data['SALES in MT'] == 'GRAND TOTAL', col] = sum_value
-                        else:
-                            grand_total_row = {'SALES in MT': 'GRAND TOTAL'}
-                            for col in numeric_cols:
-                                grand_total_row[col] = merged_mt_data[~merged_mt_data['SALES in MT'].isin(['NORTH TOTAL', 'WEST SALES'])][col].sum().round(2)
-                            merged_mt_data = pd.concat([merged_mt_data, pd.DataFrame([grand_total_row])], ignore_index=True)
-                        
-                        ytd_periods = {
-                            f'ytd-{year_suffix} (Apr to Jun)Budget': [f'Budget-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun']],
-                            f'ytd-{year_suffix} (Apr to Sep)Budget': [f'Budget-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep']],
-                            f'ytd-{year_suffix} (Apr to Dec)Budget': [f'Budget-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']],
-                            f'ytd-{year_suffix} (Apr to Mar)Budget': [f'Budget-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']] +
-                                                                     [f'Budget-{m}-{str(next_year)[-2:]}' for m in ['Jan', 'Feb', 'Mar']],
-                            f'ytd-{ly_year_suffix} (Apr to Jun)LY': [f'LY-{m}-{str(last_year)[-2:]}' for m in ['Apr', 'May', 'Jun']],
-                            f'ytd-{ly_year_suffix} (Apr to Sep)LY': [f'LY-{m}-{str(last_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep']],
-                            f'ytd-{ly_year_suffix} (Apr to Dec)LY': [f'LY-{m}-{str(last_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']],
-                            f'ytd-{ly_year_suffix} (Apr to Mar)LY': [f'LY-{m}-{str(last_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']] +
-                                                                    [f'LY-{m}-{str(current_year)[-2:]}' for m in ['Jan', 'Feb', 'Mar']],
-                            f'Act-YTD-{year_suffix} (Apr to Jun)': [f'Act-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun']],
-                            f'Act-YTD-{year_suffix} (Apr to Sep)': [f'Act-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep']],
-                            f'Act-YTD-{year_suffix} (Apr to Dec)': [f'Act-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']],
-                            f'Act-YTD-{year_suffix} (Apr to Mar)': [f'Act-{m}-{str(current_year)[-2:]}' for m in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']] +
-                                                                   [f'Act-{m}-{str(next_year)[-2:]}' for m in ['Jan', 'Feb', 'Mar']]
-                        }
-                        
-                        for ytd_col, months in ytd_periods.items():
-                            valid_months = [month for month in months if month in merged_mt_data.columns]
-                            if valid_months:
-                                merged_mt_data[ytd_col] = merged_mt_data[valid_months].sum(axis=1, skipna=True).astype(float).round(2)
-                        
-                        ytd_pairs = [
-                            ('Apr to Jun', f'ytd-{year_suffix} (Apr to Jun)Budget', f'ytd-{ly_year_suffix} (Apr to Jun)LY', f'Act-YTD-{year_suffix} (Apr to Jun)'),
-                            ('Apr to Sep', f'ytd-{year_suffix} (Apr to Sep)Budget', f'ytd-{ly_year_suffix} (Apr to Sep)LY', f'Act-YTD-{year_suffix} (Apr to Sep)'),
-                            ('Apr to Dec', f'ytd-{year_suffix} (Apr to Dec)Budget', f'ytd-{ly_year_suffix} (Apr to Dec)LY', f'Act-YTD-{year_suffix} (Apr to Dec)'),
-                            ('Apr to Mar', f'ytd-{year_suffix} (Apr to Mar)Budget', f'ytd-{ly_year_suffix} (Apr to Mar)LY', f'Act-YTD-{year_suffix} (Apr to Mar)')
-                        ]
-                        
-                        for period, budget_col, ly_col, act_col in ytd_pairs:
-                            if all(col in merged_mt_data.columns for col in [budget_col, ly_col, act_col]):
-                                merged_mt_data[f'Gr-YTD-{year_suffix} ({period})'] = (
-                                    ((merged_mt_data[act_col] - merged_mt_data[ly_col]) /
-                                     merged_mt_data[ly_col].replace(0, np.nan)) * 100
-                                ).fillna(0).astype(float).round(2)
-                                merged_mt_data[f'Ach-YTD-{year_suffix} ({period})'] = (
-                                    (merged_mt_data[act_col] /
-                                     merged_mt_data[budget_col].replace(0, np.nan)) * 100
-                                ).fillna(0).astype(float).round(2)
-                        
-                        # Remove 'REGIONS' row from merged_mt_data
-                        merged_mt_data = merged_mt_data[merged_mt_data['SALES in MT'] != 'REGIONS'].reset_index(drop=True)
-                    
-                    merged_value_data = pd.DataFrame()
-                    if st.session_state.auditor_value_table is not None and not result_value.empty:
-                        merged_value_data = st.session_state.auditor_value_table.copy()
-                        common_columns = set(merged_value_data.columns) & set(result_value.columns) - {'SALES in Value'}
-                        
-                        if common_columns:
-                            for col in common_columns:
-                                for region in merged_value_data['SALES in Value']:
-                                    if region in result_value['SALES in Value'].values and region not in ['GRAND TOTAL', 'NORTH TOTAL', 'WEST SALES']:
-                                     region_value = result_value.loc[result_value['SALES in Value'] == region, col].values
-                                    if len(region_value) > 0:
-                                        merged_value_data.loc[merged_value_data['SALES in Value'] == region, col] = region_value[0]
-                        
-                        for col in merged_value_data.columns[1:]:
-                            if col != 'SALES in Value':
-                                merged_value_data[col] = pd.to_numeric(merged_value_data[col], errors='coerce').fillna(0)
-                        
-                        numeric_cols = merged_value_data.select_dtypes(include=[np.number]).columns
-                        merged_value_data[numeric_cols] = merged_value_data[numeric_cols].astype(float).round(2)
-                        
-                        north_regions = ['BGLR', 'CHENNAI', 'PONDY']
-                        west_regions = ['COVAI', 'ERODE', 'MADURAI', 'POULTRY', 'KARUR', 'SALEM', 'TIRUPUR']
-                        valid_north_regions = [r for r in north_regions if r in merged_value_data['SALES in Value'].values]
-                        valid_west_regions = [r for r in west_regions if r in merged_value_data['SALES in Value'].values]
-                        
-                        if valid_north_regions and 'NORTH TOTAL' in merged_value_data['SALES in Value'].values:
-                            for col in numeric_cols:
-                                sum_value = merged_value_data[merged_value_data['SALES in Value'].isin(valid_north_regions)][col].sum().round(2)
-                                merged_value_data.loc[merged_value_data['SALES in Value'] == 'NORTH TOTAL', col] = sum_value
-                        
-                        west_mask = merged_value_data['SALES in Value'] == 'WEST SALES'
-                        if valid_west_regions and west_mask.any():
-                            for col in numeric_cols:
-                                sum_value = merged_value_data[merged_value_data['SALES in Value'].isin(valid_west_regions)][col].sum().round(2)
-                                merged_value_data.loc[west_mask, col] = sum_value
-                        
-                        for ytd, months in ytd_periods.items():
-                            valid_months = [month for month in months if month in merged_value_data.columns]
-                            if valid_months:
-                                merged_value_data[ytd_col] = merged_value_data[valid_months].sum(axis=1, skipna=True).astype(float).round(2)
-                        
-                        for period in ytd_pairs:
-                            if all(col in merged_value_data.columns for col in [budget_col, ly_col, act_col]):
-                                merged_value_data[f'Gr-YTD- + {year_suffix} ({period})'] = (
-                                    ((merged_value_data[act_col] - merged_value_data[ly_col]) /
-                                     merged_value_data[ly_col].replace(0, np.nan)) * 100
-                                ).fillna(0).astype(float).round(2)
-                                merged_value_data[f'Ach-YTD- + {year_suffix} ({period})'] = (
-                                    (merged_value_data[act_col] /
-                                     merged_value_data[budget_col].replace(0, np.nan)) * 100
-                                ).fillna(0).astype(float).round(2)
-                        
-                        if not merged_value_data.empty:
-                            grand_total_mask = merged_value_data['SALES in Value'] == 'GRAND TOTAL'
-                            if grand_total_mask.any():
-                                non_total_data = merged_value_data[~ ~grand_total_mask & 
-                                               ~merged_value_data['SALES in Value'].isin(['NORTH TOTAL', 'WEST SALES'])]
-                                total_sums = non_total_data.select_dtypes(include=[np.number]).sum().round(2)
-                                for col in total_sums.index:
-                                    merged_value_data.loc[grand_total_mask, col] = total_sums[col]
-                        
-                        # Remove 'REGIONS' row from merged_value_data
-                        merged_value_data = merged_value_data[merged_value_data['SALES in Value'] != 'REGIONS'].reset_index(drop=True)
-                    
-                    # Store merged data in session state
-                    st.session_state.merged_region_mt_data = merged_mt_data
-                    st.session_state.merged_region_value_data = merged_value_data
-                    
-                    
-            
-                    
-                    # Display merged data
-                    if not merged_mt_data.empty:
-                        st.subheader("Merged Data (SALES in MT)")
-                        try:
-                            styled_df = safe_format_dataframe(merged_mt_data)
-                            numeric_cols = styled_df.select_dtypes(include=[np.number]).columns
-                            formatter = {col: "{:,.2f}" for col in numeric_cols}
-                            st.dataframe(styled_df.style.format(formatter), use_container_width=True)
-                        except:
-                            st.dataframe(merged_mt_data, use_container_width=True)
-                    
-                    if not merged_value_data.empty:
-                        st.subheader("Merged Data (SALES in Value)")
-                        try:
-                            styled_df = safe_format_dataframe(merged_value_data)
-                            numeric_cols = styled_df.select_dtypes(include=[np.number]).columns
-                            formatter = {col: "{:,.2f}" for col in numeric_cols}
-                            st.dataframe(styled_df.style.format(formatter), use_container_width=True)
-                        except:
-                            st.dataframe(merged_value_data, use_container_width=True)
-                    
-                    # Excel export
-                    if not merged_mt_data.empty or not merged_value_data.empty:
-                        output = BytesIO()
-                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                            workbook = writer.book
-                            worksheet = workbook.add_worksheet('Merged_Region_Data')
-                            title_format = workbook.add_format({
-                                'bold': True,
-                                'align': 'center',
-                                'valign': 'vcenter',
-                                'font_size': 14,
-                                'font_color': '#000000'
-                            })
-                            header_format = workbook.add_format({
-                                'bold': True,
-                                'text_wrap': True,
-                                'valign': 'top',
-                                'fg_color': '#4472C4',
-                                'font_color': 'white',
-                                'border': 1
-                            })
-                            num_format = workbook.add_format({'num_format': '#,##0.00'})
-                            total_format = workbook.add_format({
-                                'bold': True,
-                                'fg_color': '#D3D3D3',
-                                'border': 1,
-                                'num_format': '#,##0.00'
-                            })
-                            north_total_format = workbook.add_format({
-                                'bold': True,
-                                'fg_color': '#90EE90',
-                                'border': 1,
-                                'num_format': '#,##0.00'
-                            })
-                            west_sales_format = workbook.add_format({
-                                'bold': True,
-                                'fg_color': '#ADD8E6',
-                                'border': 1,
-                                'num_format': '#,##0.00'
-                            })
+                        # Process current year sales data with improved logic from tab4
+                        if st.session_state.get('uploaded_file_sales') and 'selected_sheets_sales' in st.session_state:
+                            xls_sales = pd.ExcelFile(st.session_state.uploaded_file_sales)
                             
-                            num_cols = max(
-                                len(merged_mt_data.columns) if not merged_mt_data.empty else 0,
-                                len(merged_value_data.columns) if not merged_value_data.empty else 0
-                            )
-                            worksheet.merge_range(
-                                2, 0, 2, num_cols - 1,
-                                f"REGION WISE REPORT FOR THE YR {current_year} VS {next_year}",
-                                title_format
-                            )
-                            start_row = 4
-                            if not merged_mt_data.empty:
-                                merged_mt_data.to_excel(
-                                    writer,
-                                    sheet_name='Merged_Region_Data',
-                                    startrow=start_row,
-                                    index=False
-                                )
-                                for col_num, value in enumerate(merged_mt_data.columns.values):
-                                    worksheet.write(start_row, col_num, value, header_format)
-                                for col in merged_mt_data.select_dtypes(include=[np.number]):
-                                    col_idx = merged_mt_data.columns.get_loc(col)
-                                    worksheet.set_column(col_idx, col_idx, None, num_format)
-                                grand_total_mask = merged_mt_data['SALES in MT'] == 'GRAND TOTAL'
-                                if grand_total_mask.any():
-                                    grand_total_idx = merged_mt_data.index[grand_total_mask][0]
-                                    total_row_idx = start_row + 1 + grand_total_idx
-                                    for col_idx in range(len(merged_mt_data.columns)):
-                                        worksheet.write(total_row_idx, col_idx, 
-                                            merged_mt_data.iloc[grand_total_idx, col_idx], total_format)
-                                north_total_mask = merged_mt_data['SALES in MT'] == 'NORTH TOTAL'
-                                if north_total_mask.any():
-                                    north_total_idx = merged_mt_data.index[north_total_mask][0]
-                                    north_row_idx = start_row + 1 + north_total_idx
-                                    for col_idx in range(len(merged_mt_data.columns)):
-                                        worksheet.write(north_row_idx, col_idx, 
-                                            merged_mt_data.iloc[north_total_idx, col_idx], north_total_format)
-                                west_sales_mask = merged_mt_data['SALES in MT'] == 'WEST SALES'
-                                if west_sales_mask.any():
-                                    west_sales_idx = merged_mt_data.index[west_sales_mask][0]
-                                    west_row_idx = start_row + 1 + west_sales_idx
-                                    for col_idx in range(len(merged_mt_data.columns)):
-                                        worksheet.write(west_row_idx, col_idx, 
-                                            merged_mt_data.iloc[west_sales_idx, col_idx], west_sales_format)
-                                for i, col in enumerate(merged_mt_data.columns):
-                                    max_len = max((merged_mt_data[col].astype(str).str.len().max(), len(str(col)))) + 2
-                                    worksheet.set_column(i, i, max_len)
-                                start_row += len(merged_mt_data) + 4
-                            
-                            if not merged_value_data.empty:
-                                merged_value_data.to_excel(
-                                    writer,
-                                    sheet_name='Merged_Region_Data',
-                                    startrow=start_row,
-                                    index=False
-                                )
-                                for col_num, value in enumerate(merged_value_data.columns.values):
-                                    worksheet.write(start_row, col_num, value, header_format)
-                                for col in merged_value_data.select_dtypes(include=[np.number]):
-                                    col_idx = merged_value_data.columns.get_loc(col)
-                                    worksheet.set_column(col_idx, col_idx, None, num_format)
-                                grand_total_mask = merged_value_data['SALES in Value'] == 'GRAND TOTAL'
-                                if grand_total_mask.any():
-                                    grand_total_idx = merged_value_data.index[grand_total_mask][0]
-                                    total_row_idx = start_row + 1 + grand_total_idx
-                                    for col_idx in range(len(merged_value_data.columns)):
-                                        worksheet.write(total_row_idx, col_idx, 
-                                            merged_value_data.iloc[grand_total_idx, col_idx], total_format)
-                                north_total_mask = merged_value_data['SALES in Value'] == 'NORTH TOTAL'
-                                if north_total_mask.any():
-                                    north_total_idx = merged_value_data.index[north_total_mask][0]
-                                    north_row_idx = start_row + 1 + north_total_idx
-                                    for col_idx in range(len(merged_value_data.columns)):
-                                        worksheet.write(north_row_idx, col_idx, 
-                                            merged_value_data.iloc[north_total_idx, col_idx], north_total_format)
-                                west_sales_mask = merged_value_data['SALES in Value'] == 'WEST SALES'
-                                if west_sales_mask.any():
-                                    west_sales_idx = merged_value_data.index[west_sales_mask][0]
-                                    west_row_idx = start_row + 1 + west_sales_idx
-                                    for col_idx in range(len(merged_value_data.columns)):
-                                        worksheet.write(west_row_idx, col_idx, 
-                                            merged_value_data.iloc[west_sales_idx, col_idx], west_sales_format)
-                                for i, col in enumerate(merged_value_data.columns):
-                                    max_len = max((merged_value_data[col].astype(str).str.len().max(), len(str(col)))) + 2
-                                    worksheet.set_column(i, i, max_len)
+                            for sheet_name in st.session_state.selected_sheets_sales:
+                                try:
+                                    df_sales = pd.read_excel(xls_sales, sheet_name=sheet_name, header=0)
+                                    
+                                    if isinstance(df_sales.columns, pd.MultiIndex):
+                                        df_sales.columns = ['_'.join(col).strip() for col in df_sales.columns.values]
+                                    
+                                    df_sales = handle_duplicate_columns(df_sales)
+                                    
+                                    # Use improved column finding logic from tab4
+                                    branch_col = find_column(df_sales, column_aliases['Branch'], case_sensitive=False)
+                                    date_col = find_column(df_sales, ['Month Format', 'Date', 'Month'] + column_aliases['Date'], case_sensitive=False)
+                                    qty_col = find_column(df_sales, ['Actual Quantity', 'Acutal Quantity'] + column_aliases['Actual Quantity'], case_sensitive=False)
+                                    
+                                    if branch_col and date_col and qty_col:
+                                        df_sales = df_sales[[branch_col, date_col, qty_col]].copy()
+                                        df_sales.columns = ['Branch', 'Month Format', 'Actual Quantity']
+                                        
+                                        df_sales['Actual Quantity'] = pd.to_numeric(df_sales['Actual Quantity'], errors='coerce').fillna(0)
+                                        df_sales['Branch'] = df_sales['Branch'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
+                                        
+                                        # IMPROVED MONTH HANDLING LOGIC FROM TAB4
+                                        if pd.api.types.is_datetime64_any_dtype(df_sales['Month Format']):
+                                            df_sales['Month'] = pd.to_datetime(df_sales['Month Format']).dt.strftime('%b')
+                                        else:
+                                            # Handle full month names (like "April") properly
+                                            month_str = df_sales['Month Format'].astype(str).str.strip().str.title()
+                                            try:
+                                                # Try to parse as datetime if it's in month name format
+                                                df_sales['Month'] = pd.to_datetime(month_str, format='%B').dt.strftime('%b')
+                                            except ValueError:
+                                                # Fall back to first 3 characters if not a full month name
+                                                df_sales['Month'] = month_str.str[:3]
+                                        
+                                        # Filter valid data
+                                        df_sales = df_sales.dropna(subset=['Actual Quantity', 'Month'])
+                                        df_sales = df_sales[df_sales['Actual Quantity'] != 0]
+                                        
+                                        # Debug info
+                                        unique_months = df_sales['Month'].unique()
+                                        
+                                        # Validate months
+                                        valid_months_list = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                                        df_sales = df_sales[df_sales['Month'].isin(valid_months_list)]
+                                        
+                                        grouped = df_sales.groupby(['Branch', 'Month'])['Actual Quantity'].sum().reset_index()
+                                        
+                                        for _, row in grouped.iterrows():
+                                            branch = row['Branch']
+                                            month = row['Month']
+                                            qty = row['Actual Quantity']
+                                            
+                                            # Determine year based on fiscal year logic
+                                            year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
+                                            col_name = f'Act-{month}-{year}'
+                                            
+                                            if branch not in actual_mt_data:
+                                                actual_mt_data[branch] = {}
+                                            if col_name in actual_mt_data[branch]:
+                                                actual_mt_data[branch][col_name] += qty
+                                            else:
+                                                actual_mt_data[branch][col_name] = qty
+                                    else:
+                                        st.warning(f"Required columns not found in sales sheet '{sheet_name}'. Expected: Branch, Month Format/Date, Actual Quantity. Found: {df_sales.columns.tolist()}")
+                                        
+                                except Exception as e:
+                                    st.warning(f"Error processing sheet '{sheet_name}': {str(e)}")
+                                    continue
                         
-                        output.seek(0)
-                        excel_data = output.getvalue()
+                        # Process last year data with improved logic
+                        if st.session_state.get('uploaded_file_last_year') and selected_sheet_last_year:
+                            try:
+                                xls_last_year = pd.ExcelFile(st.session_state.uploaded_file_last_year)
+                                df_last_year = pd.read_excel(xls_last_year, sheet_name=selected_sheet_last_year, header=0)
+                                
+                                if isinstance(df_last_year.columns, pd.MultiIndex):
+                                    df_last_year.columns = ['_'.join(col).strip() for col in df_last_year.columns.values]
+                                df_last_year = handle_duplicate_columns(df_last_year)
+                                
+                                branch_col = find_column(df_last_year, column_aliases['Branch'], case_sensitive=False)
+                                date_col = find_column(df_last_year, ['Month Format', 'Date', 'Month'] + column_aliases['Date'], case_sensitive=False)
+                                qty_col = find_column(df_last_year, ['Actual Quantity', 'Acutal Quantity'] + column_aliases['Actual Quantity'], case_sensitive=False)
+                                
+                                if branch_col and date_col and qty_col:
+                                    df_last_year = df_last_year[[branch_col, date_col, qty_col]].copy()
+                                    df_last_year.columns = ['Branch', 'Month Format', 'Actual Quantity']
+                                    
+                                    df_last_year['Actual Quantity'] = pd.to_numeric(df_last_year['Actual Quantity'], errors='coerce').fillna(0)
+                                    df_last_year['Branch'] = df_last_year['Branch'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
+                                    
+                                    # IMPROVED MONTH HANDLING FOR LAST YEAR DATA
+                                    if pd.api.types.is_datetime64_any_dtype(df_last_year['Month Format']):
+                                        df_last_year['Month'] = pd.to_datetime(df_last_year['Month Format']).dt.strftime('%b')
+                                    else:
+                                        month_str = df_last_year['Month Format'].astype(str).str.strip().str.title()
+                                        try:
+                                            df_last_year['Month'] = pd.to_datetime(month_str, format='%B').dt.strftime('%b')
+                                        except ValueError:
+                                            df_last_year['Month'] = month_str.str[:3]
+                                    
+                                    df_last_year = df_last_year.dropna(subset=['Actual Quantity', 'Month'])
+                                    df_last_year = df_last_year[df_last_year['Actual Quantity'] != 0]
+                                    
+                                    # Debug and validate
+                                    unique_months = df_last_year['Month'].unique()
+                                    
+                                    valid_months_list = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                                    df_last_year = df_last_year[df_last_year['Month'].isin(valid_months_list)]
+                                    
+                                    if not df_last_year.empty:
+                                        grouped_ly = df_last_year.groupby(['Branch', 'Month'])['Actual Quantity'].sum().reset_index()
+                                        
+                                        for _, row in grouped_ly.iterrows():
+                                            branch = row['Branch']
+                                            month = row['Month']
+                                            qty = row['Actual Quantity']
+                                            
+                                            year = str(last_fiscal_year_start)[-2:] if month in months[:9] else str(last_fiscal_year_end)[-2:]
+                                            col_name = f'LY-{month}-{year}'
+                                            
+                                            if branch not in actual_mt_data:
+                                                actual_mt_data[branch] = {}
+                                            if col_name in actual_mt_data[branch]:
+                                                actual_mt_data[branch][col_name] += qty
+                                            else:
+                                                actual_mt_data[branch][col_name] = qty
+                                    else:
+                                        st.warning(f"No valid months found in last year sheet '{selected_sheet_last_year}'.")
+                                        
+                                else:
+                                    st.warning(f"Required columns not found in last year sheet '{selected_sheet_last_year}'. Expected: Branch, Month Format/Date, Actual Quantity. Found: {df_last_year.columns.tolist()}")
+                            except Exception as e:
+                                st.warning(f"Error processing last year data: {str(e)}")
+                        else:
+                            st.info("ℹ️ No last year file uploaded. Last year comparison data will not be available.")
+                        
+                        # Merge actual data with budget data (same logic as tab4)
+                        for branch, data in actual_mt_data.items():
+                            matching_rows = result_mt[result_mt['REGIONS'] == branch]
+                            if not matching_rows.empty:
+                                idx = matching_rows.index[0]
+                                for col, value in data.items():
+                                    if col not in result_mt.columns:
+                                        result_mt[col] = 0.0
+                                    if len(matching_rows) > 1:
+                                        existing_value = result_mt.loc[idx, col] if col in result_mt.columns else 0
+                                        result_mt.loc[idx, col] = existing_value + value
+                                    else:
+                                        result_mt.loc[idx, col] = value
+                        
+                        # Handle duplicates (same logic as tab4)
+                        if result_mt['REGIONS'].duplicated().any():
+                            numeric_cols_result = result_mt.select_dtypes(include=[np.number]).columns
+                            agg_dict = {col: 'sum' for col in numeric_cols_result}
+                            result_mt = result_mt.groupby('REGIONS', as_index=False).agg(agg_dict)
+                        
+                        numeric_cols = result_mt.select_dtypes(include=[np.number]).columns
+                        result_mt[numeric_cols] = result_mt[numeric_cols].fillna(0)
+
+                        # Calculate Growth Rate (Gr) and Achievement (Ach) for each month (same logic as tab4)
+                        for month in months:
+                            budget_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
+                            actual_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
+                            ly_year = str(last_fiscal_year_start)[-2:] if month in months[:9] else str(last_fiscal_year_end)[-2:]
+                            
+                            budget_col = f'Budget-{month}-{budget_year}'
+                            actual_col = f'Act-{month}-{actual_year}'
+                            ly_col = f'LY-{month}-{ly_year}'
+                            gr_col = f'Gr-{month}-{actual_year}'
+                            ach_col = f'Ach-{month}-{actual_year}'
+                            
+                            # Initialize Gr and Ach columns if they don't exist
+                            if gr_col not in result_mt.columns:
+                                result_mt[gr_col] = 0.0
+                            if ach_col not in result_mt.columns:
+                                result_mt[ach_col] = 0.0
+                            
+                            # Calculate Growth Rate: ((Actual - Last Year) / Last Year) * 100
+                            if ly_col in result_mt.columns and actual_col in result_mt.columns:
+                                result_mt[gr_col] = np.where(
+                                    (result_mt[ly_col] != 0) & (pd.notna(result_mt[ly_col])) & (pd.notna(result_mt[actual_col])),
+                                    ((result_mt[actual_col] - result_mt[ly_col]) / result_mt[ly_col] * 100).round(2),
+                                    0
+                                )
+                            
+                            # Calculate Achievement: (Actual / Budget) * 100
+                            if budget_col in result_mt.columns and actual_col in result_mt.columns:
+                                result_mt[ach_col] = np.where(
+                                    (result_mt[budget_col] != 0) & (pd.notna(result_mt[budget_col])) & (pd.notna(result_mt[actual_col])),
+                                    (result_mt[actual_col] / result_mt[budget_col] * 100).round(2),
+                                    0
+                                )
+
+                        # Add total calculations (same logic as tab4)
+                        exclude_regions = ['NORTH TOTAL', 'WEST SALES', 'GRAND TOTAL']
+                        mask = ~result_mt['REGIONS'].isin(exclude_regions + ['TOTAL SALES'])
+                        valid_regions = result_mt[mask]
+                        
+                        total_row = pd.DataFrame({'REGIONS': ['GRAND TOTAL']})
+                        for col in numeric_cols:
+                            if col in valid_regions.columns:
+                                total_row[col] = [valid_regions[col].sum().round(2)]
+                        
+                        # Recalculate Gr and Ach for GRAND TOTAL row
+                        for month in months:
+                            budget_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
+                            actual_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
+                            ly_year = str(last_fiscal_year_start)[-2:] if month in months[:9] else str(last_fiscal_year_end)[-2:]
+                            
+                            budget_col = f'Budget-{month}-{budget_year}'
+                            actual_col = f'Act-{month}-{actual_year}'
+                            ly_col = f'LY-{month}-{ly_year}'
+                            gr_col = f'Gr-{month}-{actual_year}'
+                            ach_col = f'Ach-{month}-{actual_year}'
+                            
+                            if all(col in total_row.columns for col in [budget_col, actual_col, ly_col]):
+                                # Recalculate Growth Rate for totals
+                                if total_row[ly_col].iloc[0] != 0:
+                                    total_row[gr_col] = [((total_row[actual_col].iloc[0] - total_row[ly_col].iloc[0]) / total_row[ly_col].iloc[0] * 100).round(2)]
+                                else:
+                                    total_row[gr_col] = [0]
+                                
+                                # Recalculate Achievement for totals
+                                if total_row[budget_col].iloc[0] != 0:
+                                    total_row[ach_col] = [(total_row[actual_col].iloc[0] / total_row[budget_col].iloc[0] * 100).round(2)]
+                                else:
+                                    total_row[ach_col] = [0]
+                        
+                        result_mt = pd.concat([valid_regions, total_row], ignore_index=True)
+                        result_mt = result_mt.rename(columns={'REGIONS': 'SALES in MT'})
+                        
+                        st.session_state.region_analysis_data = result_mt
+
+                        st.subheader(f"Region-wise Budget and Actual Quantity (Month-wise) [{fiscal_year_str}]")
+                        
+                        # Display with formatting (same as tab4)
+                        display_df = result_mt.copy()
+                        numeric_display_cols = display_df.select_dtypes(include=[np.number]).columns
+                        
+                        try:
+                            for col in numeric_display_cols:
+                                display_df[col] = display_df[col].apply(lambda x: f"{x:,.2f}" if pd.notna(x) else "0.00")
+                            st.dataframe(display_df, use_container_width=True)
+                        except:
+                            st.dataframe(result_mt, use_container_width=True)
+
+                        csv_mt = result_mt.to_csv(index=False).encode('utf-8')
                         st.download_button(
-                            label="⬇️ Download Merged Region Data as Excel",
-                            data=excel_data,
-                            file_name="merged_region_data.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="region_data_download"
+                            "⬇️ Download Region Quantity Data",
+                            csv_mt,
+                            file_name=f"region_budget_qty_{selected_sheet_budget}_{fiscal_year_str}.csv",
+                            mime="text/csv"
                         )
-                else:
-                    st.info("ℹ️ No region sheet found in auditor file. Please ensure a sheet with 'region' in its name exists.")
-            else: 
-                st.info("ℹ️ Upload auditor file and generate region data first.")
-    else:  
-        st.info("ℹ️ Please upload the Budget file first.")
+                    else:
+                        st.warning("No budget quantity columns found.")
+
+                with tab_value:
+                    value_cols = [col for col in budget_data.columns if col.endswith('_Value')]
+                    value_cols = [col for col in value_cols if not col.endswith(f'-{last_fiscal_year_start}_Value')]
+                    
+                    if value_cols:
+                        month_cols = sorted(set(col.replace('_Value', '') for col in value_cols if not col.endswith(f'-{last_fiscal_year_start}_Value')))
+                        last_year_cols = sorted(set(col.replace('_Value', '') for col in budget_data.columns if col.endswith(f'-{last_fiscal_year_start}_Value')))
+                        
+                        result_value = budget_data[['REGIONS']].copy()
+                        
+                        for month_col in month_cols:
+                            if f'{month_col}_Value' in budget_data.columns:
+                                result_value[month_col] = budget_data[f'{month_col}_Value']
+                        
+                        for month_col in last_year_cols:
+                            orig_month = month_col.replace(f'-{last_fiscal_year_start}', '')
+                            if f'{month_col}_Value' in budget_data.columns:
+                                result_value[f'LY-{orig_month}'] = budget_data[f'{month_col}_Value']
+                        
+                        result_value['REGIONS'] = result_value['REGIONS'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
+
+                        actual_value_data = {}
+                        
+                        # Process current year sales data for VALUE with same improved logic
+                        if st.session_state.get('uploaded_file_sales') and 'selected_sheets_sales' in st.session_state:
+                            xls_sales = pd.ExcelFile(st.session_state.uploaded_file_sales)
+                            
+                            for sheet_name in st.session_state.selected_sheets_sales:
+                                try:
+                                    df_sales = pd.read_excel(xls_sales, sheet_name=sheet_name, header=0)
+                                    
+                                    if isinstance(df_sales.columns, pd.MultiIndex):
+                                        df_sales.columns = ['_'.join(col).strip() for col in df_sales.columns.values]
+                                    
+                                    df_sales = handle_duplicate_columns(df_sales)
+                                    
+                                    branch_col = find_column(df_sales, column_aliases['Branch'], case_sensitive=False)
+                                    date_col = find_column(df_sales, ['Month Format', 'Date', 'Month'] + column_aliases['Date'], case_sensitive=False)
+                                    value_col = find_column(df_sales, ['Amount', 'Value', 'Sales Value'] + column_aliases['Value'], case_sensitive=False)
+                                    
+                                    if branch_col and date_col and value_col:
+                                        df_sales = df_sales[[branch_col, date_col, value_col]].copy()
+                                        df_sales.columns = ['Branch', 'Month Format', 'Value']
+                                        
+                                        df_sales['Value'] = pd.to_numeric(df_sales['Value'], errors='coerce').fillna(0)
+                                        df_sales['Branch'] = df_sales['Branch'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
+                                        
+                                        # IMPROVED MONTH HANDLING FOR VALUE DATA
+                                        if pd.api.types.is_datetime64_any_dtype(df_sales['Month Format']):
+                                            df_sales['Month'] = pd.to_datetime(df_sales['Month Format']).dt.strftime('%b')
+                                        else:
+                                            month_str = df_sales['Month Format'].astype(str).str.strip().str.title()
+                                            try:
+                                                df_sales['Month'] = pd.to_datetime(month_str, format='%B').dt.strftime('%b')
+                                            except ValueError:
+                                                df_sales['Month'] = month_str.str[:3]
+                                        
+                                        df_sales = df_sales.dropna(subset=['Value', 'Month'])
+                                        df_sales = df_sales[df_sales['Value'] != 0]
+                                        
+                                        # Debug and validate
+                                        unique_months = df_sales['Month'].unique()
+                                        
+                                        valid_months_list = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                                        df_sales = df_sales[df_sales['Month'].isin(valid_months_list)]
+                                        
+                                        grouped = df_sales.groupby(['Branch', 'Month'])['Value'].sum().reset_index()
+                                        
+                                        for _, row in grouped.iterrows():
+                                            branch = row['Branch']
+                                            month = row['Month']
+                                            value = row['Value']
+                                            
+                                            year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
+                                            col_name = f'Act-{month}-{year}'
+                                            
+                                            if branch not in actual_value_data:
+                                                actual_value_data[branch] = {}
+                                            if col_name in actual_value_data[branch]:
+                                                actual_value_data[branch][col_name] += value
+                                            else:
+                                                actual_value_data[branch][col_name] = value
+                                    else:
+                                        st.warning(f"Required columns not found in sales sheet '{sheet_name}'. Expected: Branch, Month Format/Date, Amount/Value. Found: {df_sales.columns.tolist()}")
+                                        
+                                except Exception as e:
+                                    st.warning(f"Error processing sheet '{sheet_name}': {str(e)}")
+                                    continue
+                        
+                        # Process last year value data with same improved logic
+                        if st.session_state.get('uploaded_file_last_year') and selected_sheet_last_year:
+                            try:
+                                xls_last_year = pd.ExcelFile(st.session_state.uploaded_file_last_year)
+                                df_last_year = pd.read_excel(xls_last_year, sheet_name=selected_sheet_last_year, header=0)
+                                
+                                if isinstance(df_last_year.columns, pd.MultiIndex):
+                                    df_last_year.columns = ['_'.join(col).strip() for col in df_last_year.columns.values]
+                                df_last_year = handle_duplicate_columns(df_last_year)
+                                
+                                branch_col = find_column(df_last_year, column_aliases['Branch'], case_sensitive=False)
+                                date_col = find_column(df_last_year, ['Month Format', 'Date', 'Month'] + column_aliases['Date'], case_sensitive=False)
+                                amount_col = find_column(df_last_year, ['Amount', 'Value', 'Sales Value'] + column_aliases['Amount'], case_sensitive=False)
+                                
+                                if branch_col and date_col and amount_col:
+                                    df_last_year = df_last_year[[branch_col, date_col, amount_col]].copy()
+                                    df_last_year.columns = ['Branch', 'Month Format', 'Amount']
+                                    
+                                    df_last_year['Amount'] = pd.to_numeric(df_last_year['Amount'], errors='coerce').fillna(0)
+                                    df_last_year['Branch'] = df_last_year['Branch'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
+                                    
+                                    # IMPROVED MONTH HANDLING FOR LAST YEAR VALUE DATA
+                                    if pd.api.types.is_datetime64_any_dtype(df_last_year['Month Format']):
+                                        df_last_year['Month'] = pd.to_datetime(df_last_year['Month Format']).dt.strftime('%b')
+                                    else:
+                                        month_str = df_last_year['Month Format'].astype(str).str.strip().str.title()
+                                        try:
+                                            df_last_year['Month'] = pd.to_datetime(month_str, format='%B').dt.strftime('%b')
+                                        except ValueError:
+                                            df_last_year['Month'] = month_str.str[:3]
+                                    
+                                    df_last_year = df_last_year.dropna(subset=['Amount', 'Month'])
+                                    df_last_year = df_last_year[df_last_year['Amount'] != 0]
+                                    
+                                    # Debug and validate
+                                    unique_months = df_last_year['Month'].unique()
+                                    
+                                    valid_months_list = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                                    df_last_year = df_last_year[df_last_year['Month'].isin(valid_months_list)]
+                                    
+                                    if not df_last_year.empty:
+                                        grouped_ly = df_last_year.groupby(['Branch', 'Month'])['Amount'].sum().reset_index()
+                                        
+                                        for _, row in grouped_ly.iterrows():
+                                            branch = row['Branch']
+                                            month = row['Month']
+                                            amount = row['Amount']
+                                            
+                                            year = str(last_fiscal_year_start)[-2:] if month in months[:9] else str(last_fiscal_year_end)[-2:]
+                                            col_name = f'LY-{month}-{year}'
+                                            
+                                            if branch not in actual_value_data:
+                                                actual_value_data[branch] = {}
+                                            if col_name in actual_value_data[branch]:
+                                                actual_value_data[branch][col_name] += amount
+                                            else:
+                                                actual_value_data[branch][col_name] = amount
+                                    else:
+                                        st.warning(f"No valid months found in last year value sheet '{selected_sheet_last_year}'.")
+                                        
+                                else:
+                                    st.warning(f"Required columns not found in last year sheet '{selected_sheet_last_year}'. Expected: Branch, Month Format/Date, Amount/Value. Found: {df_last_year.columns.tolist()}")
+                            except Exception as e:
+                                st.warning(f"Error processing last year value data: {str(e)}")
+                        else:
+                            st.info("ℹ️ No last year file uploaded. Last year comparison data will not be available.")
+                        
+                        # Merge and process value data (same logic as quantity processing above)
+                        for branch, data in actual_value_data.items():
+                            matching_rows = result_value[result_value['REGIONS'] == branch]
+                            if not matching_rows.empty:
+                                idx = matching_rows.index[0]
+                                for col, value in data.items():
+                                    if col not in result_value.columns:
+                                        result_value[col] = 0.0
+                                    if len(matching_rows) > 1:
+                                        existing_value = result_value.loc[idx, col] if col in result_value.columns else 0
+                                        result_value.loc[idx, col] = existing_value + value
+                                    else:
+                                        result_value.loc[idx, col] = value
+                        
+                        if result_value['REGIONS'].duplicated().any():
+                            numeric_cols_result = result_value.select_dtypes(include=[np.number]).columns
+                            agg_dict = {col: 'sum' for col in numeric_cols_result}
+                            result_value = result_value.groupby('REGIONS', as_index=False).agg(agg_dict)
+                        
+                        numeric_cols = result_value.select_dtypes(include=[np.number]).columns
+                        result_value[numeric_cols] = result_value[numeric_cols].fillna(0)
+
+                        # Calculate Growth Rate (Gr) and Achievement (Ach) for value data
+                        for month in months:
+                            budget_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
+                            actual_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
+                            ly_year = str(last_fiscal_year_start)[-2:] if month in months[:9] else str(last_fiscal_year_end)[-2:]
+                            
+                            budget_col = f'Budget-{month}-{budget_year}'
+                            actual_col = f'Act-{month}-{actual_year}'
+                            ly_col = f'LY-{month}-{ly_year}'
+                            gr_col = f'Gr-{month}-{actual_year}'
+                            ach_col = f'Ach-{month}-{actual_year}'
+                            
+                            if gr_col not in result_value.columns:
+                                result_value[gr_col] = 0.0
+                            if ach_col not in result_value.columns:
+                                result_value[ach_col] = 0.0
+                            
+                            if ly_col in result_value.columns and actual_col in result_value.columns:
+                                result_value[gr_col] = np.where(
+                                    (result_value[ly_col] != 0) & (pd.notna(result_value[ly_col])) & (pd.notna(result_value[actual_col])),
+                                    ((result_value[actual_col] - result_value[ly_col]) / result_value[ly_col] * 100).round(2),
+                                    0
+                                )
+                            
+                            if budget_col in result_value.columns and actual_col in result_value.columns:
+                                result_value[ach_col] = np.where(
+                                    (result_value[budget_col] != 0) & (pd.notna(result_value[budget_col])) & (pd.notna(result_value[actual_col])),
+                                    (result_value[actual_col] / result_value[budget_col] * 100).round(2),
+                                    0
+                                )
+
+                        # Add total calculations for value
+                        exclude_regions = ['NORTH TOTAL', 'WEST SALES', 'GRAND TOTAL']
+                        mask = ~result_value['REGIONS'].isin(exclude_regions + ['TOTAL SALES'])
+                        valid_regions = result_value[mask]
+                        
+                        total_row = pd.DataFrame({'REGIONS': ['GRAND TOTAL']})
+                        for col in numeric_cols:
+                            if col in valid_regions.columns:
+                                total_row[col] = [valid_regions[col].sum().round(2)]
+                        
+                        # Recalculate Gr and Ach for GRAND TOTAL row in value data
+                        for month in months:
+                            budget_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
+                            actual_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
+                            ly_year = str(last_fiscal_year_start)[-2:] if month in months[:9] else str(last_fiscal_year_end)[-2:]
+                            
+                            budget_col = f'Budget-{month}-{budget_year}'
+                            actual_col = f'Act-{month}-{actual_year}'
+                            ly_col = f'LY-{month}-{ly_year}'
+                            gr_col = f'Gr-{month}-{actual_year}'
+                            ach_col = f'Ach-{month}-{actual_year}'
+                            
+                            if all(col in total_row.columns for col in [budget_col, actual_col, ly_col]):
+                                if total_row[ly_col].iloc[0] != 0:
+                                    total_row[gr_col] = [((total_row[actual_col].iloc[0] - total_row[ly_col].iloc[0]) / total_row[ly_col].iloc[0] * 100).round(2)]
+                                else:
+                                    total_row[gr_col] = [0]
+                                
+                                if total_row[budget_col].iloc[0] != 0:
+                                    total_row[ach_col] = [(total_row[actual_col].iloc[0] / total_row[budget_col].iloc[0] * 100).round(2)]
+                                else:
+                                    total_row[ach_col] = [0]
+                        
+                        result_value = pd.concat([valid_regions, total_row], ignore_index=True)
+                        result_value = result_value.rename(columns={'REGIONS': 'SALES in Value'})
+                        
+                        st.session_state.region_value_data = result_value
+
+                        st.subheader(f"Region-wise Budget and Actual Value (Month-wise) [{fiscal_year_str}]")
+                        
+                        display_df = result_value.copy()
+                        numeric_display_cols = display_df.select_dtypes(include=[np.number]).columns
+                        
+                        try:
+                            for col in numeric_display_cols:
+                                display_df[col] = display_df[col].apply(lambda x: f"{x:,.2f}" if pd.notna(x) else "0.00")
+                            st.dataframe(display_df, use_container_width=True)
+                        except:
+                            st.dataframe(result_value, use_container_width=True)
+
+                        csv_value = result_value.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            "⬇️ Download Region Value Data",
+                            csv_value,
+                            file_name=f"region_budget_actual_value_{selected_sheet_budget}_{fiscal_year_str}.csv",
+                            mime="text/csv"
+                        )
+                    else:
+                        st.warning("No budget value columns found.")
+
+                # Merge tab with auditor data with North/West regional totals
+                with tab_merge:
+                    
+                    duplicate_info = []
+                    if 'region_analysis_data' in st.session_state and not st.session_state.region_analysis_data.empty:
+                        mt_data = st.session_state.region_analysis_data.copy()
+                        if 'SALES in MT' in mt_data.columns:
+                            mt_data = mt_data.rename(columns={'SALES in MT': 'REGIONS'})
+                        mt_duplicates = mt_data[mt_data['REGIONS'].duplicated(keep=False)]['REGIONS'].unique()
+                        if len(mt_duplicates) > 0:
+                            duplicate_info.append(f"**MT data:** {len(mt_duplicates)} regions with duplicates: {', '.join(mt_duplicates[:5])}{'...' if len(mt_duplicates) > 5 else ''}")
+                    
+                    if 'region_value_data' in st.session_state and not st.session_state.region_value_data.empty:
+                        value_data = st.session_state.region_value_data.copy()
+                        if 'SALES in Value' in value_data.columns:
+                            value_data = value_data.rename(columns={'SALES in Value': 'REGIONS'})
+                        value_duplicates = value_data[value_data['REGIONS'].duplicated(keep=False)]['REGIONS'].unique()
+                        if len(value_duplicates) > 0:
+                            duplicate_info.append(f"**Value data:** {len(value_duplicates)} regions with duplicates: {', '.join(value_duplicates[:5])}{'...' if len(value_duplicates) > 5 else ''}")
+                    
+                    if duplicate_info:
+                        st.warning("⚠️ **Duplicate Regions Detected**")
+                        st.info("Regions appearing in multiple tabs will be automatically aggregated (summed) during merge:")
+                        for info in duplicate_info:
+                            st.write(info)
+                        st.info("💡 This is normal when regions appear across different sales sheets.")
+                    
+                    def add_regional_totals(df, data_type='MT'):
+                        """Add NORTH TOTAL and WEST SALES rows with proper calculations and custom ordering"""
+                        if df.empty:
+                            return df
+                        
+                        # Get the identifier column name
+                        id_col = 'SALES in MT' if data_type == 'MT' else 'SALES in Value'
+                        
+                        # Remove existing totals to recalculate
+                        df_clean = df[~df[id_col].isin(['NORTH TOTAL', 'WEST SALES', 'GRAND TOTAL'])].copy()
+                        
+                        # Get numeric columns for calculations
+                        numeric_cols = df_clean.select_dtypes(include=[np.number]).columns
+                        
+                        # Calculate NORTH TOTAL
+                        north_data = df_clean[df_clean[id_col].isin(north_regions)]
+                        if not north_data.empty:
+                            north_total_row = {id_col: 'NORTH TOTAL'}
+                            for col in numeric_cols:
+                                north_total_row[col] = north_data[col].sum().round(2)
+                            
+                            # Recalculate Growth Rate and Achievement for NORTH TOTAL
+                            for month in months:
+                                budget_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
+                                actual_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
+                                ly_year = str(last_fiscal_year_start)[-2:] if month in months[:9] else str(last_fiscal_year_end)[-2:]
+                                
+                                budget_col = f'Budget-{month}-{budget_year}'
+                                actual_col = f'Act-{month}-{actual_year}'
+                                ly_col = f'LY-{month}-{ly_year}'
+                                gr_col = f'Gr-{month}-{actual_year}'
+                                ach_col = f'Ach-{month}-{actual_year}'
+                                
+                                if all(col in numeric_cols for col in [budget_col, actual_col, ly_col, gr_col, ach_col]):
+                                    # Recalculate Growth Rate for NORTH TOTAL
+                                    if north_total_row[ly_col] != 0:
+                                        north_total_row[gr_col] = round(((north_total_row[actual_col] - north_total_row[ly_col]) / north_total_row[ly_col] * 100), 2)
+                                    else:
+                                        north_total_row[gr_col] = 0
+                                    
+                                    # Recalculate Achievement for NORTH TOTAL
+                                    if north_total_row[budget_col] != 0:
+                                        north_total_row[ach_col] = round((north_total_row[actual_col] / north_total_row[budget_col] * 100), 2)
+                                    else:
+                                        north_total_row[ach_col] = 0
+                            
+                            # Add all other columns that might exist
+                            for col in df.columns:
+                                if col not in north_total_row:
+                                    north_total_row[col] = 0
+                            
+                            df_clean = pd.concat([df_clean, pd.DataFrame([north_total_row])], ignore_index=True)
+                        
+                        # Calculate WEST SALES
+                        west_data = df_clean[df_clean[id_col].isin(west_regions)]
+                        if not west_data.empty:
+                            west_total_row = {id_col: 'WEST SALES'}
+                            for col in numeric_cols:
+                                west_total_row[col] = west_data[col].sum().round(2)
+                            
+                            # Recalculate Growth Rate and Achievement for WEST SALES
+                            for month in months:
+                                budget_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
+                                actual_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
+                                ly_year = str(last_fiscal_year_start)[-2:] if month in months[:9] else str(last_fiscal_year_end)[-2:]
+                                
+                                budget_col = f'Budget-{month}-{budget_year}'
+                                actual_col = f'Act-{month}-{actual_year}'
+                                ly_col = f'LY-{month}-{ly_year}'
+                                gr_col = f'Gr-{month}-{actual_year}'
+                                ach_col = f'Ach-{month}-{actual_year}'
+                                
+                                if all(col in numeric_cols for col in [budget_col, actual_col, ly_col, gr_col, ach_col]):
+                                    # Recalculate Growth Rate for WEST SALES
+                                    if west_total_row[ly_col] != 0:
+                                        west_total_row[gr_col] = round(((west_total_row[actual_col] - west_total_row[ly_col]) / west_total_row[ly_col] * 100), 2)
+                                    else:
+                                        west_total_row[gr_col] = 0
+                                    
+                                    # Recalculate Achievement for WEST SALES
+                                    if west_total_row[budget_col] != 0:
+                                        west_total_row[ach_col] = round((west_total_row[actual_col] / west_total_row[budget_col] * 100), 2)
+                                    else:
+                                        west_total_row[ach_col] = 0
+                            
+                            # Add all other columns that might exist
+                            for col in df.columns:
+                                if col not in west_total_row:
+                                    west_total_row[col] = 0
+                            
+                            df_clean = pd.concat([df_clean, pd.DataFrame([west_total_row])], ignore_index=True)
+                        
+                        # Calculate GRAND TOTAL (sum of all individual regions, not NORTH TOTAL + WEST SALES)
+                        individual_regions = df_clean[~df_clean[id_col].isin(['NORTH TOTAL', 'WEST SALES', 'GRAND TOTAL'])]
+                        if not individual_regions.empty:
+                            grand_total_row = {id_col: 'GRAND TOTAL'}
+                            for col in numeric_cols:
+                                grand_total_row[col] = individual_regions[col].sum().round(2)
+                            
+                            # Recalculate Growth Rate and Achievement for GRAND TOTAL
+                            for month in months:
+                                budget_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
+                                actual_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
+                                ly_year = str(last_fiscal_year_start)[-2:] if month in months[:9] else str(last_fiscal_year_end)[-2:]
+                                
+                                budget_col = f'Budget-{month}-{budget_year}'
+                                actual_col = f'Act-{month}-{actual_year}'
+                                ly_col = f'LY-{month}-{ly_year}'
+                                gr_col = f'Gr-{month}-{actual_year}'
+                                ach_col = f'Ach-{month}-{actual_year}'
+                                
+                                if all(col in numeric_cols for col in [budget_col, actual_col, ly_col, gr_col, ach_col]):
+                                    # Recalculate Growth Rate for GRAND TOTAL
+                                    if grand_total_row[ly_col] != 0:
+                                        grand_total_row[gr_col] = round(((grand_total_row[actual_col] - grand_total_row[ly_col]) / grand_total_row[ly_col] * 100), 2)
+                                    else:
+                                        grand_total_row[gr_col] = 0
+                                    
+                                    # Recalculate Achievement for GRAND TOTAL
+                                    if grand_total_row[budget_col] != 0:
+                                        grand_total_row[ach_col] = round((grand_total_row[actual_col] / grand_total_row[budget_col] * 100), 2)
+                                    else:
+                                        grand_total_row[ach_col] = 0
+                            
+                            # Add all other columns that might exist
+                            for col in df.columns:
+                                if col not in grand_total_row:
+                                    grand_total_row[col] = 0
+                            
+                            df_clean = pd.concat([df_clean, pd.DataFrame([grand_total_row])], ignore_index=True)
+                        
+                        # CUSTOM ORDERING: North regions first, then NORTH TOTAL, then West regions, then WEST SALES, then Group companies, then GRAND TOTAL
+                        
+                        # Define group companies (add your specific group company names here)
+                        group_companies = ['GROUP CO1', 'GROUP CO2', 'SUBSIDIARIES', 'ASSOCIATES']  # Modify as per your actual group company names
+                        
+                        # Separate different types of rows
+                        individual_regions = df_clean[~df_clean[id_col].isin(['NORTH TOTAL', 'WEST SALES', 'GRAND TOTAL'] + group_companies)]
+                        north_total_rows = df_clean[df_clean[id_col] == 'NORTH TOTAL']
+                        west_sales_rows = df_clean[df_clean[id_col] == 'WEST SALES']
+                        grand_total_rows = df_clean[df_clean[id_col] == 'GRAND TOTAL']
+                        group_company_rows = df_clean[df_clean[id_col].isin(group_companies)]
+                        
+                        # Separate north and west regions
+                        north_region_rows = individual_regions[individual_regions[id_col].isin(north_regions)]
+                        west_region_rows = individual_regions[individual_regions[id_col].isin(west_regions)]
+                        other_region_rows = individual_regions[~individual_regions[id_col].isin(north_regions + west_regions)]
+                        
+                        # Sort each group alphabetically
+                        north_region_rows = north_region_rows.sort_values(by=id_col) if not north_region_rows.empty else north_region_rows
+                        west_region_rows = west_region_rows.sort_values(by=id_col) if not west_region_rows.empty else west_region_rows
+                        other_region_rows = other_region_rows.sort_values(by=id_col) if not other_region_rows.empty else other_region_rows
+                        group_company_rows = group_company_rows.sort_values(by=id_col) if not group_company_rows.empty else group_company_rows
+                        
+                        # Combine in the desired order
+                        result_df = pd.concat([
+                            north_region_rows,      # 1. North regions first
+                            north_total_rows,       # 2. NORTH TOTAL
+                            west_region_rows,       # 3. West regions
+                            west_sales_rows,        # 4. WEST SALES
+                            other_region_rows,      # 5. Any other regions not classified as north/west
+                            group_company_rows,     # 6. Group companies
+                            grand_total_rows        # 7. GRAND TOTAL last
+                        ], ignore_index=True)
+                        
+                        return result_df
+                    
+                    if st.session_state.get('uploaded_file_auditor'):
+                        try:
+                            st.subheader(f"🔀 Merge Preview with Auditor Data [{fiscal_year_str}]")
+                            
+                            
+                            
+                            xls_auditor = pd.ExcelFile(st.session_state.uploaded_file_auditor)
+                            auditor_sheet_names = xls_auditor.sheet_names
+
+                            region_sheet_auditor = None
+                            for sheet in auditor_sheet_names:
+                                if 'region' in sheet.lower():
+                                    region_sheet_auditor = sheet
+                                    break
+
+                            if not region_sheet_auditor:
+                                st.error("No region analysis sheet found in auditor file.")
+                                st.stop()
+
+                            df_auditor = pd.read_excel(xls_auditor, sheet_name=region_sheet_auditor, header=None)
+
+                            mt_table_headers = [
+                                "SALES in MT", "SALES IN MT", "MT", "Sales in MT",
+                                "Region MT", "REGION MT", "Regional Sales MT"
+                            ]
+                            value_table_headers = [
+                                "SALES in Value", "SALES IN VALUE", "Sales in Rs", "SALES IN RS",
+                                "Value", "VALUE", "Sales Value", "Region Value", "REGION VALUE"
+                            ]
+
+                            mt_idx, mt_data_start = extract_tables(df_auditor, mt_table_headers, is_product_analysis=False)
+                            value_idx, value_data_start = extract_tables(df_auditor, value_table_headers, is_product_analysis=False)
+
+                            auditor_mt_table = None
+                            auditor_value_table = None
+
+                            if mt_idx is not None:
+                                if value_idx is not None and value_idx > mt_idx:
+                                    mt_table = df_auditor.iloc[mt_data_start:value_idx].dropna(how='all')
+                                else:
+                                    mt_table = df_auditor.iloc[mt_data_start:].dropna(how='all')
+                                
+                                mt_table.columns = df_auditor.iloc[mt_idx]
+                                mt_table.columns = rename_columns(mt_table.columns)
+                                mt_table = handle_duplicate_columns(mt_table)
+                                if mt_table.columns[0] != 'SALES in MT':
+                                    mt_table = mt_table.rename(columns={mt_table.columns[0]: 'SALES in MT'})
+                                mt_table['SALES in MT'] = mt_table['SALES in MT'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
+                                
+                                # Remove REGIONS header row
+                                mt_table = mt_table[~mt_table['SALES in MT'].str.upper().isin(['REGIONS', 'REGION', 'SALES IN MT'])].reset_index(drop=True)
+                                
+                                for col in mt_table.columns[1:]:
+                                    mt_table[col] = pd.to_numeric(mt_table[col], errors='coerce').fillna(0)
+                                auditor_mt_table = mt_table
+                            
+                            if value_idx is not None:
+                                value_table = df_auditor.iloc[value_data_start:].dropna(how='all')
+                                value_table.columns = df_auditor.iloc[value_idx]
+                                value_table.columns = rename_columns(value_table.columns)
+                                value_table = handle_duplicate_columns(value_table)
+                                if value_table.columns[0] != 'SALES in Value':
+                                    value_table = value_table.rename(columns={value_table.columns[0]: 'SALES in Value'})
+                                value_table['SALES in Value'] = value_table['SALES in Value'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
+                                
+                                # Remove REGIONS header row
+                                value_table = value_table[~value_table['SALES in Value'].str.upper().isin(['REGIONS', 'REGION', 'SALES IN VALUE'])].reset_index(drop=True)
+                                
+                                for col in value_table.columns[1:]:
+                                    value_table[col] = pd.to_numeric(value_table[col], errors='coerce').fillna(0)
+                                auditor_value_table = value_table
+
+                            merged_mt_data = pd.DataFrame()
+                            if (auditor_mt_table is not None and 
+                                'region_analysis_data' in st.session_state and 
+                                not st.session_state.region_analysis_data.empty):
+                                
+                                auditor_mt = auditor_mt_table.copy()
+                                generated_mt = st.session_state.region_analysis_data.copy()
+                                
+                                if 'SALES in MT' in generated_mt.columns:
+                                    generated_mt = generated_mt.rename(columns={'SALES in MT': 'REGIONS'})
+                                generated_mt['REGIONS'] = generated_mt['REGIONS'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
+                                
+                                auditor_regions = set(auditor_mt['SALES in MT'].str.strip().str.upper())
+                                generated_regions = set(generated_mt['REGIONS'].str.strip().str.upper())
+                                all_regions = sorted(auditor_regions.union(generated_regions))
+                                
+                                exclude_from_sort = ['GRAND TOTAL', 'TOTAL SALES', 'NORTH TOTAL', 'WEST SALES']
+                                regular_regions = sorted([r for r in all_regions if r not in exclude_from_sort])
+                                total_regions = [r for r in all_regions if r in exclude_from_sort]
+                                sorted_regions = regular_regions + total_regions
+                                
+                                merged_mt_data = pd.DataFrame({'SALES in MT': sorted_regions})
+                                
+                                auditor_cols = [col for col in auditor_mt.columns if col != 'SALES in MT']
+                                generated_cols = [col for col in generated_mt.columns if col != 'REGIONS']
+                                common_cols = list(set(auditor_cols) & set(generated_cols))
+                                
+                                for col in auditor_cols:
+                                    merged_mt_data[col] = 0.0
+                                
+                                auditor_dict = auditor_mt.set_index('SALES in MT').to_dict('index')
+                                for region in merged_mt_data['SALES in MT']:
+                                    if region in auditor_dict:
+                                        for col in auditor_cols:
+                                            if col in auditor_dict[region]:
+                                                idx = merged_mt_data[merged_mt_data['SALES in MT'] == region].index[0]
+                                                merged_mt_data.loc[idx, col] = auditor_dict[region][col]
+                                
+                                if common_cols:
+                                    if generated_mt['REGIONS'].duplicated().any():
+                                        st.warning("⚠️ Duplicate regions detected in generated data. Aggregating values...")
+                                        numeric_cols_gen = generated_mt.select_dtypes(include=[np.number]).columns
+                                        agg_dict = {col: 'sum' for col in numeric_cols_gen}
+                                        for col in generated_mt.columns:
+                                            if col not in numeric_cols_gen and col != 'REGIONS':
+                                                agg_dict[col] = 'first'
+                                        generated_mt = generated_mt.groupby('REGIONS', as_index=False).agg(agg_dict)
+                                    
+                                    generated_dict = generated_mt.set_index('REGIONS').to_dict('index')
+                                    for region in merged_mt_data['SALES in MT']:
+                                        if region in generated_dict:
+                                            for col in common_cols:
+                                                if col in generated_dict[region] and pd.notna(generated_dict[region][col]):
+                                                    idx = merged_mt_data[merged_mt_data['SALES in MT'] == region].index[0]
+                                                    merged_mt_data.loc[idx, col] = generated_dict[region][col]
+                                
+                                # Apply regional totals calculation for MT data
+                                merged_mt_data = add_regional_totals(merged_mt_data, 'MT')
+                                
+                                for ytd_col, months_list in ytd_periods.items():
+                                    valid_months = [month for month in months_list if month in merged_mt_data.columns]
+                                    if valid_months:
+                                        merged_mt_data[ytd_col] = merged_mt_data[valid_months].sum(axis=1, skipna=True).round(2)
+                                
+                                ytd_pairs = [
+                                    ('Apr to Jun', f'YTD-{fiscal_year_str} (Apr to Jun)Budget', f'YTD-{last_fiscal_year_str} (Apr to Jun)LY', f'Act-YTD-{fiscal_year_str} (Apr to Jun)'),
+                                    ('Apr to Sep', f'YTD-{fiscal_year_str} (Apr to Sep)Budget', f'YTD-{last_fiscal_year_str} (Apr to Sep)LY', f'Act-YTD-{fiscal_year_str} (Apr to Sep)'),
+                                    ('Apr to Dec', f'YTD-{fiscal_year_str} (Apr to Dec)Budget', f'YTD-{last_fiscal_year_str} (Apr to Dec)LY', f'Act-YTD-{fiscal_year_str} (Apr to Dec)'),
+                                    ('Apr to Mar', f'YTD-{fiscal_year_str} (Apr to Mar)Budget', f'YTD-{last_fiscal_year_str} (Apr to Mar)LY', f'Act-YTD-{fiscal_year_str} (Apr to Mar)')
+                                ]
+                                
+                                for period, budget_col, ly_col, act_col in ytd_pairs:
+                                    if all(col in merged_mt_data.columns for col in [budget_col, ly_col, act_col]):
+                                        merged_mt_data[f'Gr-YTD-{fiscal_year_str} ({period})'] = np.where(
+                                            merged_mt_data[ly_col] != 0,
+                                            ((merged_mt_data[act_col] - merged_mt_data[ly_col]) / merged_mt_data[ly_col] * 100).round(2),
+                                            0
+                                        )
+                                        merged_mt_data[f'Ach-YTD-{fiscal_year_str} ({period})'] = np.where(
+                                            merged_mt_data[budget_col] != 0,
+                                            (merged_mt_data[act_col] / merged_mt_data[budget_col] * 100).round(2),
+                                            0
+                                        )
+                                
+                                st.session_state.merged_region_mt_data = merged_mt_data
+                            
+                            merged_value_data = pd.DataFrame()
+                            if (auditor_value_table is not None and 
+                                'region_value_data' in st.session_state and 
+                                not st.session_state.region_value_data.empty):
+                                
+                                auditor_value = auditor_value_table.copy()
+                                generated_value = st.session_state.region_value_data.copy()
+                                
+                                if 'SALES in Value' in generated_value.columns:
+                                    generated_value = generated_value.rename(columns={'SALES in Value': 'REGIONS'})
+                                generated_value['REGIONS'] = generated_value['REGIONS'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
+                                
+                                auditor_regions = set(auditor_value['SALES in Value'].str.strip().str.upper())
+                                generated_regions = set(generated_value['REGIONS'].str.strip().str.upper())
+                                all_regions = sorted(auditor_regions.union(generated_regions))
+                                
+                                exclude_from_sort = ['GRAND TOTAL', 'TOTAL SALES', 'NORTH TOTAL', 'WEST SALES']
+                                regular_regions = sorted([r for r in all_regions if r not in exclude_from_sort])
+                                total_regions = [r for r in all_regions if r in exclude_from_sort]
+                                sorted_regions = regular_regions + total_regions
+                                
+                                merged_value_data = pd.DataFrame({'SALES in Value': sorted_regions})
+                                
+                                auditor_cols = [col for col in auditor_value.columns if col != 'SALES in Value']
+                                generated_cols = [col for col in generated_value.columns if col != 'REGIONS']
+                                common_cols = list(set(auditor_cols) & set(generated_cols))
+                                
+                                for col in auditor_cols:
+                                    merged_value_data[col] = 0.0
+                                
+                                auditor_dict = auditor_value.set_index('SALES in Value').to_dict('index')
+                                for region in merged_value_data['SALES in Value']:
+                                    if region in auditor_dict:
+                                        for col in auditor_cols:
+                                            if col in auditor_dict[region]:
+                                                idx = merged_value_data[merged_value_data['SALES in Value'] == region].index[0]
+                                                merged_value_data.loc[idx, col] = auditor_dict[region][col]
+                                
+                                if common_cols:
+                                    if generated_value['REGIONS'].duplicated().any():
+                                        st.warning("⚠️ Duplicate regions detected in generated value data. Aggregating values...")
+                                        numeric_cols_gen = generated_value.select_dtypes(include=[np.number]).columns
+                                        agg_dict = {col: 'sum' for col in numeric_cols_gen}
+                                        for col in generated_value.columns:
+                                            if col not in numeric_cols_gen and col != 'REGIONS':
+                                                agg_dict[col] = 'first'
+                                        generated_value = generated_value.groupby('REGIONS', as_index=False).agg(agg_dict)
+                                    
+                                    generated_dict = generated_value.set_index('REGIONS').to_dict('index')
+                                    for region in merged_value_data['SALES in Value']:
+                                        if region in generated_dict:
+                                            for col in common_cols:
+                                                if col in generated_dict[region] and pd.notna(generated_dict[region][col]):
+                                                    idx = merged_value_data[merged_value_data['SALES in Value'] == region].index[0]
+                                                    merged_value_data.loc[idx, col] = generated_dict[region][col]
+                                
+                                # Apply regional totals calculation for Value data
+                                merged_value_data = add_regional_totals(merged_value_data, 'Value')
+
+                                for ytd_col, months_list in ytd_periods.items():
+                                    valid_months = [month for month in months_list if month in merged_value_data.columns]
+                                    if valid_months:
+                                        merged_value_data[ytd_col] = merged_value_data[valid_months].sum(axis=1, skipna=True).round(2)
+                                
+                                for period, budget_col, ly_col, act_col in ytd_pairs:
+                                    if all(col in merged_value_data.columns for col in [budget_col, ly_col, act_col]):
+                                        merged_value_data[f'Gr-YTD-{fiscal_year_str} ({period})'] = np.where(
+                                            merged_value_data[ly_col] != 0,
+                                            ((merged_value_data[act_col] - merged_value_data[ly_col]) / merged_value_data[ly_col] * 100).round(2),
+                                            0
+                                        )
+                                        merged_value_data[f'Ach-YTD-{fiscal_year_str} ({period})'] = np.where(
+                                            merged_value_data[budget_col] != 0,
+                                            (merged_value_data[act_col] / merged_value_data[budget_col] * 100).round(2),
+                                            0
+                                        )
+                                
+                                st.session_state.merged_region_value_data = merged_value_data
+
+                            if not merged_mt_data.empty:
+                                st.subheader(f"Merged Data (SALES in MT)[{fiscal_year_str}]")
+                                
+                                total_regions = len(merged_mt_data)
+                                summary_rows = len([r for r in merged_mt_data['SALES in MT'] if 'TOTAL' in r.upper() or 'SALES' in r.upper()])
+                                regular_regions = total_regions - summary_rows
+                                
+                                
+                                
+                                if len(merged_mt_data) > 50:
+                                    st.warning("⚠️ Large dataset detected. Showing first 50 rows. Download full data using button below.")
+                                    display_mt = merged_mt_data.head(50)
+                                else:
+                                    display_mt = merged_mt_data
+                                
+                                display_df = display_mt.copy()
+                                numeric_cols = display_df.select_dtypes(include=[np.number]).columns
+                                for col in numeric_cols:
+                                    display_df[col] = display_df[col].apply(lambda x: f"{x:,.2f}" if pd.notna(x) else "0.00")
+                                
+                                st.dataframe(display_df, use_container_width=True)
+
+                            if not merged_value_data.empty:
+                                st.subheader(f"Merged Data (SALES in Value)[{fiscal_year_str}]")
+                                
+                                total_regions = len(merged_value_data)
+                                summary_rows = len([r for r in merged_value_data['SALES in Value'] if 'TOTAL' in r.upper() or 'SALES' in r.upper()])
+                                regular_regions = total_regions - summary_rows
+                                
+            
+                                
+                                if len(merged_value_data) > 50:
+                                    st.warning("⚠️ Large dataset detected. Showing first 50 rows. Download full data using button below.")
+                                    display_value = merged_value_data.head(50)
+                                else:
+                                    display_value = merged_value_data
+                                
+                                display_df = display_value.copy()
+                                numeric_cols = display_df.select_dtypes(include=[np.number]).columns
+                                for col in numeric_cols:
+                                    display_df[col] = display_df[col].apply(lambda x: f"{x:,.2f}" if pd.notna(x) else "0.00")
+                                
+                                st.dataframe(display_df, use_container_width=True)
+
+                            if not merged_mt_data.empty or not merged_value_data.empty:
+                                with st.spinner("Preparing Excel file with Regional Totals..."):
+                                    output = BytesIO()
+                                    
+                                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                                        workbook = writer.book
+                                        
+                                        title_format = workbook.add_format({
+                                            'bold': True, 'align': 'center', 'valign': 'vcenter',
+                                            'font_size': 16, 'font_color': '#000000', 'bg_color': '#D9E1F2'
+                                        })
+                                        header_format = workbook.add_format({
+                                            'bold': True, 'text_wrap': True, 'valign': 'top', 'align': 'center',
+                                            'fg_color': '#4472C4', 'font_color': 'white', 'border': 1
+                                        })
+                                        num_format = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+                                        text_format = workbook.add_format({'border': 1, 'valign': 'vcenter'})
+                                        total_format = workbook.add_format({
+                                            'bold': True, 'num_format': '#,##0.00', 'bg_color': '#E2EFDA', 'border': 1
+                                        })
+                                        north_format = workbook.add_format({
+                                            'bold': True, 'num_format': '#,##0.00', 'bg_color': '#D1E7DD', 'border': 1
+                                        })
+                                        west_format = workbook.add_format({
+                                            'bold': True, 'num_format': '#,##0.00', 'bg_color': '#FFF3CD', 'border': 1
+                                        })
+
+                                        if not merged_mt_data.empty:
+                                            merged_mt_data.to_excel(writer, sheet_name='MT_Data', index=False, startrow=3)
+                                            worksheet = writer.sheets['MT_Data']
+                                            
+                                            worksheet.merge_range(0, 0, 0, len(merged_mt_data.columns)-1, 
+                                                                f"REGION WISE SALES - MT DATA WITH REGIONAL TOTALS [{fiscal_year_str}]", title_format)
+                                            
+                                            for col_num, value in enumerate(merged_mt_data.columns):
+                                                worksheet.write(3, col_num, value, header_format)
+                                            
+                                            for row_num in range(len(merged_mt_data)):
+                                                region_name = merged_mt_data.iloc[row_num, 0]
+                                                is_north_total = region_name == 'NORTH TOTAL'
+                                                is_west_sales = region_name == 'WEST SALES'
+                                                is_grand_total = region_name == 'GRAND TOTAL'
+                                                is_total = 'TOTAL' in str(region_name).upper()
+                                                
+                                                for col_num in range(len(merged_mt_data.columns)):
+                                                    if col_num == 0:
+                                                        if is_north_total:
+                                                            fmt = north_format
+                                                        elif is_west_sales:
+                                                            fmt = west_format
+                                                        elif is_grand_total or is_total:
+                                                            fmt = total_format
+                                                        else:
+                                                            fmt = text_format
+                                                    else:
+                                                        if is_north_total:
+                                                            fmt = north_format
+                                                        elif is_west_sales:
+                                                            fmt = west_format
+                                                        elif is_grand_total or is_total:
+                                                            fmt = total_format
+                                                        else:
+                                                            fmt = num_format
+                                                    
+                                                    value = merged_mt_data.iloc[row_num, col_num]
+                                                    if col_num > 0 and isinstance(value, str):
+                                                        try:
+                                                            value = float(value.replace(',', '')) if value else 0.0
+                                                        except (ValueError, TypeError):
+                                                            value = value
+                                                    worksheet.write(row_num + 4, col_num, value, fmt)
+                                            
+                                            for i, col in enumerate(merged_mt_data.columns):
+                                                if i == 0:
+                                                    max_len = max(merged_mt_data[col].astype(str).str.len().max(), len(col)) + 2
+                                                    worksheet.set_column(i, i, min(max_len, 30))
+                                                else:
+                                                    worksheet.set_column(i, i, 12)
+                                        
+                                        if not merged_value_data.empty:
+                                            merged_value_data.to_excel(writer, sheet_name='Value_Data', index=False, startrow=3)
+                                            worksheet = writer.sheets['Value_Data']
+                                            
+                                            worksheet.merge_range(0, 0, 0, len(merged_value_data.columns)-1,
+                                                                f"REGION WISE SALES - VALUE DATA WITH REGIONAL TOTALS [{fiscal_year_str}]", title_format)
+                                            
+                                            for col_num, value in enumerate(merged_value_data.columns):
+                                                worksheet.write(3, col_num, value, header_format)
+                                            
+                                            for row_num in range(len(merged_value_data)):
+                                                region_name = merged_value_data.iloc[row_num, 0]
+                                                is_north_total = region_name == 'NORTH TOTAL'
+                                                is_west_sales = region_name == 'WEST SALES'
+                                                is_grand_total = region_name == 'GRAND TOTAL'
+                                                is_total = 'TOTAL' in str(region_name).upper()
+                                                
+                                                for col_num in range(len(merged_value_data.columns)):
+                                                    if col_num == 0:
+                                                        if is_north_total:
+                                                            fmt = north_format
+                                                        elif is_west_sales:
+                                                            fmt = west_format
+                                                        elif is_grand_total or is_total:
+                                                            fmt = total_format
+                                                        else:
+                                                            fmt = text_format
+                                                    else:
+                                                        if is_north_total:
+                                                            fmt = north_format
+                                                        elif is_west_sales:
+                                                            fmt = west_format
+                                                        elif is_grand_total or is_total:
+                                                            fmt = total_format
+                                                        else:
+                                                            fmt = num_format
+                                                    
+                                                    value = merged_value_data.iloc[row_num, col_num]
+                                                    if col_num > 0 and isinstance(value, str):
+                                                        try:
+                                                            value = float(value.replace(',', '')) if value else 0.0
+                                                        except (ValueError, TypeError):
+                                                            value = value
+                                                    worksheet.write(row_num + 4, col_num, value, fmt)
+                                            
+                                            for i, col in enumerate(merged_value_data.columns):
+                                                if i == 0:
+                                                    max_len = max(merged_value_data[col].astype(str).str.len().max(), len(col)) + 2
+                                                    worksheet.set_column(i, i, min(max_len, 30))
+                                                else:
+                                                    worksheet.set_column(i, i, 12)
+                                
+                                excel_data = output.getvalue()
+                                
+                                st.download_button(
+                                    label="⬇️ Download Complete Merged Region Data with Regional Totals",
+                                    data=excel_data,
+                                    file_name=f"complete_merged_region_data_with_totals_{fiscal_year_str}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="region_merge_download_with_totals"
+                                )
+                                
+                        except Exception as e:
+                            st.error(f"Error during merge process: {str(e)}")
+                    else:
+                        st.info("ℹ️ Upload auditor file to see merge preview")
+            else:
+                st.warning("Required column 'REGIONS' not found in budget data.")
+                
+        except Exception as e:
+            st.error("An error occurred while processing the data. Please check your input files and try again.")
+            st.error(f"Error details: {str(e)}")
+            
+    else: 
+        st.info("ℹ️ Please upload both Sales and Budget files and select appropriate sheets.")
+
+
 def find_column(df, possible_names, case_sensitive=False):
     # Placeholder for finding column names
     # Should return the matching column name or None
@@ -2375,10 +2645,18 @@ with tab4:
                                         df_sales['Actual Quantity'] = pd.to_numeric(df_sales['Actual Quantity'], errors='coerce').fillna(0)
                                         df_sales['Product Group'] = df_sales['Product Group'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
                                         
+                                        # Improved month handling logic
                                         if pd.api.types.is_datetime64_any_dtype(df_sales['Month Format']):
                                             df_sales['Month'] = pd.to_datetime(df_sales['Month Format']).dt.strftime('%b')
                                         else:
-                                            df_sales['Month'] = df_sales['Month Format'].astype(str).str.strip().str[:3]
+                                            # Handle full month names (like "April") properly
+                                            month_str = df_sales['Month Format'].astype(str).str.strip().str.title()
+                                            try:
+                                                # Try to parse as datetime if it's in month name format
+                                                df_sales['Month'] = pd.to_datetime(month_str, format='%B').dt.strftime('%b')
+                                            except ValueError:
+                                                # Fall back to first 3 characters if not a full month name
+                                                df_sales['Month'] = month_str.str[:3]
                                         
                                         df_sales = df_sales.dropna(subset=['Actual Quantity', 'Month'])
                                         df_sales = df_sales[df_sales['Actual Quantity'] != 0]
@@ -2426,10 +2704,18 @@ with tab4:
                                     df_last_year['Actual Quantity'] = pd.to_numeric(df_last_year['Actual Quantity'], errors='coerce').fillna(0)
                                     df_last_year['Product Group'] = df_last_year['Product Group'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
                                     
+                                    # Improved month handling logic for last year data
                                     if pd.api.types.is_datetime64_any_dtype(df_last_year['Month Format']):
                                         df_last_year['Month'] = pd.to_datetime(df_last_year['Month Format']).dt.strftime('%b')
                                     else:
-                                        df_last_year['Month'] = df_last_year['Month Format'].astype(str).str.strip().str[:3]
+                                        # Handle full month names (like "April") properly
+                                        month_str = df_last_year['Month Format'].astype(str).str.strip().str.title()
+                                        try:
+                                            # Try to parse as datetime if it's in month name format
+                                            df_last_year['Month'] = pd.to_datetime(month_str, format='%B').dt.strftime('%b')
+                                        except ValueError:
+                                            # Fall back to first 3 characters if not a full month name
+                                            df_last_year['Month'] = month_str.str[:3]
                                     
                                     df_last_year = df_last_year.dropna(subset=['Actual Quantity', 'Month'])
                                     df_last_year = df_last_year[df_last_year['Actual Quantity'] != 0]
@@ -2622,10 +2908,18 @@ with tab4:
                                         df_sales['Value'] = pd.to_numeric(df_sales['Value'], errors='coerce').fillna(0)
                                         df_sales['Product Group'] = df_sales['Product Group'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
                                         
+                                        # Improved month handling logic for value data
                                         if pd.api.types.is_datetime64_any_dtype(df_sales['Month Format']):
                                             df_sales['Month'] = pd.to_datetime(df_sales['Month Format']).dt.strftime('%b')
                                         else:
-                                            df_sales['Month'] = df_sales['Month Format'].astype(str).str.strip().str[:3]
+                                            # Handle full month names (like "April") properly
+                                            month_str = df_sales['Month Format'].astype(str).str.strip().str.title()
+                                            try:
+                                                # Try to parse as datetime if it's in month name format
+                                                df_sales['Month'] = pd.to_datetime(month_str, format='%B').dt.strftime('%b')
+                                            except ValueError:
+                                                # Fall back to first 3 characters if not a full month name
+                                                df_sales['Month'] = month_str.str[:3]
                                         
                                         df_sales = df_sales.dropna(subset=['Value', 'Month'])
                                         df_sales = df_sales[df_sales['Value'] != 0]
@@ -2673,10 +2967,18 @@ with tab4:
                                     df_last_year['Amount'] = pd.to_numeric(df_last_year['Amount'], errors='coerce').fillna(0)
                                     df_last_year['Product Group'] = df_last_year['Product Group'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
                                     
+                                    # Improved month handling logic for last year value data
                                     if pd.api.types.is_datetime64_any_dtype(df_last_year['Month Format']):
                                         df_last_year['Month'] = pd.to_datetime(df_last_year['Month Format']).dt.strftime('%b')
                                     else:
-                                        df_last_year['Month'] = df_last_year['Month Format'].astype(str).str.strip().str[:3]
+                                        # Handle full month names (like "April") properly
+                                        month_str = df_last_year['Month Format'].astype(str).str.strip().str.title()
+                                        try:
+                                            # Try to parse as datetime if it's in month name format
+                                            df_last_year['Month'] = pd.to_datetime(month_str, format='%B').dt.strftime('%b')
+                                        except ValueError:
+                                            # Fall back to first 3 characters if not a full month name
+                                            df_last_year['Month'] = month_str.str[:3]
                                     
                                     df_last_year = df_last_year.dropna(subset=['Amount', 'Month'])
                                     df_last_year = df_last_year[df_last_year['Amount'] != 0]
@@ -3362,10 +3664,18 @@ with tab5:
                                         df_last_year_qty = df_last_year.copy()
                                         df_last_year_qty['Actual Quantity'] = pd.to_numeric(df_last_year_qty[qty_col], errors='coerce')
                                         
+                                        # Improved month handling logic for last year quantity data
                                         if pd.api.types.is_datetime64_any_dtype(df_last_year_qty[date_col]):
                                             df_last_year_qty['Month'] = pd.to_datetime(df_last_year_qty[date_col]).dt.strftime('%b')
                                         else:
-                                            df_last_year_qty['Month'] = df_last_year_qty[date_col].str.strip().str[:3]
+                                            # Handle full month names (like "April") properly
+                                            month_str = df_last_year_qty[date_col].astype(str).str.strip().str.title()
+                                            try:
+                                                # Try to parse as datetime if it's in month name format
+                                                df_last_year_qty['Month'] = pd.to_datetime(month_str, format='%B').dt.strftime('%b')
+                                            except ValueError:
+                                                # Fall back to first 3 characters if not a full month name
+                                                df_last_year_qty['Month'] = month_str.str[:3]
                                         
                                         last_year_agg = df_last_year_qty.groupby(['Product Group', 'Month'])['Actual Quantity'].sum().reset_index()
                                         last_year_agg.columns = ['PRODUCT NAME', 'Month', 'LY_Actual']
@@ -3392,10 +3702,18 @@ with tab5:
                                         df_last_year_val = df_last_year.copy()
                                         df_last_year_val[amount_col] = pd.to_numeric(df_last_year_val[amount_col], errors='coerce')
                                         
+                                        # Improved month handling logic for last year value data
                                         if pd.api.types.is_datetime64_any_dtype(df_last_year_val[date_col]):
                                             df_last_year_val['Month'] = pd.to_datetime(df_last_year_val[date_col]).dt.strftime('%b')
                                         else:
-                                            df_last_year_val['Month'] = df_last_year_val[date_col].str.strip().str[:3]
+                                            # Handle full month names (like "April") properly
+                                            month_str = df_last_year_val[date_col].astype(str).str.strip().str.title()
+                                            try:
+                                                # Try to parse as datetime if it's in month name format
+                                                df_last_year_val['Month'] = pd.to_datetime(month_str, format='%B').dt.strftime('%b')
+                                            except ValueError:
+                                                # Fall back to first 3 characters if not a full month name
+                                                df_last_year_val['Month'] = month_str.str[:3]
                                         
                                         last_year_value_agg = df_last_year_val.groupby(['Product Group', 'Month'])['Amount'].sum().reset_index()
                                         last_year_value_agg.columns = ['PRODUCT NAME', 'Month', 'LY_Actual']
@@ -3530,10 +3848,18 @@ with tab5:
                                         if not df_sales.empty:
                                             df_sales['Actual Quantity'] = pd.to_numeric(df_sales[qty_col], errors='coerce')
                                             
+                                            # Improved month handling logic for current year sales data
                                             if pd.api.types.is_datetime64_any_dtype(df_sales[date_col]):
                                                 df_sales['Month'] = pd.to_datetime(df_sales[date_col]).dt.strftime('%b')
                                             else:
-                                                df_sales['Month'] = df_sales[date_col].astype(str).str.strip().str[:3]
+                                                # Handle full month names (like "April") properly
+                                                month_str = df_sales[date_col].astype(str).str.strip().str.title()
+                                                try:
+                                                    # Try to parse as datetime if it's in month name format
+                                                    df_sales['Month'] = pd.to_datetime(month_str, format='%B').dt.strftime('%b')
+                                                except ValueError:
+                                                    # Fall back to first 3 characters if not a full month name
+                                                    df_sales['Month'] = month_str.str[:3]
                                             
                                             df_sales = df_sales.dropna(subset=['Actual Quantity', 'Month'])
                                             df_sales = df_sales[df_sales['Actual Quantity'] != 0]
@@ -3731,10 +4057,18 @@ with tab5:
                                         if not df_sales.empty:
                                             df_sales[value_col] = pd.to_numeric(df_sales[value_col], errors='coerce')
                                             
+                                            # Improved month handling logic for current year sales value data
                                             if pd.api.types.is_datetime64_any_dtype(df_sales[date_col]):
                                                 df_sales['Month'] = pd.to_datetime(df_sales[date_col]).dt.strftime('%b')
                                             else:
-                                                df_sales['Month'] = df_sales[date_col].astype(str).str.strip().str[:3]
+                                                # Handle full month names (like "April") properly
+                                                month_str = df_sales[date_col].astype(str).str.strip().str.title()
+                                                try:
+                                                    # Try to parse as datetime if it's in month name format
+                                                    df_sales['Month'] = pd.to_datetime(month_str, format='%B').dt.strftime('%b')
+                                                except ValueError:
+                                                    # Fall back to first 3 characters if not a full month name
+                                                    df_sales['Month'] = month_str.str[:3]
                                             
                                             df_sales = df_sales.dropna(subset=[value_col, 'Month'])
                                             df_sales = df_sales[df_sales[value_col] != 0]
@@ -4197,9 +4531,6 @@ with tab5:
     else:
         st.info("Please upload Sales and Budget files and select a sales sheet.")
 
-
-
-
 with tab6:
     st.header("📊 ERO-PW Data Analysis (WEST)")
     
@@ -4307,10 +4638,18 @@ with tab6:
                                         df_last_year_qty = df_last_year.copy()
                                         df_last_year_qty['Actual Quantity'] = pd.to_numeric(df_last_year_qty[qty_col], errors='coerce')
                                         
+                                        # Improved month handling logic for last year quantity data
                                         if pd.api.types.is_datetime64_any_dtype(df_last_year_qty[date_col]):
                                             df_last_year_qty['Month'] = pd.to_datetime(df_last_year_qty[date_col]).dt.strftime('%b')
                                         else:
-                                            df_last_year_qty['Month'] = df_last_year_qty[date_col].str.strip().str[:3]
+                                            # Handle full month names (like "April") properly
+                                            month_str = df_last_year_qty[date_col].astype(str).str.strip().str.title()
+                                            try:
+                                                # Try to parse as datetime if it's in month name format
+                                                df_last_year_qty['Month'] = pd.to_datetime(month_str, format='%B').dt.strftime('%b')
+                                            except ValueError:
+                                                # Fall back to first 3 characters if not a full month name
+                                                df_last_year_qty['Month'] = month_str.str[:3]
                                         
                                         last_year_agg = df_last_year_qty.groupby(['Product Group', 'Month'])['Actual Quantity'].sum().reset_index()
                                         last_year_agg.columns = ['PRODUCT NAME', 'Month', 'LY_Actual']
@@ -4336,10 +4675,18 @@ with tab6:
                                         df_last_year_val = df_last_year.copy()
                                         df_last_year_val[amount_col] = pd.to_numeric(df_last_year_val[amount_col], errors='coerce')
                                         
+                                        # Improved month handling logic for last year value data
                                         if pd.api.types.is_datetime64_any_dtype(df_last_year_val[date_col]):
                                             df_last_year_val['Month'] = pd.to_datetime(df_last_year_val[date_col]).dt.strftime('%b')
                                         else:
-                                            df_last_year_val['Month'] = df_last_year_val[date_col].str.strip().str[:3]
+                                            # Handle full month names (like "April") properly
+                                            month_str = df_last_year_val[date_col].astype(str).str.strip().str.title()
+                                            try:
+                                                # Try to parse as datetime if it's in month name format
+                                                df_last_year_val['Month'] = pd.to_datetime(month_str, format='%B').dt.strftime('%b')
+                                            except ValueError:
+                                                # Fall back to first 3 characters if not a full month name
+                                                df_last_year_val['Month'] = month_str.str[:3]
                                         
                                         last_year_value_agg = df_last_year_val.groupby(['Product Group', 'Month'])['Amount'].sum().reset_index()
                                         last_year_value_agg.columns = ['PRODUCT NAME', 'Month', 'LY_Actual']
@@ -4468,10 +4815,18 @@ with tab6:
                                         if not df_sales.empty:
                                             df_sales['Actual Quantity'] = pd.to_numeric(df_sales[qty_col], errors='coerce')
                                             
+                                            # Improved month handling logic for current year sales data
                                             if pd.api.types.is_datetime64_any_dtype(df_sales[date_col]):
                                                 df_sales['Month'] = pd.to_datetime(df_sales[date_col]).dt.strftime('%b')
                                             else:
-                                                df_sales['Month'] = df_sales[date_col].astype(str).str.strip().str[:3]
+                                                # Handle full month names (like "April") properly
+                                                month_str = df_sales[date_col].astype(str).str.strip().str.title()
+                                                try:
+                                                    # Try to parse as datetime if it's in month name format
+                                                    df_sales['Month'] = pd.to_datetime(month_str, format='%B').dt.strftime('%b')
+                                                except ValueError:
+                                                    # Fall back to first 3 characters if not a full month name
+                                                    df_sales['Month'] = month_str.str[:3]
                                             
                                             df_sales = df_sales.dropna(subset=['Actual Quantity', 'Month'])
                                             df_sales = df_sales[df_sales['Actual Quantity'] != 0]
@@ -4670,10 +5025,18 @@ with tab6:
                                         if not df_sales.empty:
                                             df_sales[value_col] = pd.to_numeric(df_sales[value_col], errors='coerce')
                                             
+                                            # Improved month handling logic for current year sales value data
                                             if pd.api.types.is_datetime64_any_dtype(df_sales[date_col]):
                                                 df_sales['Month'] = pd.to_datetime(df_sales[date_col]).dt.strftime('%b')
                                             else:
-                                                df_sales['Month'] = df_sales[date_col].astype(str).str.strip().str[:3]
+                                                # Handle full month names (like "April") properly
+                                                month_str = df_sales[date_col].astype(str).str.strip().str.title()
+                                                try:
+                                                    # Try to parse as datetime if it's in month name format
+                                                    df_sales['Month'] = pd.to_datetime(month_str, format='%B').dt.strftime('%b')
+                                                except ValueError:
+                                                    # Fall back to first 3 characters if not a full month name
+                                                    df_sales['Month'] = month_str.str[:3]
                                             
                                             df_sales = df_sales.dropna(subset=[value_col, 'Month'])
                                             df_sales = df_sales[df_sales[value_col] != 0]
@@ -5141,11 +5504,6 @@ with tab6:
     else:
         st.warning("Please ensure all required files are uploaded and sheets are selected.")
 
-import streamlit as st
-import pandas as pd
-import re
-import numpy as np
-from io import BytesIO
 
 with tab7:
     st.header("📊 Sales Analysis Month-wise")
@@ -5747,6 +6105,8 @@ with tab8:
                 accllp_format = workbook.add_format({
                     'bold': True, 'num_format': '#,##0.00', 'bg_color': '#90EE90', 'border': 1
                 })
+                # ADDED: Empty organization format for blank organization name rows
+                empty_org_format = workbook.add_format({'border': 1, 'valign': 'vcenter'})
                 
                 def clean_dataframe_for_excel(df):
                     """Clean DataFrame to remove NaN, INF values and ensure proper formatting"""
@@ -5766,9 +6126,19 @@ with tab8:
                     
                     return df_clean
                 
+                def is_organization_name_header_row(row_data, first_col_name):
+                    """Check if this is the ORGANIZATION NAME header row that should have empty data columns"""
+                    first_col_val = str(row_data.iloc[0]).strip().upper()
+                    
+                    # Check if this is the ORGANIZATION NAME header row
+                    if first_col_val == 'ORGANIZATION NAME':
+                        return True
+                    
+                    return False
+                
                 sheets_created = 0
                 
-                # Sheet 1: Sales Analysis Month wise
+                # Sheet 1: Sales Analysis Month wise - WITH EMPTY ORGANIZATION NAME HANDLING
                 if (st.session_state.merged_data_storage['sales_analysis_mt'] is not None or 
                     st.session_state.merged_data_storage['sales_analysis_value'] is not None):
                     
@@ -5790,13 +6160,30 @@ with tab8:
                         
                         for row_idx in range(len(mt_data)):
                             excel_row = start_row + 1 + row_idx
-                            first_col_val = str(mt_data.iloc[row_idx, 0]).strip().upper()
+                            row_data = mt_data.iloc[row_idx]
+                            first_col_val = str(row_data.iloc[0]).strip().upper()
+                            
+                            # Check if this is the ORGANIZATION NAME header row
+                            is_org_header = is_organization_name_header_row(row_data, mt_data.columns[0])
+                            
+                            # Check if this is a special row
                             is_special = (first_col_val in ['ACCLLP', 'TOTAL SALES', 'GRAND TOTAL', 'TOTALSALES'] 
                                         or 'TOTAL' in first_col_val)
                             
                             for col_idx in range(len(mt_data.columns)):
                                 value = mt_data.iloc[row_idx, col_idx]
                                 
+                                # Handle ORGANIZATION NAME header row specially
+                                if is_org_header:
+                                    if col_idx == 0:
+                                        # Keep "ORGANIZATION NAME" in first column
+                                        worksheet.write(excel_row, col_idx, 'ORGANIZATION NAME', text_format)
+                                    else:
+                                        # Make all other columns empty for this row
+                                        worksheet.write(excel_row, col_idx, '', empty_org_format)
+                                    continue
+                                
+                                # Normal value processing for other rows
                                 if pd.isna(value) or value == '' or str(value).lower() in ['nan', 'inf', '-inf']:
                                     safe_value = 0 if col_idx > 0 else ''
                                 else:
@@ -5810,10 +6197,12 @@ with tab8:
                                     except (ValueError, TypeError, OverflowError):
                                         safe_value = 0 if col_idx > 0 else str(value)
                                 
+                                # Choose format based on row type
                                 if col_idx == 0:
                                     fmt = total_format if is_special else text_format
                                 else:
                                     fmt = accllp_format if first_col_val == 'ACCLLP' else (total_format if is_special else num_format)
+                                
                                 worksheet.write(excel_row, col_idx, safe_value, fmt)
                         
                         start_row += len(mt_data) + 3
@@ -5833,13 +6222,30 @@ with tab8:
                         
                         for row_idx in range(len(value_data)):
                             excel_row = start_row + 1 + row_idx
-                            first_col_val = str(value_data.iloc[row_idx, 0]).strip().upper()
+                            row_data = value_data.iloc[row_idx]
+                            first_col_val = str(row_data.iloc[0]).strip().upper()
+                            
+                            # Check if this is the ORGANIZATION NAME header row
+                            is_org_header = is_organization_name_header_row(row_data, value_data.columns[0])
+                            
+                            # Check if this is a special row
                             is_special = (first_col_val in ['ACCLLP', 'TOTAL SALES', 'GRAND TOTAL', 'TOTALSALES'] 
                                         or 'TOTAL' in first_col_val)
                             
                             for col_idx in range(len(value_data.columns)):
                                 value = value_data.iloc[row_idx, col_idx]
                                 
+                                # Handle ORGANIZATION NAME header row specially
+                                if is_org_header:
+                                    if col_idx == 0:
+                                        # Keep "ORGANIZATION NAME" in first column
+                                        worksheet.write(excel_row, col_idx, 'ORGANIZATION NAME', text_format)
+                                    else:
+                                        # Make all other columns empty for this row
+                                        worksheet.write(excel_row, col_idx, '', empty_org_format)
+                                    continue
+                                
+                                # Normal value processing for other rows
                                 if pd.isna(value) or value == '' or str(value).lower() in ['nan', 'inf', '-inf']:
                                     safe_value = 0 if col_idx > 0 else ''
                                 else:
@@ -5853,15 +6259,17 @@ with tab8:
                                     except (ValueError, TypeError, OverflowError):
                                         safe_value = 0 if col_idx > 0 else str(value)
                                 
+                                # Choose format based on row type
                                 if col_idx == 0:
                                     fmt = total_format if is_special else text_format
                                 else:
                                     fmt = accllp_format if first_col_val == 'ACCLLP' else (total_format if is_special else num_format)
+                                
                                 worksheet.write(excel_row, col_idx, safe_value, fmt)
                     
                     sheets_created += 1
                 
-                # Sheet 2: Region wise analysis
+                # Sheet 2: Region wise analysis (unchanged)
                 if (st.session_state.merged_data_storage['region_mt'] is not None or 
                     st.session_state.merged_data_storage['region_value'] is not None):
                     
@@ -5948,7 +6356,7 @@ with tab8:
                     
                     sheets_created += 1
                 
-                # Sheet 3: Product wise analysis
+                # Sheet 3: Product wise analysis (unchanged)
                 if (st.session_state.merged_data_storage['product_mt'] is not None or 
                     st.session_state.merged_data_storage['product_value'] is not None):
                     
@@ -6033,7 +6441,7 @@ with tab8:
                     
                     sheets_created += 1
                 
-                # Sheet 4: TS-PW
+                # Sheet 4: TS-PW (unchanged)
                 if (st.session_state.merged_data_storage['ts_pw_mt'] is not None or 
                     st.session_state.merged_data_storage['ts_pw_value'] is not None):
                     
@@ -6118,7 +6526,7 @@ with tab8:
                     
                     sheets_created += 1
                 
-                # Sheet 5: ERO-PW
+                # Sheet 5: ERO-PW (unchanged)
                 if (st.session_state.merged_data_storage['ero_pw_mt'] is not None or 
                     st.session_state.merged_data_storage['ero_pw_value'] is not None):
                     
@@ -6314,11 +6722,11 @@ with tab8:
                     
                     if st.session_state.merged_data_storage['sales_analysis_mt'] is not None:
                         mt_rows = len(st.session_state.merged_data_storage['sales_analysis_mt'])
-                        sheet_contents.append(f"- Sales Analysis MT: {mt_rows} rows")
+                        sheet_contents.append(f"- Sales Analysis MT: {mt_rows} rows (with ORGANIZATION NAME header row having empty data columns)")
                     
                     if st.session_state.merged_data_storage['sales_analysis_value'] is not None:
                         value_rows = len(st.session_state.merged_data_storage['sales_analysis_value'])
-                        sheet_contents.append(f"- Sales Analysis Value: {value_rows} rows")
+                        sheet_contents.append(f"- Sales Analysis Value: {value_rows} rows (with ORGANIZATION NAME header row having empty data columns)")
                     
                     if st.session_state.merged_data_storage['region_mt'] is not None:
                         region_mt_rows = len(st.session_state.merged_data_storage['region_mt'])
@@ -6364,9 +6772,6 @@ with tab8:
                         key="combined_excel_download",
                         use_container_width=True
                     )
-                    
-            
-                
                 else:
                     st.error("❌ Failed to create Excel file. Please check if merged data is available.")
     
