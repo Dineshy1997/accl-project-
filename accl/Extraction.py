@@ -5845,10 +5845,10 @@ with tab7:
                     for col in table2.columns[1:]:
                         table2[col] = pd.to_numeric(table2[col], errors='coerce').fillna(0).astype(float)
                 
-                # Function to add ACCLLP row with totals from Tab3 and Tab4
+                # Function to add ACCLLP row with totals from Tab4 (Product Sheet) only
                 def add_accllp_row_with_totals(table, table_type):
                     """
-                    Add ACCLLP row to table with combined totals from Tab3 and Tab4
+                    Add ACCLLP row to table with totals from Tab4 (Product Sheet) only
                     Also add TOTAL SALES row with same values
                     table_type: 'MT' or 'Value'
                     """
@@ -5867,68 +5867,7 @@ with tab7:
                     total_sales_row = {col: 0.0 for col in updated_table.columns}
                     total_sales_row[first_col] = 'TOTAL SALES'
                     
-                    # Get Tab3 totals (GRAND TOTAL row)
-                    tab3_totals = {}
-                    
-                    if table_type == 'MT':
-                        possible_keys = ['merged_region_mt_data', 'region_analysis_data', 'region_mt_data']
-                        tab3_data = None
-                        for key in possible_keys:
-                            if st.session_state.get(key) is not None:
-                                tab3_data = st.session_state[key]
-                                break
-                        
-                        if tab3_data is not None:
-                            id_col_variations = ['SALES in MT', 'REGIONS', 'SALES in Tonage']
-                            id_col = None
-                            for col_var in id_col_variations:
-                                if col_var in tab3_data.columns:
-                                    id_col = col_var
-                                    break
-                            
-                            if id_col:
-                                grand_total_rows = tab3_data[tab3_data[id_col].astype(str).str.upper() == 'GRAND TOTAL']
-                                if not grand_total_rows.empty:
-                                    grand_total_row = grand_total_rows.iloc[0]
-                                    for col in tab3_data.columns:
-                                        if col != id_col and col in updated_table.columns:
-                                            try:
-                                                value = pd.to_numeric(grand_total_row[col], errors='coerce')
-                                                if pd.notna(value):
-                                                    tab3_totals[col] = value
-                                            except:
-                                                pass
-                    
-                    elif table_type == 'Value':
-                        possible_keys = ['merged_region_value_data', 'region_value_data']
-                        tab3_data = None
-                        for key in possible_keys:
-                            if st.session_state.get(key) is not None:
-                                tab3_data = st.session_state[key]
-                                break
-                        
-                        if tab3_data is not None:
-                            id_col_variations = ['SALES in Value', 'REGIONS']
-                            id_col = None
-                            for col_var in id_col_variations:
-                                if col_var in tab3_data.columns:
-                                    id_col = col_var
-                                    break
-                            
-                            if id_col:
-                                grand_total_rows = tab3_data[tab3_data[id_col].astype(str).str.upper() == 'GRAND TOTAL']
-                                if not grand_total_rows.empty:
-                                    grand_total_row = grand_total_rows.iloc[0]
-                                    for col in tab3_data.columns:
-                                        if col != id_col and col in updated_table.columns:
-                                            try:
-                                                value = pd.to_numeric(grand_total_row[col], errors='coerce')
-                                                if pd.notna(value):
-                                                    tab3_totals[col] = value
-                                            except:
-                                                pass
-                    
-                    # Get Tab4 totals (TOTAL SALES row)
+                    # Get Tab4 totals (TOTAL SALES row) only - Remove Tab3 region sheet totals
                     tab4_totals = {}
                     
                     if table_type == 'MT':
@@ -5989,18 +5928,15 @@ with tab7:
                                             except:
                                                 pass
                     
-                    # Combine totals from Tab3 and Tab4 and update both ACCLLP and TOTAL SALES rows
-                    all_cols = set(tab3_totals.keys()) | set(tab4_totals.keys())
-                    for col in all_cols:
+                    # Use only Tab4 totals (Product Sheet TOTAL SALES) for both ACCLLP and TOTAL SALES rows
+                    for col in tab4_totals.keys():
                         if col in updated_table.columns:
-                            tab3_val = tab3_totals.get(col, 0)
                             tab4_val = tab4_totals.get(col, 0)
-                            combined_val = tab3_val + tab4_val
-                            if pd.isna(combined_val) or np.isinf(combined_val):
-                                combined_val = 0.0
-                            combined_rounded = round(combined_val, 2)
-                            accllp_row[col] = combined_rounded
-                            total_sales_row[col] = combined_rounded
+                            if pd.isna(tab4_val) or np.isinf(tab4_val):
+                                tab4_val = 0.0
+                            rounded_val = round(tab4_val, 2)
+                            accllp_row[col] = rounded_val
+                            total_sales_row[col] = rounded_val
                     
                     # Remove existing ACCLLP or TOTAL SALES rows if they exist
                     updated_table = updated_table[
@@ -6082,10 +6018,7 @@ with tab7:
                 else:
                     st.error("❌ SALES in Value table not found or empty")
                 
-                # Check what data was available for combination
-                tab3_available = any(key in st.session_state for key in [
-                    'merged_region_mt_data', 'merged_region_value_data', 'region_analysis_data', 'region_value_data'
-                ])
+                # Check what data was available for combination (now only Tab4)
                 tab4_available = any(key in st.session_state for key in [
                     'merged_product_mt_data', 'merged_product_value_data', 'product_mt_data', 'product_value_data'
                 ])
@@ -6189,9 +6122,9 @@ with tab7:
                         output.seek(0)
                         excel_data = output.getvalue()
                         st.download_button(
-                            label="⬇️ Download Sales Analysis with ACCLLP Totals",
+                            label="⬇️ Download Sales Analysis with ACCLLP Totals (Product Sheet Only)",
                             data=excel_data,
-                            file_name="sales_analysis_monthly_with_accllp_totals.xlsx",
+                            file_name="sales_analysis_monthly_with_accllp_product_totals.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             key="sales_analysis_download_accllp_tab7"
                         )
@@ -6205,7 +6138,6 @@ with tab7:
             st.error(f"Error processing Sales Analysis Month Wise sheet: {str(e)}")
     else:
         st.info("ℹ️ Please upload the Auditor file first")
-
 with tab8:
     st.header("📊 Combined Excel Data Export")
     st.write("This tab combines all merged data from different analysis tabs into a single Excel file with multiple sheets.")
