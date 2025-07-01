@@ -203,144 +203,22 @@ def create_consolidated_ppt(dfs_info, logo_file=None, title="Consolidated Report
         st.error(f"Error creating consolidated PPT: {e}")
         return None
 
-# First, add this debug function to help identify data matching issues
-def calculate_budget_values(sales_df, budget_df, selected_month, 
+def calculate_budget_values(sales_df, budget_df, selected_month, sales_executives,
                            sales_date_col, sales_area_col, sales_value_col, sales_qty_col,
                            sales_product_group_col, sales_sl_code_col, sales_exec_col,
                            budget_area_col, budget_value_col, budget_qty_col,
-                           budget_product_group_col, budget_sl_code_col, budget_exec_col):
-    """
-    Debug function to identify why billed quantities are zero
-    """
-    print("=== BUDGET CALCULATION DEBUG START ===")
-    
-    # Check raw data
-    print(f"Raw sales data shape: {sales_df.shape}")
-    print(f"Raw budget data shape: {budget_df.shape}")
-    
-    # Check date processing
-    sales_df_debug = sales_df.copy()
-    sales_df_debug[sales_date_col] = pd.to_datetime(sales_df_debug[sales_date_col], dayfirst=True, errors='coerce')
-    
-    print(f"\nDate column processing:")
-    print(f"Valid dates in sales: {sales_df_debug[sales_date_col].notna().sum()}/{len(sales_df_debug)}")
-    
-    # Check month filtering
-    sales_df_debug['month_year'] = sales_df_debug[sales_date_col].dt.strftime('%b %y')
-    available_months = sorted(sales_df_debug['month_year'].dropna().unique())
-    print(f"Available months: {available_months}")
-    print(f"Selected month: '{selected_month}'")
-    print(f"Month exists in data: {selected_month in available_months}")
-    
-    filtered_sales = sales_df_debug[sales_df_debug['month_year'] == selected_month]
-    print(f"Sales records after month filter: {len(filtered_sales)}")
-    
-    if filtered_sales.empty:
-        print("❌ CRITICAL: No sales data for selected month!")
-        return
-    
-    # Check executive standardization
-    print(f"\n=== EXECUTIVE ANALYSIS ===")
-    filtered_sales[sales_exec_col] = filtered_sales[sales_exec_col].apply(extract_executive_name)
-    budget_df_debug = budget_df.copy()
-    budget_df_debug[budget_exec_col] = budget_df_debug[budget_exec_col].apply(extract_executive_name)
-    
-    sales_executives = set(filtered_sales[sales_exec_col].unique())
-    budget_executives = set(budget_df_debug[budget_exec_col].unique())
-    common_executives = sales_executives.intersection(budget_executives)
-    
-    print(f"Sales executives: {sorted(list(sales_executives))}")
-    print(f"Budget executives: {sorted(list(budget_executives))}")
-    print(f"Common executives: {sorted(list(common_executives))}")
-    
-    if not common_executives:
-        print("❌ CRITICAL: No common executives!")
-        return
-    
-    # Check SL Code and Product matching for a sample executive
-    if common_executives:
-        sample_exec = list(common_executives)[0]
-        print(f"\n=== DETAILED ANALYSIS FOR {sample_exec} ===")
-        
-        exec_sales = filtered_sales[filtered_sales[sales_exec_col] == sample_exec]
-        exec_budget = budget_df_debug[budget_df_debug[budget_exec_col] == sample_exec]
-        
-        print(f"Sales records for {sample_exec}: {len(exec_sales)}")
-        print(f"Budget records for {sample_exec}: {len(exec_budget)}")
-        
-        if not exec_sales.empty and not exec_budget.empty:
-            # Standardize SL codes
-            exec_sales[sales_sl_code_col] = exec_sales[sales_sl_code_col].astype(str).str.strip().str.upper()
-            exec_budget[budget_sl_code_col] = exec_budget[budget_sl_code_col].astype(str).str.strip().str.upper()
-            
-            sales_sl_codes = set(exec_sales[sales_sl_code_col].unique())
-            budget_sl_codes = set(exec_budget[budget_sl_code_col].unique())
-            common_sl_codes = sales_sl_codes.intersection(budget_sl_codes)
-            
-            print(f"Sales SL codes: {sorted(list(sales_sl_codes))}")
-            print(f"Budget SL codes: {sorted(list(budget_sl_codes))}")
-            print(f"Common SL codes: {sorted(list(common_sl_codes))}")
-            
-            if common_sl_codes:
-                sample_sl = list(common_sl_codes)[0]
-                print(f"\n--- Testing SL Code: {sample_sl} ---")
-                
-                sl_sales = exec_sales[exec_sales[sales_sl_code_col] == sample_sl]
-                sl_budget = exec_budget[exec_budget[budget_sl_code_col] == sample_sl]
-                
-                # Standardize products
-                sl_sales[sales_product_group_col] = sl_sales[sales_product_group_col].astype(str).str.strip().str.upper()
-                sl_budget[budget_product_group_col] = sl_budget[budget_product_group_col].astype(str).str.strip().str.upper()
-                
-                sales_products = set(sl_sales[sales_product_group_col].unique())
-                budget_products = set(sl_budget[budget_product_group_col].unique())
-                common_products = sales_products.intersection(budget_products)
-                
-                print(f"Sales products: {sorted(list(sales_products))}")
-                print(f"Budget products: {sorted(list(budget_products))}")
-                print(f"Common products: {sorted(list(common_products))}")
-                
-                if common_products:
-                    sample_product = list(common_products)[0]
-                    final_sales = sl_sales[sl_sales[sales_product_group_col] == sample_product]
-                    final_budget = sl_budget[sl_budget[budget_product_group_col] == sample_product]
-                    
-                    if not final_sales.empty and not final_budget.empty:
-                        sales_qty = final_sales[sales_qty_col].sum()
-                        budget_qty = final_budget[budget_qty_col].sum()
-                        print(f"✅ MATCH FOUND!")
-                        print(f"   Executive: {sample_exec}")
-                        print(f"   SL Code: {sample_sl}")
-                        print(f"   Product: {sample_product}")
-                        print(f"   Sales Qty: {sales_qty}")
-                        print(f"   Budget Qty: {budget_qty}")
-                    else:
-                        print("❌ No final match found")
-                else:
-                    print("❌ No common products")
-            else:
-                print("❌ No common SL codes")
-    
-    print("=== BUDGET CALCULATION DEBUG END ===")
-
-# Now the fixed calculate_budget_values function
-def calculate_budget_values_fixed(sales_df, budget_df, selected_month, sales_executives,
-                                 sales_date_col, sales_area_col, sales_value_col, sales_qty_col,
-                                 sales_product_group_col, sales_sl_code_col, sales_exec_col,
-                                 budget_area_col, budget_value_col, budget_qty_col,
-                                 budget_product_group_col, budget_sl_code_col, budget_exec_col,
-                                 selected_branches=None):
+                           budget_product_group_col, budget_sl_code_col, budget_exec_col,
+                           selected_branches=None):  # Added selected_branches parameter
     try:
-        print("=== STARTING FIXED BUDGET CALCULATION ===")
-        
+        # Create copies to avoid modifying original DataFrames
         sales_df = sales_df.copy()
         budget_df = budget_df.copy()
-        
-        # Check required columns
+
+        # Validate column existence
         required_sales_cols = [sales_date_col, sales_value_col, sales_qty_col, sales_exec_col,
-                              sales_product_group_col, sales_sl_code_col, sales_area_col]
+                              sales_product_group_col, sales_sl_code_col, sales_area_col]  # Added sales_area_col
         required_budget_cols = [budget_value_col, budget_qty_col, budget_exec_col,
-                               budget_product_group_col, budget_sl_code_col, budget_area_col]
+                               budget_product_group_col, budget_sl_code_col, budget_area_col]  # Added budget_area_col
         
         missing_sales_cols = [col for col in required_sales_cols if col not in sales_df.columns]
         missing_budget_cols = [col for col in required_budget_cols if col not in budget_df.columns]
@@ -351,100 +229,67 @@ def calculate_budget_values_fixed(sales_df, budget_df, selected_month, sales_exe
         if missing_budget_cols:
             st.error(f"Missing columns in budget data: {missing_budget_cols}")
             return None, None, None, None
-        
-        # Data preprocessing
-        print("Converting data types...")
+
+        # Convert date and numeric columns
         sales_df[sales_date_col] = pd.to_datetime(sales_df[sales_date_col], dayfirst=True, errors='coerce')
         sales_df[sales_value_col] = pd.to_numeric(sales_df[sales_value_col], errors='coerce').fillna(0)
         sales_df[sales_qty_col] = pd.to_numeric(sales_df[sales_qty_col], errors='coerce').fillna(0)
         budget_df[budget_value_col] = pd.to_numeric(budget_df[budget_value_col], errors='coerce').fillna(0)
         budget_df[budget_qty_col] = pd.to_numeric(budget_df[budget_qty_col], errors='coerce').fillna(0)
-        
-        # Filter sales data by month
-        print(f"Filtering by month: {selected_month}")
-        sales_df['month_year'] = sales_df[sales_date_col].dt.strftime('%b %y')
-        available_months = sorted(sales_df['month_year'].dropna().unique())
-        print(f"Available months: {available_months}")
-        
-        filtered_sales_df = sales_df[sales_df['month_year'] == selected_month].copy()
-        print(f"Sales records after month filter: {len(filtered_sales_df)}")
-        
+
+        # Filter sales data for the selected month
+        filtered_sales_df = sales_df[sales_df[sales_date_col].dt.strftime('%b %y') == selected_month].copy()
         if filtered_sales_df.empty:
             st.error(f"No sales data found for {selected_month}")
             return None, None, None, None
+
+        # Standardize branch and executive names
+        filtered_sales_df[sales_area_col] = filtered_sales_df[sales_area_col].astype(str).str.strip().str.upper()
+        filtered_sales_df[sales_exec_col] = filtered_sales_df[sales_exec_col].astype(str).str.strip().str.upper()
+        budget_df[budget_area_col] = budget_df[budget_area_col].astype(str).str.strip().str.upper()
+        budget_df[budget_exec_col] = budget_df[budget_exec_col].astype(str).str.strip().str.upper()
         
-        # CRITICAL FIX: Standardize all text fields CONSISTENTLY
-        print("Standardizing text fields...")
-        
-        # Executive names - use consistent standardization
-        filtered_sales_df[sales_exec_col] = filtered_sales_df[sales_exec_col].apply(extract_executive_name)
-        budget_df[budget_exec_col] = budget_df[budget_exec_col].apply(extract_executive_name)
-        
-        # SL Codes - consistent uppercase and strip
-        filtered_sales_df[sales_sl_code_col] = filtered_sales_df[sales_sl_code_col].astype(str).str.strip().str.upper()
-        budget_df[budget_sl_code_col] = budget_df[budget_sl_code_col].astype(str).str.strip().str.upper()
-        
-        # Product Groups - consistent uppercase and strip
-        filtered_sales_df[sales_product_group_col] = filtered_sales_df[sales_product_group_col].astype(str).str.strip().str.upper()
-        budget_df[budget_product_group_col] = budget_df[budget_product_group_col].astype(str).str.strip().str.upper()
-        
-        # Area filtering if needed
+        # Apply branch filter if provided
         if selected_branches:
-            print(f"Applying branch filter: {selected_branches}")
-            filtered_sales_df[sales_area_col] = filtered_sales_df[sales_area_col].apply(extract_area_name).astype(str).str.strip().str.upper()
-            budget_df[budget_area_col] = budget_df[budget_area_col].apply(extract_area_name).astype(str).str.strip().str.upper()
-            
-            selected_branches_upper = [b.upper() for b in selected_branches]
-            filtered_sales_df = filtered_sales_df[filtered_sales_df[sales_area_col].isin(selected_branches_upper)]
-            budget_df = budget_df[budget_df[budget_area_col].isin(selected_branches_upper)]
-            print(f"Records after branch filter - Sales: {len(filtered_sales_df)}, Budget: {len(budget_df)}")
+            filtered_sales_df = filtered_sales_df[filtered_sales_df[sales_area_col].isin([b.upper() for b in selected_branches])]
+            budget_df = budget_df[budget_df[budget_area_col].isin([b.upper() for b in selected_branches])]
+            if filtered_sales_df.empty or budget_df.empty:
+                st.error(f"No data found for selected branches: {', '.join(selected_branches)}")
+                return None, None, None, None
+
+        # Determine executives to display
+        if selected_branches and len(selected_branches) == 1:
+            # If exactly one branch is selected, get executives associated with that branch
+            branch = selected_branches[0].upper()
+            branch_sales_df = filtered_sales_df[filtered_sales_df[sales_area_col] == branch]
+            branch_budget_df = budget_df[budget_df[budget_area_col] == branch]
+            executives_to_display = sorted(set(branch_sales_df[sales_exec_col].dropna().unique()) | 
+                                        set(branch_budget_df[budget_exec_col].dropna().unique()))
+        else:
+            # Otherwise, use provided sales_executives or all executives in filtered data
+            executives_to_display = [str(exec).strip().upper() for exec in sales_executives] if sales_executives else \
+                                    sorted(set(filtered_sales_df[sales_exec_col].dropna().unique()) | 
+                                          set(budget_df[budget_exec_col].dropna().unique()))
+
+        # Filter by selected executives
+        filtered_sales_df = filtered_sales_df[filtered_sales_df[sales_exec_col].isin(executives_to_display)].copy()
+        budget_filtered = budget_df[budget_df[budget_exec_col].isin(executives_to_display)].copy()
         
-        # Get all executives to display (before executive filtering)
-        all_sales_executives = set(filtered_sales_df[sales_exec_col].dropna().unique())
-        all_budget_executives = set(budget_df[budget_exec_col].dropna().unique())
-        executives_to_display = sorted(all_sales_executives | all_budget_executives)
-        print(f"All executives to display: {executives_to_display}")
-        
-        # Executive filtering
-        if sales_executives:
-            print(f"Applying executive filter: {sales_executives}")
-            sales_executives_upper = [str(e).strip().upper() for e in sales_executives]
-            filtered_sales_df = filtered_sales_df[filtered_sales_df[sales_exec_col].isin(sales_executives_upper)]
-            budget_df = budget_df[budget_df[budget_exec_col].isin(sales_executives_upper)]
-            print(f"Records after executive filter - Sales: {len(filtered_sales_df)}, Budget: {len(budget_df)}")
-            
-            # Update executives to display based on filter
-            executives_to_display = [e for e in executives_to_display if e in sales_executives_upper]
-        
-        # Get valid budget data
-        budget_valid = budget_df[
-            (budget_df[budget_qty_col] > 0) & 
-            (budget_df[budget_value_col] > 0)
-        ].copy()
-        print(f"Valid budget records: {len(budget_valid)}")
-        
-        if budget_valid.empty:
-            st.error("No valid budget data found")
+        if filtered_sales_df.empty or budget_filtered.empty:
+            st.error("No data found for selected executives.")
             return None, None, None, None
+
+        # Standardize SL codes and product groups
+        filtered_sales_df[sales_sl_code_col] = filtered_sales_df[sales_sl_code_col].astype(str).str.strip().str.upper()
+        filtered_sales_df[sales_product_group_col] = filtered_sales_df[sales_product_group_col].astype(str).str.strip().str.upper()
+        budget_filtered[budget_sl_code_col] = budget_filtered[budget_sl_code_col].astype(str).str.strip().str.upper()
+        budget_filtered[budget_product_group_col] = budget_filtered[budget_product_group_col].astype(str).str.strip().str.upper()
+
+        # STEP 1: Process Budget Data
+        print("Processing Budget Data...")
         
-        # DEBUG: Run comprehensive debug
-        print("\n--- RUNNING DEBUG ANALYSIS ---")
-        debug_budget_calculation(
-            sales_df, budget_df, selected_month,
-            sales_date_col, sales_area_col, sales_value_col, sales_qty_col,
-            sales_product_group_col, sales_sl_code_col, sales_exec_col,
-            budget_area_col, budget_value_col, budget_qty_col,
-            budget_product_group_col, budget_sl_code_col, budget_exec_col
-        )
-        print("--- DEBUG ANALYSIS COMPLETE ---\n")
-        
-        # MAIN MATCHING LOGIC - COMPLETELY REWRITTEN
-        print("Starting main matching logic...")
-        final_results = []
-        matches_found = 0
-        
-        # Group budget data first to avoid duplicates
-        budget_grouped = budget_valid.groupby([
+        # Group by Executive + SL Code + Product and sum quantities/values
+        budget_grouped = budget_filtered.groupby([
             budget_exec_col, 
             budget_sl_code_col, 
             budget_product_group_col
@@ -453,37 +298,53 @@ def calculate_budget_values_fixed(sales_df, budget_df, selected_month, sales_exe
             budget_value_col: 'sum'
         }).reset_index()
         
-        print(f"Grouped budget records: {len(budget_grouped)}")
+        # Filter: Only include rows where BOTH qty > 0 AND value > 0
+        budget_valid = budget_grouped[
+            (budget_grouped[budget_qty_col] > 0) & 
+            (budget_grouped[budget_value_col] > 0)
+        ].copy()
         
-        # Process each budget entry
-        for idx, budget_row in budget_grouped.iterrows():
+        if budget_valid.empty:
+            st.error("No valid budget data found (with qty > 0 and value > 0).")
+            return None, None, None, None
+        
+        print(f"Valid budget records: {len(budget_valid)}")
+        
+        # STEP 2: Process Sales Data - Match exactly with budget combinations
+        print("Processing Sales Data...")
+        
+        # Initialize results storage
+        final_results = []
+        
+        # For each valid budget record, find matching sales
+        for _, budget_row in budget_valid.iterrows():
             executive = budget_row[budget_exec_col]
             sl_code = budget_row[budget_sl_code_col]
             product = budget_row[budget_product_group_col]
             budget_qty = budget_row[budget_qty_col]
             budget_value = budget_row[budget_value_col]
             
-            # Find matching sales with exact criteria
+            # Find matching sales records (same executive + sl_code + product)
             matching_sales = filtered_sales_df[
                 (filtered_sales_df[sales_exec_col] == executive) &
                 (filtered_sales_df[sales_sl_code_col] == sl_code) &
                 (filtered_sales_df[sales_product_group_col] == product)
             ]
             
-            # Calculate sales totals
-            sales_qty_total = matching_sales[sales_qty_col].sum() if not matching_sales.empty else 0
-            sales_value_total = matching_sales[sales_value_col].sum() if not matching_sales.empty else 0
-            
-            # The "billed" quantity should be the actual sales quantity (not minimum)
-            # This is the quantity that was actually billed/sold
-            final_qty = sales_qty_total
-            final_value = sales_value_total
-            
+            # Sum all matching sales records for this combination
             if not matching_sales.empty:
-                matches_found += 1
-                if matches_found <= 5:  # Log first 5 matches
-                    print(f"  Match {matches_found}: {executive} | {sl_code} | {product} | Sales Qty: {sales_qty_total}")
+                sales_qty_total = matching_sales[sales_qty_col].sum()
+                sales_value_total = matching_sales[sales_value_col].sum()
+            else:
+                sales_qty_total = 0
+                sales_value_total = 0
             
+            # Apply the comparison logic
+            # If sales > budget, use budget; else use sales
+            final_qty = budget_qty if sales_qty_total > budget_qty else sales_qty_total
+            final_value = budget_value if sales_value_total > budget_value else sales_value_total
+            
+            # Store result
             final_results.append({
                 'Executive': executive,
                 'SL_Code': sl_code,
@@ -496,26 +357,27 @@ def calculate_budget_values_fixed(sales_df, budget_df, selected_month, sales_exe
                 'Final_Value': final_value
             })
         
-        print(f"Total matches found: {matches_found}/{len(budget_grouped)}")
-        
-        if matches_found == 0:
-            st.error("❌ No matches found between sales and budget data! Check data formats and column mappings.")
-            return None, None, None, None
-        
+        # Convert to DataFrame for easier manipulation
         results_df = pd.DataFrame(final_results)
         
-        # Create executive-wise summaries
+        print(f"Processed {len(results_df)} budget-sales combinations")
+        
+        # STEP 3: Aggregate by Executive for final reports
+        
+        # Budget vs Billed Quantity DataFrame
         exec_qty_summary = results_df.groupby('Executive').agg({
             'Budget_Qty': 'sum',
-            'Final_Qty': 'sum'  # This is the actual billed quantity
+            'Final_Qty': 'sum'
         }).reset_index()
         exec_qty_summary.columns = ['Executive', 'Budget Qty', 'Billed Qty']
+        
+        # Calculate achievement percentage for quantity
         exec_qty_summary['%'] = exec_qty_summary.apply(
             lambda row: round((row['Billed Qty'] / row['Budget Qty'] * 100), 2) if row['Budget Qty'] > 0 else 0,
             axis=1
         )
         
-        # Create final budget vs billed quantity DataFrame
+        # Ensure all selected executives are included (even if no data)
         budget_vs_billed_qty_df = pd.DataFrame({'Executive': executives_to_display})
         budget_vs_billed_qty_df = pd.merge(
             budget_vs_billed_qty_df,
@@ -524,17 +386,20 @@ def calculate_budget_values_fixed(sales_df, budget_df, selected_month, sales_exe
             how='left'
         ).fillna({'Budget Qty': 0, 'Billed Qty': 0, '%': 0})
         
-        # Same process for values
+        # Budget vs Billed Value DataFrame
         exec_value_summary = results_df.groupby('Executive').agg({
             'Budget_Value': 'sum',
             'Final_Value': 'sum'
         }).reset_index()
         exec_value_summary.columns = ['Executive', 'Budget Value', 'Billed Value']
+        
+        # Calculate achievement percentage for value
         exec_value_summary['%'] = exec_value_summary.apply(
             lambda row: round((row['Billed Value'] / row['Budget Value'] * 100), 2) if row['Budget Value'] > 0 else 0,
             axis=1
         )
         
+        # Ensure all selected executives are included (even if no data)
         budget_vs_billed_value_df = pd.DataFrame({'Executive': executives_to_display})
         budget_vs_billed_value_df = pd.merge(
             budget_vs_billed_value_df,
@@ -543,20 +408,22 @@ def calculate_budget_values_fixed(sales_df, budget_df, selected_month, sales_exe
             how='left'
         ).fillna({'Budget Value': 0, 'Billed Value': 0, '%': 0})
         
-        # Overall sales (all sales for the month, regardless of budget matching)
+        # STEP 4: Create Overall Sales DataFrames (use all sales data, not just matched)
+        
+        # Overall Sales - use complete sales data for selected executives
         overall_sales_data = filtered_sales_df.groupby(sales_exec_col).agg({
             sales_qty_col: 'sum',
             sales_value_col: 'sum'
         }).reset_index()
         overall_sales_data.columns = ['Executive', 'Overall_Sales_Qty', 'Overall_Sales_Value']
         
-        # Budget totals for overall comparison
+        # For overall sales, use the same budget totals for consistency
         budget_totals = results_df.groupby('Executive').agg({
             'Budget_Qty': 'sum',
             'Budget_Value': 'sum'
         }).reset_index()
         
-        # Create overall sales DataFrames
+        # Overall Sales Quantity DataFrame
         overall_sales_qty_df = pd.DataFrame({'Executive': executives_to_display})
         overall_sales_qty_df = pd.merge(
             overall_sales_qty_df,
@@ -572,6 +439,7 @@ def calculate_budget_values_fixed(sales_df, budget_df, selected_month, sales_exe
             how='left'
         ).fillna({'Billed Qty': 0})
         
+        # Overall Sales Value DataFrame
         overall_sales_value_df = pd.DataFrame({'Executive': executives_to_display})
         overall_sales_value_df = pd.merge(
             overall_sales_value_df,
@@ -587,62 +455,61 @@ def calculate_budget_values_fixed(sales_df, budget_df, selected_month, sales_exe
             how='left'
         ).fillna({'Billed Value': 0})
         
-        # Add totals rows
-        for df, value_type in [(budget_vs_billed_qty_df, 'Qty'), (budget_vs_billed_value_df, 'Value')]:
-            budget_col = f'Budget {value_type}'
-            billed_col = f'Billed {value_type}'
-            
-            total_budget = df[budget_col].sum()
-            total_billed = df[billed_col].sum()
-            total_pct = round((total_billed / total_budget * 100), 2) if total_budget > 0 else 0
-            
-            total_row = pd.DataFrame({
-                'Executive': ['TOTAL'],
-                budget_col: [total_budget],
-                billed_col: [total_billed],
-                '%': [total_pct]
-            })
-            df = pd.concat([df, total_row], ignore_index=True)
-            
-            # Update the original dataframe
-            if value_type == 'Qty':
-                budget_vs_billed_qty_df = df
-            else:
-                budget_vs_billed_value_df = df
+        # STEP 5: Add Total Rows
         
-        # Add totals for overall sales
-        for df in [overall_sales_qty_df, overall_sales_value_df]:
-            cols = df.columns.tolist()
-            total_row_data = {'Executive': 'TOTAL'}
-            for col in cols[1:]:  # Skip Executive column
-                total_row_data[col] = df[col].sum()
-            
-            total_row = pd.DataFrame([total_row_data])
-            df = pd.concat([df, total_row], ignore_index=True)
-            
-            # Update the original dataframe
-            if 'Qty' in cols[1]:
-                overall_sales_qty_df = df
-            else:
-                overall_sales_value_df = df
+        # Add total row for budget vs billed quantity
+        total_budget_qty = budget_vs_billed_qty_df['Budget Qty'].sum()
+        total_billed_qty = budget_vs_billed_qty_df['Billed Qty'].sum()
+        total_percentage_qty = round((total_billed_qty / total_budget_qty * 100), 2) if total_budget_qty > 0 else 0
         
-        # Round numeric columns
+        total_row_qty = pd.DataFrame({
+            'Executive': ['TOTAL'],
+            'Budget Qty': [total_budget_qty],
+            'Billed Qty': [total_billed_qty],
+            '%': [total_percentage_qty]
+        })
+        budget_vs_billed_qty_df = pd.concat([budget_vs_billed_qty_df, total_row_qty], ignore_index=True)
+        
+        # Add total row for budget vs billed value
+        total_budget_value = budget_vs_billed_value_df['Budget Value'].sum()
+        total_billed_value = budget_vs_billed_value_df['Billed Value'].sum()
+        total_percentage_value = round((total_billed_value / total_budget_value * 100), 2) if total_budget_value > 0 else 0
+        
+        total_row_value = pd.DataFrame({
+            'Executive': ['TOTAL'],
+            'Budget Value': [total_budget_value],
+            'Billed Value': [total_billed_value],
+            '%': [total_percentage_value]
+        })
+        budget_vs_billed_value_df = pd.concat([budget_vs_billed_value_df, total_row_value], ignore_index=True)
+        
+        # Add total rows for overall sales
+        total_row_overall_qty = pd.DataFrame({
+            'Executive': ['TOTAL'],
+            'Budget Qty': [overall_sales_qty_df['Budget Qty'].sum()],
+            'Billed Qty': [overall_sales_qty_df['Billed Qty'].sum()]
+        })
+        overall_sales_qty_df = pd.concat([overall_sales_qty_df, total_row_overall_qty], ignore_index=True)
+        
+        total_row_overall_value = pd.DataFrame({
+            'Executive': ['TOTAL'],
+            'Budget Value': [overall_sales_value_df['Budget Value'].sum()],
+            'Billed Value': [overall_sales_value_df['Billed Value'].sum()]
+        })
+        overall_sales_value_df = pd.concat([overall_sales_value_df, total_row_overall_value], ignore_index=True)
+        
+        # Round all numeric columns to 2 decimal places
         for df in [budget_vs_billed_qty_df, budget_vs_billed_value_df, overall_sales_qty_df, overall_sales_value_df]:
             numeric_cols = df.select_dtypes(include=[np.number]).columns
             df[numeric_cols] = df[numeric_cols].round(2)
         
-        print(f"✅ Budget calculation completed successfully!")
-        print(f"   Total executives: {len(executives_to_display)}")
-        print(f"   Budget records processed: {len(budget_grouped)}")
-        print(f"   Successful matches: {matches_found}")
+        print("Budget vs Billed calculation completed successfully!")
         
         return (budget_vs_billed_value_df, budget_vs_billed_qty_df,
                 overall_sales_qty_df, overall_sales_value_df)
-        
+
     except Exception as e:
-        print(f"Error in calculate_budget_values_fixed: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error in calculate_budget_values: {str(e)}")
         st.error(f"Error calculating budget values: {str(e)}")
         return None, None, None, None
 def create_budget_ppt(budget_vs_billed_value_df, budget_vs_billed_qty_df, overall_sales_qty_df, overall_sales_value_df, month_title=None, logo_file=None):
@@ -703,61 +570,128 @@ def determine_financial_year(date):
         return f"{year % 100 - 1}-{year % 100}"
 
 def create_customer_table(sales_df, date_col, branch_col, customer_id_col, executive_col, selected_months=None, selected_branches=None, selected_executives=None):
+    """
+    Creates a table of unique customer counts per executive for selected months, branches, and executives.
+    If a single branch is selected, only executives assigned to that branch are included.
+    
+    Parameters:
+    - sales_df: DataFrame containing sales data.
+    - date_col: Column name for dates.
+    - branch_col: Column name for branch names.
+    - customer_id_col: Column name for customer IDs (SL Code).
+    - executive_col: Column name for executive names.
+    - selected_months: List of months to filter (format: 'MMM YYYY').
+    - selected_branches: List of branches to filter.
+    - selected_executives: List of executives to filter.
+    
+    Returns:
+    - Dictionary with financial year as key and (DataFrame, sorted_months) as value.
+    """
     sales_df = sales_df.copy()
+    
+    # Validate columns
     for col in [date_col, branch_col, customer_id_col, executive_col]:
         if col not in sales_df.columns:
             st.error(f"Column '{col}' not found in sales data.")
             return None
+    
+    # Convert date column to datetime
     try:
-        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors='coerce', dayfirst=True)
+        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors='coerce', dayfirst=True, format='mixed')
     except Exception as e:
         st.error(f"Error converting '{date_col}' to datetime: {e}. Ensure dates are in a valid format.")
         return None
+    
+    # Check for valid dates
     valid_dates = sales_df[date_col].notna()
     if not valid_dates.any():
         st.error(f"Column '{date_col}' contains no valid dates.")
         return None
+    
+    # Extract month-year for filtering
     sales_df['Month_Year'] = sales_df[date_col].dt.strftime('%b %Y')
+    
+    # Filter by selected months if provided
     if selected_months:
         sales_df = sales_df[sales_df['Month_Year'].isin(selected_months)]
         if sales_df.empty:
             st.error(f"No data found for selected months: {', '.join(selected_months)}")
             return None
+
+    # Determine financial year
+    def determine_financial_year(date):
+        if pd.isna(date):
+            return None
+        year = date.year
+        month = date.month
+        if month >= 4:
+            return f"{year}-{year+1}"
+        else:
+            return f"{year-1}-{year}"
+    
     sales_df['Financial_Year'] = sales_df[date_col].apply(determine_financial_year)
     available_financial_years = sales_df['Financial_Year'].dropna().unique()
     if len(available_financial_years) == 0:
         st.error("No valid financial years found in the data.")
         return None
+    
     result_dict = {}
     for fin_year in sorted(available_financial_years):
         fy_df = sales_df[sales_df['Financial_Year'] == fin_year].copy()
         if fy_df.empty:
             continue
+        
+        # Extract unique months in chronological order
         fy_df['Month_Year_Period'] = fy_df[date_col].dt.to_period('M')
         available_months = fy_df['Month_Year_Period'].unique()
         month_names = [pd.to_datetime(str(m) + '-01').strftime('%b %Y') for m in sorted(available_months)]
+        
         if not month_names:
             continue
+        
+        # Filter by selected months if provided
         if selected_months:
             month_names = [m for m in month_names if m in selected_months]
             if not month_names:
                 continue
-        fy_df['Branch'] = fy_df[branch_col].apply(extract_area_name).astype(str).str.strip().str.upper()
-        fy_df['Executive_Upper'] = fy_df[executive_col].apply(extract_executive_name)
+        
+        # Standardize branch and executive names
+        try:
+            fy_df['Branch'] = fy_df[branch_col].astype(str).str.strip().str.upper()
+            fy_df['Executive_Upper'] = fy_df[executive_col].astype(str).str.strip().str.upper()
+        except Exception as e:
+            st.error(f"Error processing columns: {e}")
+            continue
+        
+        # Apply branch filter
         if selected_branches:
             fy_df = fy_df[fy_df['Branch'].isin([b.upper() for b in selected_branches])]
             if fy_df.empty:
                 continue
-            executives_to_display = sorted(fy_df['Executive_Upper'].dropna().unique())
+        
+        # Determine executives to display
+        if selected_branches and len(selected_branches) == 1:
+            # If exactly one branch is selected, get executives associated with that branch
+            branch = selected_branches[0].upper()
+            branch_df = fy_df[fy_df['Branch'] == branch]
+            executives_to_display = sorted(branch_df['Executive_Upper'].dropna().unique())
         else:
-            executives_to_display = sorted(fy_df['Executive_Upper'].dropna().unique())
+            # Otherwise, use selected executives or all executives in filtered data
+            executives_to_display = [str(e).upper() for e in selected_executives] if selected_executives else sorted(fy_df['Executive_Upper'].dropna().unique())
+        
+        # Apply executive filter
         if selected_executives:
             fy_df = fy_df[fy_df['Executive_Upper'].isin([str(e).upper() for e in selected_executives])]
             if fy_df.empty:
                 continue
+        
         if not executives_to_display:
             continue
+        
+        # Group by executive and month to count unique customer codes
         grouped_df = fy_df.groupby(['Executive_Upper', 'Month_Year'])[customer_id_col].nunique().reset_index(name='Customer_Count')
+        
+        # Pivot to create table with months as columns
         pivot_df = grouped_df.pivot_table(
             values='Customer_Count',
             index='Executive_Upper',
@@ -765,7 +699,11 @@ def create_customer_table(sales_df, date_col, branch_col, customer_id_col, execu
             aggfunc='sum',
             fill_value=0
         ).reset_index()
+        
+        # Rename index column
         pivot_df = pivot_df.rename(columns={'Executive_Upper': 'Executive Name'})
+        
+        # Create result dataframe with all executives to display
         result_df = pd.DataFrame({'Executive Name': executives_to_display})
         result_df = pd.merge(
             result_df,
@@ -773,17 +711,28 @@ def create_customer_table(sales_df, date_col, branch_col, customer_id_col, execu
             on='Executive Name',
             how='left'
         ).fillna(0)
+        
+        # Keep only selected months
         columns_to_keep = ['Executive Name'] + month_names
         result_df = result_df[[col for col in columns_to_keep if col in result_df.columns]]
+        
+        # Convert counts to integers
         for col in result_df.columns[1:]:
             result_df[col] = result_df[col].astype(int)
+        
+        # Add S.No column
         result_df.insert(0, 'S.No', [str(i) for i in range(1, len(result_df) + 1)])
+        
+        # Add total row
         total_row = {'S.No': '0', 'Executive Name': 'GRAND TOTAL'}
         for col in month_names:
             if col in result_df.columns:
                 total_row[col] = result_df[col].sum()
+        
         result_df = pd.concat([result_df, pd.DataFrame([total_row])], ignore_index=True)
+        
         result_dict[fin_year] = (result_df, month_names)
+    
     return result_dict
 def create_customer_table_image(df, title, sorted_months, financial_year):
     fig, ax = plt.subplots(figsize=(14, len(df) * 0.6))
@@ -919,7 +868,7 @@ def filter_os_qty(os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
             return None, None, None
     os_df = os_df.copy()
     os_df[os_area_col] = os_df[os_area_col].apply(extract_area_name).astype(str).str.strip().str.upper()
-    os_df[os_exec_col] = os_df[os_exec_col].apply(extract_executive_name)
+    os_df[os_exec_col] = os_df[os_exec_col].apply(lambda x: 'BLANK' if pd.isna(x) or str(x).strip() == '' else str(x).strip().upper())
     try:
         os_df[os_due_date_col] = pd.to_datetime(os_df[os_due_date_col], errors='coerce')
     except Exception as e:
@@ -950,20 +899,29 @@ def filter_os_qty(os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
         if os_df.empty:
             st.error(f"No data matches the period from Jan {earliest_year} to {end_date.strftime('%b %Y')}.")
             return None, None, None
-    if selected_branches:
+    all_branches = sorted(os_df[os_area_col].dropna().unique())
+    if not selected_branches:
+        selected_branches = all_branches
+    if sorted(selected_branches) != all_branches:
         os_df = os_df[os_df[os_area_col].isin([b.upper() for b in selected_branches])]
         if os_df.empty:
             st.error("No data matches the selected branches.")
             return None, None, None
-        executives_to_display = sorted(os_df[os_exec_col].dropna().unique())
+    # Determine executives to display
+    if selected_branches and len(selected_branches) == 1:
+        # If exactly one branch is selected, get executives associated with that branch
+        branch = selected_branches[0].upper()
+        branch_df = os_df[os_df[os_area_col] == branch]
+        executives_to_display = sorted(branch_df[os_exec_col].dropna().unique())
     else:
-        executives_to_display = sorted(os_df[os_exec_col].dropna().unique())
+        # Otherwise, use selected executives or all executives in filtered data
+        executives_to_display = [str(e).upper() for e in selected_executives] if selected_executives else sorted(os_df[os_exec_col].dropna().unique())
     if selected_executives:
-        os_df = os_df[os_df[os_exec_col].isin(selected_executives)]
+        os_df = os_df[os_df[os_exec_col].isin(executives_to_display)]
         if os_df.empty:
             st.error("No data matches the selected executives.")
             return None, None, None
-    os_df[os_qty_col] = pd.to_numeric(os_df[os_qty_col], errors='coerce').fillna(0) / 100000
+    os_df[os_qty_col] = pd.to_numeric(os_df[os_qty_col], errors='coerce').fillna(0) / 100000  # Divide by 100000
     if os_df[os_qty_col].isna().any():
         st.warning(f"Non-numeric values in '{os_qty_col}' replaced with 0.")
     os_df = os_df[os_df[os_qty_col] > 0]
@@ -974,6 +932,7 @@ def filter_os_qty(os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
                  .agg({os_qty_col: 'sum'})
                  .reset_index()
                  .rename(columns={os_exec_col: 'Executive', os_qty_col: 'TARGET'}))
+
     result_df = pd.DataFrame({'Executive': executives_to_display})
     result_df = pd.merge(result_df, os_grouped_qty, on='Executive', how='left').fillna({'TARGET': 0})
     total_row = pd.DataFrame([{'Executive': 'TOTAL', 'TARGET': result_df['TARGET'].sum()}])
@@ -1086,10 +1045,10 @@ def create_od_ppt_slide(slide, df, title):
         st.error(traceback.format_exc())
 
 def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
-                        os_jan_due_date_col, os_jan_ref_date_col, os_jan_net_value_col, os_jan_exec_col, os_jan_sl_code_col, os_jan_area_col,
-                        os_feb_due_date_col, os_feb_ref_date_col, os_feb_net_value_col, os_feb_exec_col, os_feb_sl_code_col, os_feb_area_col,
-                        sale_bill_date_col, sale_due_date_col, sale_value_col, sale_exec_col, sale_sl_code_col, sale_area_col,
-                        selected_executives, selected_branches=None):
+                        os_jan_due_date_col, os_jan_ref_date_col, os_jan_net_value_col, os_jan_exec_col, os_jan_sl_code_col, os_jan_area_col,  # Added os_jan_area_col
+                        os_feb_due_date_col, os_feb_ref_date_col, os_feb_net_value_col, os_feb_exec_col, os_feb_sl_code_col, os_feb_area_col,  # Added os_feb_area_col
+                        sale_bill_date_col, sale_due_date_col, sale_value_col, sale_exec_col, sale_sl_code_col, sale_area_col,  # Added sale_area_col
+                        selected_executives, selected_branches=None):  # Added selected_branches parameter
     for df, col, file in [
         (os_jan, os_jan_net_value_col, "OS Jan"),
         (os_feb, os_feb_net_value_col, "OS Feb"),
@@ -1103,10 +1062,6 @@ def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
         except Exception as e:
             st.error(f"Error processing column '{col}' in {file}: {e}")
             return None
-    
-    os_jan = os_jan.copy()
-    os_feb = os_feb.copy()
-    total_sale = total_sale.copy()
     
     # Standardize branch names
     os_jan[os_jan_area_col] = os_jan[os_jan_area_col].apply(extract_area_name).astype(str).str.strip().str.upper()
@@ -1136,19 +1091,36 @@ def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
     total_sale["SL Code"] = total_sale[sale_sl_code_col].astype(str)
     total_sale["Executive"] = total_sale[sale_exec_col].astype(str).str.strip().str.upper()
     
-    # Determine executives to display based on branch-filtered data
-    executives_to_display = sorted(set(os_jan["Executive"].dropna().unique()) | 
-                                 set(os_feb["Executive"].dropna().unique()) | 
-                                 set(total_sale["Executive"].dropna().unique()))
+    # Determine executives to display
+    if selected_branches and len(selected_branches) == 1:
+        # If exactly one branch is selected, get executives associated with that branch
+        branch = selected_branches[0].upper()
+        branch_os_jan = os_jan[os_jan[os_jan_area_col] == branch]
+        branch_os_feb = os_feb[os_feb[os_feb_area_col] == branch]
+        branch_sale = total_sale[total_sale[sale_area_col] == branch]
+        executives_to_display = sorted(set(branch_os_jan["Executive"].dropna().unique()) | 
+                                     set(branch_os_feb["Executive"].dropna().unique()) | 
+                                     set(branch_sale["Executive"].dropna().unique()))
+    else:
+        # Otherwise, use provided selected_executives or all executives
+        executives_to_display = [str(e).strip().upper() for e in selected_executives] if selected_executives else \
+                                sorted(set(os_jan["Executive"].dropna().unique()) | 
+                                      set(os_feb["Executive"].dropna().unique()) | 
+                                      set(total_sale["Executive"].dropna().unique()))
     
     # Apply executive filter
     if selected_executives:
-        executives_to_filter = [str(e).strip().upper() for e in selected_executives]
-        os_jan = os_jan[os_jan["Executive"].isin(executives_to_filter)]
-        os_feb = os_feb[os_feb["Executive"].isin(executives_to_filter)]
-        total_sale = total_sale[total_sale["Executive"].isin(executives_to_filter)]
-        if os_jan.empty or os_feb.empty or total_sale.empty:
-            st.error("No data remains after executive filtering.")
+        os_jan = os_jan[os_jan["Executive"].isin(executives_to_display)]
+        if os_jan.empty:
+            st.error("No data remains after OS Jan executive filtering.")
+            return None
+        os_feb = os_feb[os_feb["Executive"].isin(executives_to_display)]
+        if os_feb.empty:
+            st.error("No data remains after OS Feb executive filtering.")
+            return None
+        total_sale = total_sale[total_sale["Executive"].isin(executives_to_display)]
+        if total_sale.empty:
+            st.error("No data remains after Sales executive filtering.")
             return None
     
     specified_date = pd.to_datetime("01-" + selected_month_str, format="%d-%b-%y")
