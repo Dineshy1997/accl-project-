@@ -260,6 +260,10 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
         filtered_sales_df[sales_product_group_col] = filtered_sales_df[sales_product_group_col].astype(str).str.strip().str.upper()
         budget_df[budget_sl_code_col] = budget_df[budget_sl_code_col].astype(str).str.strip().str.upper()
         budget_df[budget_product_group_col] = budget_df[budget_product_group_col].astype(str).str.strip().str.upper()
+        
+        # ===== FIXED LOGIC STARTS HERE =====
+        
+        # 1. Calculate Budget vs Billed (Limited by Budget)
         budget_grouped = budget_df.groupby([
             budget_exec_col, 
             budget_sl_code_col, 
@@ -275,6 +279,7 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
         if budget_valid.empty:
             st.error("No valid budget data found (with qty > 0 and value > 0).")
             return None, None, None, None
+
         final_results = []
         for _, budget_row in budget_valid.iterrows():
             executive = budget_row[budget_exec_col]
@@ -289,8 +294,11 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             ]
             sales_qty_total = matching_sales[sales_qty_col].sum() if not matching_sales.empty else 0
             sales_value_total = matching_sales[sales_value_col].sum() if not matching_sales.empty else 0
-            final_qty = budget_qty if sales_qty_total > budget_qty else sales_qty_total
-            final_value = budget_value if sales_value_total > budget_value else sales_value_total
+            
+            # FIXED: Use minimum of budget and actual sales (whichever is lower)
+            # This represents "billed quantity/value against budget"
+            final_qty = min(budget_qty, sales_qty_total)
+            final_value = min(budget_value, sales_value_total)
             final_results.append({
                 'Executive': executive,
                 'SL_Code': sl_code,
@@ -303,9 +311,11 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
                 'Final_Value': final_value
             })
         results_df = pd.DataFrame(final_results)
+        
+        # 2. Calculate Budget vs Billed Summary by Executive
         exec_qty_summary = results_df.groupby('Executive').agg({
             'Budget_Qty': 'sum',
-            'Final_Qty': 'sum'
+            'Final_Qty': 'sum'  # This is the "Billed Qty" (limited by budget)
         }).reset_index()
         exec_qty_summary.columns = ['Executive', 'Budget Qty', 'Billed Qty']
         exec_qty_summary['%'] = exec_qty_summary.apply(
@@ -319,9 +329,10 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             on='Executive',
             how='left'
         ).fillna({'Budget Qty': 0, 'Billed Qty': 0, '%': 0})
+        
         exec_value_summary = results_df.groupby('Executive').agg({
             'Budget_Value': 'sum',
-            'Final_Value': 'sum'
+            'Final_Value': 'sum'  # This is the "Billed Value" (limited by budget)
         }).reset_index()
         exec_value_summary.columns = ['Executive', 'Budget Value', 'Billed Value']
         exec_value_summary['%'] = exec_value_summary.apply(
@@ -335,19 +346,25 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             on='Executive',
             how='left'
         ).fillna({'Budget Value': 0, 'Billed Value': 0, '%': 0})
+        
+        # 3. Calculate Overall Sales (Actual total sales for the month)
         overall_sales_data = filtered_sales_df.groupby(sales_exec_col).agg({
             sales_qty_col: 'sum',
             sales_value_col: 'sum'
         }).reset_index()
         overall_sales_data.columns = ['Executive', 'Overall_Sales_Qty', 'Overall_Sales_Value']
-        budget_totals = results_df.groupby('Executive').agg({
-            'Budget_Qty': 'sum',
-            'Budget_Value': 'sum'
+        
+        # For overall sales quantity table, show budget vs actual total sales
+        budget_totals = budget_df.groupby(budget_exec_col).agg({
+            budget_qty_col: 'sum',
+            budget_value_col: 'sum'
         }).reset_index()
+        budget_totals.columns = ['Executive', 'Total_Budget_Qty', 'Total_Budget_Value']
+        
         overall_sales_qty_df = pd.DataFrame({'Executive': executives_to_display})
         overall_sales_qty_df = pd.merge(
             overall_sales_qty_df,
-            budget_totals[['Executive', 'Budget_Qty']].rename(columns={'Budget_Qty': 'Budget Qty'}),
+            budget_totals[['Executive', 'Total_Budget_Qty']].rename(columns={'Total_Budget_Qty': 'Budget Qty'}),
             on='Executive',
             how='left'
         ).fillna({'Budget Qty': 0})
@@ -357,10 +374,11 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             on='Executive',
             how='left'
         ).fillna({'Billed Qty': 0})
+        
         overall_sales_value_df = pd.DataFrame({'Executive': executives_to_display})
         overall_sales_value_df = pd.merge(
             overall_sales_value_df,
-            budget_totals[['Executive', 'Budget_Value']].rename(columns={'Budget_Value': 'Budget Value'}),
+            budget_totals[['Executive', 'Total_Budget_Value']].rename(columns={'Total_Budget_Value': 'Budget Value'}),
             on='Executive',
             how='left'
         ).fillna({'Budget Value': 0})
@@ -370,6 +388,8 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             on='Executive',
             how='left'
         ).fillna({'Billed Value': 0})
+        
+        # Add totals row
         total_budget_qty = budget_vs_billed_qty_df['Budget Qty'].sum()
         total_billed_qty = budget_vs_billed_qty_df['Billed Qty'].sum()
         total_percentage_qty = round((total_billed_qty / total_budget_qty * 100), 2) if total_budget_qty > 0 else 0
@@ -380,6 +400,7 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             '%': [total_percentage_qty]
         })
         budget_vs_billed_qty_df = pd.concat([budget_vs_billed_qty_df, total_row_qty], ignore_index=True)
+        
         total_budget_value = budget_vs_billed_value_df['Budget Value'].sum()
         total_billed_value = budget_vs_billed_value_df['Billed Value'].sum()
         total_percentage_value = round((total_billed_value / total_budget_value * 100), 2) if total_budget_value > 0 else 0
@@ -390,23 +411,28 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             '%': [total_percentage_value]
         })
         budget_vs_billed_value_df = pd.concat([budget_vs_billed_value_df, total_row_value], ignore_index=True)
+        
         total_row_overall_qty = pd.DataFrame({
             'Executive': ['TOTAL'],
             'Budget Qty': [overall_sales_qty_df['Budget Qty'].sum()],
             'Billed Qty': [overall_sales_qty_df['Billed Qty'].sum()]
         })
         overall_sales_qty_df = pd.concat([overall_sales_qty_df, total_row_overall_qty], ignore_index=True)
+        
         total_row_overall_value = pd.DataFrame({
             'Executive': ['TOTAL'],
             'Budget Value': [overall_sales_value_df['Budget Value'].sum()],
             'Billed Value': [overall_sales_value_df['Billed Value'].sum()]
         })
         overall_sales_value_df = pd.concat([overall_sales_value_df, total_row_overall_value], ignore_index=True)
+        
         for df in [budget_vs_billed_qty_df, budget_vs_billed_value_df, overall_sales_qty_df, overall_sales_value_df]:
             numeric_cols = df.select_dtypes(include=[np.number]).columns
             df[numeric_cols] = df[numeric_cols].round(2)
+        
         return (budget_vs_billed_value_df, budget_vs_billed_qty_df,
                 overall_sales_qty_df, overall_sales_value_df)
+                
     except Exception as e:
         logger.error(f"Error in calculate_budget_values: {str(e)}")
         st.error(f"Error calculating budget values: {str(e)}")
