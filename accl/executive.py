@@ -210,9 +210,6 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
                            budget_product_group_col, budget_sl_code_col, budget_exec_col,
                            selected_branches=None):
     try:
-        # Debug output
-        st.write("🔍 **DEBUGGING BUDGET CALCULATION**")
-        
         sales_df = sales_df.copy()
         budget_df = budget_df.copy()
         required_sales_cols = [sales_date_col, sales_value_col, sales_qty_col, sales_exec_col,
@@ -228,11 +225,6 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             st.error(f"Missing columns in budget data: {missing_budget_cols}")
             return None, None, None, None
 
-        # Debug: Initial data info
-        st.write(f"📊 **Initial Data Shapes**")
-        st.write(f"   - Sales data: {sales_df.shape[0]} rows, {sales_df.shape[1]} columns")
-        st.write(f"   - Budget data: {budget_df.shape[0]} rows, {budget_df.shape[1]} columns")
-
         # Data type conversion
         sales_df[sales_date_col] = pd.to_datetime(sales_df[sales_date_col], dayfirst=True, errors='coerce')
         sales_df[sales_value_col] = pd.to_numeric(sales_df[sales_value_col], errors='coerce').fillna(0)
@@ -243,15 +235,8 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
         # Filter sales by month
         filtered_sales_df = sales_df[sales_df[sales_date_col].dt.strftime('%b %y') == selected_month].copy()
         
-        # Debug: Month filtering
-        st.write(f"📅 **Month Filtering**")
-        st.write(f"   - Selected month: {selected_month}")
-        st.write(f"   - Sales records after month filter: {filtered_sales_df.shape[0]}")
-        
         if filtered_sales_df.empty:
-            available_months = sorted(sales_df[sales_date_col].dt.strftime('%b %y').dropna().unique())
-            st.error(f"❌ No sales data found for {selected_month}")
-            st.write(f"📅 Available months: {available_months}")
+            st.error(f"No sales data found for {selected_month}")
             return None, None, None, None
 
         # Standardize area and executive names
@@ -260,30 +245,10 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
         budget_df[budget_area_col] = budget_df[budget_area_col].apply(extract_area_name).astype(str).str.strip().str.upper()
         budget_df[budget_exec_col] = budget_df[budget_exec_col].apply(extract_executive_name)
 
-        # Debug: Executive comparison
-        sales_executives_unique = set(filtered_sales_df[sales_exec_col].dropna().unique())
-        budget_executives_unique = set(budget_df[budget_exec_col].dropna().unique())
-        common_executives = sales_executives_unique.intersection(budget_executives_unique)
-        
-        st.write(f"👥 **Executive Analysis**")
-        st.write(f"   - Sales executives: {len(sales_executives_unique)} unique")
-        st.write(f"   - Budget executives: {len(budget_executives_unique)} unique")
-        st.write(f"   - Common executives: {len(common_executives)}")
-        
-        if len(common_executives) == 0:
-            st.error("❌ No common executives found between sales and budget data!")
-            st.write(f"📋 Sample sales executives: {sorted(list(sales_executives_unique))[:5]}")
-            st.write(f"📋 Sample budget executives: {sorted(list(budget_executives_unique))[:5]}")
-            return None, None, None, None
-
         # Filter by selected branches and get relevant executives
         if selected_branches:
-            st.write(f"🏢 **Branch Filtering**: {selected_branches}")
             filtered_sales_df = filtered_sales_df[filtered_sales_df[sales_area_col].isin([b.upper() for b in selected_branches])]
             budget_df = budget_df[budget_df[budget_area_col].isin([b.upper() for b in selected_branches])]
-            st.write(f"   - Sales records after branch filter: {filtered_sales_df.shape[0]}")
-            st.write(f"   - Budget records after branch filter: {budget_df.shape[0]}")
-            
             if filtered_sales_df.empty or budget_df.empty:
                 st.error(f"No data found for selected branches: {', '.join(selected_branches)}")
                 return None, None, None, None
@@ -295,31 +260,34 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
 
         # Filter data by executives if provided
         if sales_executives:
-            st.write(f"🎯 **Executive Filtering**: {len(sales_executives)} executives selected")
             filtered_sales_df = filtered_sales_df[filtered_sales_df[sales_exec_col].isin(sales_executives)].copy()
             budget_df = budget_df[budget_df[budget_exec_col].isin(sales_executives)].copy()
-            st.write(f"   - Sales records after executive filter: {filtered_sales_df.shape[0]}")
-            st.write(f"   - Budget records after executive filter: {budget_df.shape[0]}")
-            
             if filtered_sales_df.empty or budget_df.empty:
                 st.error("No data found for selected executives.")
                 return None, None, None, None
 
-        # Standardize SL codes and product groups
-        filtered_sales_df[sales_sl_code_col] = filtered_sales_df[sales_sl_code_col].astype(str).str.strip().str.upper()
+        # FIXED: Proper SL Code standardization to handle float/decimal issues
+        def clean_sl_code(sl_code):
+            """Clean SL code by removing decimal points and standardizing format"""
+            if pd.isna(sl_code):
+                return 'UNKNOWN'
+            # Convert to string, remove decimal if present, strip whitespace, uppercase
+            sl_str = str(sl_code).strip().upper()
+            # Remove .0 if present (handles float to string conversion)
+            if sl_str.endswith('.0'):
+                sl_str = sl_str[:-2]
+            return sl_str
+
+        # Apply the cleaning function to both datasets
+        filtered_sales_df[sales_sl_code_col] = filtered_sales_df[sales_sl_code_col].apply(clean_sl_code)
         filtered_sales_df[sales_product_group_col] = filtered_sales_df[sales_product_group_col].astype(str).str.strip().str.upper()
-        budget_df[budget_sl_code_col] = budget_df[budget_sl_code_col].astype(str).str.strip().str.upper()
+        budget_df[budget_sl_code_col] = budget_df[budget_sl_code_col].apply(clean_sl_code)
         budget_df[budget_product_group_col] = budget_df[budget_product_group_col].astype(str).str.strip().str.upper()
 
-        # Debug: Show sample data
-        st.write(f"📝 **Sample Data**")
-        st.write("Sales Data Sample:")
-        sample_sales = filtered_sales_df[[sales_exec_col, sales_sl_code_col, sales_product_group_col, sales_qty_col, sales_value_col]].head(3)
-        st.dataframe(sample_sales)
-        
-        st.write("Budget Data Sample:")
-        sample_budget = budget_df[[budget_exec_col, budget_sl_code_col, budget_product_group_col, budget_qty_col, budget_value_col]].head(3)
-        st.dataframe(sample_budget)
+        # Debug: Show cleaned data sample
+        st.write("✅ **Data Cleaning Applied**")
+        st.write("📝 Sample cleaned sales SL codes:", filtered_sales_df[sales_sl_code_col].head(5).tolist())
+        st.write("📝 Sample cleaned budget SL codes:", budget_df[budget_sl_code_col].head(5).tolist())
 
         # Group budget data
         budget_grouped = budget_df.groupby([
@@ -336,10 +304,6 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             (budget_grouped[budget_value_col] > 0)
         ].copy()
 
-        st.write(f"💰 **Budget Analysis**")
-        st.write(f"   - Total budget combinations: {budget_grouped.shape[0]}")
-        st.write(f"   - Valid budget entries (qty > 0 and value > 0): {budget_valid.shape[0]}")
-
         if budget_valid.empty:
             st.error("No valid budget data found (with qty > 0 and value > 0).")
             return None, None, None, None
@@ -349,8 +313,6 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
         matches_found = 0
         total_budget_entries = len(budget_valid)
 
-        st.write(f"🔍 **Matching Process**")
-        
         for idx, budget_row in budget_valid.iterrows():
             executive = budget_row[budget_exec_col]
             sl_code = budget_row[budget_sl_code_col]
@@ -370,9 +332,6 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
 
             if not matching_sales.empty:
                 matches_found += 1
-                if matches_found <= 3:  # Show first 3 matches
-                    st.write(f"   ✅ Match {matches_found}: {executive} | {sl_code} | {product}")
-                    st.write(f"      Budget Qty: {budget_qty:.2f}, Sales Qty: {sales_qty_total:.2f}")
 
             # Calculate final values (minimum of budget vs sales)
             final_qty = min(budget_qty, sales_qty_total)
@@ -390,34 +349,7 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
                 'Final_Value': final_value
             })
 
-        st.write(f"   📊 **Match Summary**: {matches_found} matches found out of {total_budget_entries} budget entries")
-        
-        if matches_found == 0:
-            st.error("❌ No matches found between budget and sales data!")
-            
-            # Additional debugging for no matches
-            test_executive = budget_valid.iloc[0][budget_exec_col]
-            test_sl_code = budget_valid.iloc[0][budget_sl_code_col]
-            test_product = budget_valid.iloc[0][budget_product_group_col]
-            
-            st.write(f"🔬 **Detailed Check for First Budget Entry**")
-            st.write(f"   - Executive: '{test_executive}'")
-            st.write(f"   - SL Code: '{test_sl_code}'")
-            st.write(f"   - Product: '{test_product}'")
-            
-            # Check if executive exists in sales
-            exec_in_sales = test_executive in filtered_sales_df[sales_exec_col].values
-            st.write(f"   - Executive in sales data: {exec_in_sales}")
-            
-            if exec_in_sales:
-                exec_sales_data = filtered_sales_df[filtered_sales_df[sales_exec_col] == test_executive]
-                unique_sl_codes = exec_sales_data[sales_sl_code_col].unique()
-                unique_products = exec_sales_data[sales_product_group_col].unique()
-                
-                st.write(f"   - SL codes for this executive in sales: {unique_sl_codes[:5]}")
-                st.write(f"   - Products for this executive in sales: {unique_products[:5]}")
-                st.write(f"   - SL code '{test_sl_code}' in sales: {test_sl_code in unique_sl_codes}")
-                st.write(f"   - Product '{test_product}' in sales: {test_product in unique_products}")
+        st.write(f"🎯 **Matching Results**: {matches_found} matches found out of {total_budget_entries} budget entries")
 
         results_df = pd.DataFrame(final_results)
 
@@ -431,9 +363,6 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             lambda row: round((row['Billed Qty'] / row['Budget Qty'] * 100), 2) if row['Budget Qty'] > 0 else 0,
             axis=1
         )
-
-        st.write(f"📊 **Executive Summary**")
-        st.dataframe(exec_qty_summary.head())
 
         budget_vs_billed_qty_df = pd.DataFrame({'Executive': executives_to_display})
         budget_vs_billed_qty_df = pd.merge(
@@ -544,16 +473,12 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             numeric_cols = df.select_dtypes(include=[np.number]).columns
             df[numeric_cols] = df[numeric_cols].round(2)
 
-        st.write("✅ **Debug complete - returning results**")
-        st.divider()
-
         return (budget_vs_billed_value_df, budget_vs_billed_qty_df,
                 overall_sales_qty_df, overall_sales_value_df)
 
     except Exception as e:
         logger.error(f"Error in calculate_budget_values: {str(e)}")
         st.error(f"Error calculating budget values: {str(e)}")
-        st.error(traceback.format_exc())
         return None, None, None, None
 def create_budget_ppt(budget_vs_billed_value_df, budget_vs_billed_qty_df, overall_sales_qty_df, overall_sales_value_df, month_title=None, logo_file=None):
     try:
