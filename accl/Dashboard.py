@@ -147,9 +147,9 @@ def create_matplotlib_chart(data, x_col, y_col, chart_type, title, color_overrid
         
         if is_product_performance:
             # Wider figure for product performance charts
-            fig, ax = plt.subplots(figsize=(16, 8))  # Increased width
+            fig, ax = plt.subplots(figsize=(16, 10))  # Increased height for better fit
         else:
-            fig, ax = plt.subplots(figsize=(12, 8))  # Default size
+            fig, ax = plt.subplots(figsize=(14, 10))  # Increased size for better layout
             
         # Determine colors
         if color_override:
@@ -237,20 +237,18 @@ def create_matplotlib_chart(data, x_col, y_col, chart_type, title, color_overrid
         if is_product_performance and chart_type.lower() != 'pie':
             # Rotate labels at 45 degrees and adjust alignment
             plt.xticks(rotation=45, ha='right', fontsize=10)
-            
-            # Adjust bottom margin to prevent label cutoff
-            plt.subplots_adjust(bottom=0.25)
+            # Use manual layout adjustment instead of tight_layout for better control
+            plt.subplots_adjust(left=0.1, right=0.95, top=0.9, bottom=0.3)
         else:
             # FORCE STRAIGHT X-AXIS LABELS FOR ALL OTHER PPT CHARTS
             plt.xticks(rotation=0, ha='center', fontsize=10)
+            # Use manual layout adjustment for consistent spacing
+            plt.subplots_adjust(left=0.1, right=0.95, top=0.9, bottom=0.15)
         
-        # Adjust layout
-        plt.tight_layout()
-        
-        # Save to BytesIO
+        # Save to BytesIO with manual layout instead of tight_layout
         img_buffer = BytesIO()
         plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight', 
-                   facecolor='white', edgecolor='none')
+                   facecolor='white', edgecolor='none', pad_inches=0.3)
         img_buffer.seek(0)
         
         # Clear the figure
@@ -260,7 +258,21 @@ def create_matplotlib_chart(data, x_col, y_col, chart_type, title, color_overrid
         return img_buffer
         
     except Exception as e:
-        st.error(f"Could not generate chart image: {str(e)}")
+        # Suppress the tight_layout warning and continue
+        if "tight_layout" in str(e):
+            # Try to save without tight layout
+            try:
+                img_buffer = BytesIO()
+                plt.savefig(img_buffer, format='png', dpi=300, 
+                           facecolor='white', edgecolor='none', pad_inches=0.3)
+                img_buffer.seek(0)
+                plt.clf()
+                plt.close()
+                return img_buffer
+            except:
+                pass
+        
+        st.warning(f"Chart generation warning (non-critical): {str(e)}")
         plt.clf()
         plt.close()
         return None
@@ -1177,25 +1189,25 @@ if uploaded_file:
             def plot_budget_vs_actual(tab, visual_type):
                 with tab:
                     budget_cols = [col for col in table_df.columns 
-                      if str(col).lower().startswith('budget') and 'ytd' not in str(col).lower()
-                      and column_filter(col)]
+                                  if str(col).lower().startswith('budget') and 'ytd' not in str(col).lower()
+                                  and column_filter(col)]
                     act_cols = [col for col in table_df.columns 
-                        if str(col).lower().startswith('act') and 'ytd' not in str(col).lower()
-                         and column_filter(col)]
-    
+                                if str(col).lower().startswith('act') and 'ytd' not in str(col).lower()
+                                and column_filter(col)]
+
                     if not (budget_cols and act_cols):
                         st.info("No matching Budget or Act columns found for comparison")
                         return None
-    
+
                     budget_months = [re.search(r'(\w{3,})[-–](\d{2})', str(col), re.IGNORECASE) for col in budget_cols]
                     act_months = [re.search(r'(\w{3,})[-–](\d{2})', str(col), re.IGNORECASE) for col in act_cols]
                     common_months = set((m.group(1), m.group(2)) for m in budget_months if m) & \
-                        set((m.group(1), m.group(2)) for m in act_months if m)
-    
+                                    set((m.group(1), m.group(2)) for m in act_months if m)
+
                     if not common_months:
                         st.info("No common months found for Budget vs Actual comparison")
                         return None
-    
+
                     selected_budget_cols = []
                     selected_act_cols = []
                     for month, year in common_months:
@@ -1205,26 +1217,26 @@ if uploaded_file:
                         for col in act_cols:
                             if re.search(rf'\b{month}[-–]{year}\b', str(col), re.IGNORECASE):
                                 selected_act_cols.append(col)
-    
+
                     chart_data = filtered_df[[first_col] + selected_budget_cols + selected_act_cols].copy()
-    
+
                     for col in selected_budget_cols + selected_act_cols:
                         chart_data[col] = pd.to_numeric(chart_data[col].astype(str).str.replace(',', ''), 
-                                                   errors='coerce')
-    
+                                                       errors='coerce')
+
                     chart_data = chart_data.dropna()
-    
+
                     if chart_data.empty:
                         st.warning("No valid numeric data available for Budget vs Act comparison")
                         return None
-    
+
                     if visual_type == "Pie Chart":
                         budget_total = chart_data[selected_budget_cols].sum().sum()
                         act_total = chart_data[selected_act_cols].sum().sum()
                         pie_data = pd.DataFrame({
-                "Metric": ["Budget", "Act"],
-                "Value": [budget_total, act_total]
-            })
+                            "Metric": ["Budget", "Act"],
+                            "Value": [budget_total, act_total]
+                        })
                         pie_data = pie_data[pie_data["Value"] > 0]
                         if pie_data.empty:
                             st.warning("No valid data for Budget vs Actual pie chart after aggregation")
@@ -1234,126 +1246,126 @@ if uploaded_file:
                         chart_data_for_ppt = pie_data
                         x_col_for_ppt = "Metric"
                     else:
-                       chart_data_melt = chart_data.melt(id_vars=first_col, 
-                                             var_name="Month_Metric", 
-                                             value_name="Value")
-                       chart_data_melt['Metric'] = chart_data_melt['Month_Metric'].apply(
-                lambda x: 'Budget' if 'budget' in str(x).lower() else 'Act'
-            )
-                       chart_data_melt['Month'] = chart_data_melt['Month_Metric'].apply(
-                lambda x: re.search(r'(\w{3,})[-–](\d{2})', str(x), re.IGNORECASE).group(0) 
-                          if re.search(r'(\w{3,})[-–](\d{2})', str(x), re.IGNORECASE) else x
-            )
+                        chart_data_melt = chart_data.melt(id_vars=first_col, 
+                                                         var_name="Month_Metric", 
+                                                         value_name="Value")
+                        chart_data_melt['Metric'] = chart_data_melt['Month_Metric'].apply(
+                            lambda x: 'Budget' if 'budget' in str(x).lower() else 'Act'
+                        )
+                        chart_data_melt['Month'] = chart_data_melt['Month_Metric'].apply(
+                            lambda x: re.search(r'(\w{3,})[-–](\d{2})', str(x), re.IGNORECASE).group(0) 
+                                      if re.search(r'(\w{3,})[-–](\d{2})', str(x), re.IGNORECASE) else x
+                        )
+                        
+                        chart_data_melt = make_jsonly_serializable(chart_data_melt)
+                        chart_data_agg = chart_data_melt.groupby(['Month', 'Metric'])['Value'].sum().reset_index()
+                        
+                        if chart_data_agg.empty or 'Value' not in chart_data_agg.columns:
+                            st.warning("Aggregation failed: No valid data for Budget vs Actual comparison")
+                            return None
+                        
+                        chart_data_agg['Value'] = pd.to_numeric(chart_data_agg['Value'], errors='coerce')
+                        if chart_data_agg['Value'].isna().all():
+                            st.warning("No numeric values available in aggregated data for Budget vs Actual")
+                            return None
+                        
+                        if not ensure_numeric_data(chart_data_agg, 'Value'):
+                            st.warning("No numeric data available for Budget vs Actual comparison")
+                            return None
+                        
+                        # Define fiscal year month order
+                        fiscal_month_order = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar']
+                        
+                        # Extract month from Month string (e.g., "Apr-23" -> "Apr")
+                        chart_data_agg['MonthOnly'] = chart_data_agg['Month'].str.extract(r'^(\w{3})', expand=False)
+                        
+                        # Create a custom sort key based on fiscal year order
+                        def get_fiscal_sort_key(row):
+                            month = row['MonthOnly']
+                            year = re.search(r'[-–](\d{2})', row['Month']).group(1) if re.search(r'[-–](\d{2})', row['Month']) else '00'
+                            try:
+                                month_idx = fiscal_month_order.index(month)
+                                # For months Apr-Dec, use current year, for Jan-Mar use next year
+                                fiscal_year = int(year) if month_idx < 9 else int(year) + 1
+                                return (fiscal_year, month_idx)
+                            except ValueError:
+                                return (0, 99)
+                        
+                        # Sort the data by fiscal year
+                        chart_data_agg['SortKey'] = chart_data_agg.apply(get_fiscal_sort_key, axis=1)
+                        chart_data_agg = chart_data_agg.sort_values('SortKey')
+                        
+                        st.markdown(f"### Budget vs Actual Comparison - {table_name}")
+                        
+                        fig = go.Figure()
+                        budget_data = chart_data_agg[chart_data_agg['Metric'] == 'Budget']
+                        act_data = chart_data_agg[chart_data_agg['Metric'] == 'Act']
+                        
+                        if not budget_data.empty:
+                            fig.add_trace(go.Bar(
+                                x=budget_data['Month'],
+                                y=budget_data['Value'],
+                                name='Budget',
+                                marker_color='#2E86AB',
+                                hovertemplate='<b>%{x}</b><br>Budget: %{y:,.0f}<extra></extra>'
+                            ))
+                        
+                        if not act_data.empty:
+                            fig.add_trace(go.Bar(
+                                x=act_data['Month'],
+                                y=act_data['Value'],
+                                name='Act',
+                                marker_color='#FF8C00',
+                                hovertemplate='<b>%{x}</b><br>Actual: %{y:,.0f}<extra></extra>'
+                            ))
+                        
+                        fig.update_layout(
+                            title={'text': f"Budget vs Actual Comparison - {table_name}", 'x': 0.5, 'xanchor': 'center', 'font': {'size': 16}},
+                            xaxis_title="Month",
+                            yaxis_title="Value",
+                            font={'size': 12},
+                            plot_bgcolor='white',
+                            paper_bgcolor='white',
+                            height=500,
+                            margin={'l': 60, 'r': 60, 't': 80, 'b': 60},
+                            showlegend=True,
+                            barmode='group',
+                            hovermode='x unified'
+                        )
+                        fig.update_xaxes(
+                            title_font={'size': 14}, 
+                            tickfont={'size': 12},
+                            categoryorder='array',  # Use custom order
+                            categoryarray=chart_data_agg['Month'].unique()  # Use our sorted months
+                        )
+                        fig.update_yaxes(title_font={'size': 14}, tickfont={'size': 12})
+                        config = {'displayModeBar': True, 'displaylogo': False, 'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d']}
+                        st.plotly_chart(fig, use_container_width=True, config=config)
+                        
+                        ppt_type = 'bar' if visual_type == 'Bar Chart' else 'line'
+                        chart_data_for_ppt = chart_data_agg.drop(columns=['MonthOnly', 'SortKey'])
+                        x_col_for_ppt = "Month"
             
-                       chart_data_melt = make_jsonly_serializable(chart_data_melt)
-                       chart_data_agg = chart_data_melt.groupby(['Month', 'Metric'])['Value'].sum().reset_index()
-            
-                       if chart_data_agg.empty or 'Value' not in chart_data_agg.columns:
-                           st.warning("Aggregation failed: No valid data for Budget vs Actual comparison")
-                           return None
-            
-                       chart_data_agg['Value'] = pd.to_numeric(chart_data_agg['Value'], errors='coerce')
-                       if chart_data_agg['Value'].isna().all():
-                          st.warning("No numeric values available in aggregated data for Budget vs Actual")
-                          return None
-            
-                       if not ensure_numeric_data(chart_data_agg, 'Value'):
-                           st.warning("No numeric data available for Budget vs Actual comparison")
-                           return None
-            
-            # Define fiscal year month order
-                       fiscal_month_order = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar']
-            
-            # Extract month from Month string (e.g., "Apr-23" -> "Apr")
-                       chart_data_agg['MonthOnly'] = chart_data_agg['Month'].str.extract(r'^(\w{3})', expand=False)
-            
-            # Create a custom sort key based on fiscal year order
-                       def get_fiscal_sort_key(row):
-                           month = row['MonthOnly']
-                           year = re.search(r'[-–](\d{2})', row['Month']).group(1) if re.search(r'[-–](\d{2})', row['Month']) else '00'
-                           try:
-                               month_idx = fiscal_month_order.index(month)
-                    # For months Apr-Dec, use current year, for Jan-Mar use next year
-                               fiscal_year = int(year) if month_idx < 9 else int(year) + 1
-                               return (fiscal_year, month_idx)
-                           except ValueError:
-                               return (0, 99)
-            
-            # Sort the data by fiscal year
-                       chart_data_agg['SortKey'] = chart_data_agg.apply(get_fiscal_sort_key, axis=1)
-                       chart_data_agg = chart_data_agg.sort_values('SortKey')
-            
-                       st.markdown(f"### Budget vs Actual Comparison - {table_name}")
-            
-                       fig = go.Figure()
-                       budget_data = chart_data_agg[chart_data_agg['Metric'] == 'Budget']
-                       act_data = chart_data_agg[chart_data_agg['Metric'] == 'Act']
-            
-                       if not budget_data.empty:
-                              fig.add_trace(go.Bar(
-                              x=budget_data['Month'],
-                              y=budget_data['Value'],
-                              name='Budget',
-                              marker_color='#2E86AB',
-                              hovertemplate='<b>%{x}</b><br>Budget: %{y:,.0f}<extra></extra>'
-                         ))
-            
-                       if not act_data.empty:
-                           fig.add_trace(go.Bar(
-                           x=act_data['Month'],
-                           y=act_data['Value'],
-                           name='Act',
-                           marker_color='#FF8C00',
-                           hovertemplate='<b>%{x}</b><br>Actual: %{y:,.0f}<extra></extra>'
-                          ))
-            
-                       fig.update_layout(
-                          title={'text': f"Budget vs Actual Comparison - {table_name}", 'x': 0.5, 'xanchor': 'center', 'font': {'size': 16}},
-                          xaxis_title="Month",
-                          yaxis_title="Value",
-                       font={'size': 12},
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                height=500,
-                margin={'l': 60, 'r': 60, 't': 80, 'b': 60},
-                showlegend=True,
-                barmode='group',
-                hovermode='x unified'
-            )
-                       fig.update_xaxes(
-                title_font={'size': 14}, 
-                tickfont={'size': 12},
-                categoryorder='array',  # Use custom order
-                categoryarray=chart_data_agg['Month'].unique()  # Use our sorted months
-            )
-                       fig.update_yaxes(title_font={'size': 14}, tickfont={'size': 12})
-                       config = {'displayModeBar': True, 'displaylogo': False, 'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d']}
-                       st.plotly_chart(fig, use_container_width=True, config=config)
-            
-                       ppt_type = 'bar' if visual_type == 'Bar Chart' else 'line'
-                       chart_data_for_ppt = chart_data_agg.drop(columns=['MonthOnly', 'SortKey'])
-                       x_col_for_ppt = "Month"
-        
-                with st.expander("📊 View Data Table"):
-                       st.dataframe(chart_data_for_ppt, use_container_width=True)
-    
-                ppt_bytes = create_ppt_with_chart(
-            title=f"Budget vs Actual - {table_name} - {selected_sheet}",
-            chart_data=chart_data_for_ppt,
-            x_col=x_col_for_ppt,
-            y_col="Value",
-            chart_type=ppt_type,
-            selected_filter=selected_branch if is_branch_analysis else selected_product if is_product_analysis else None
-        )
-    
-                st.download_button(
-                 "⬇️ Download Budget vs Actual PPT",
-                 ppt_bytes,
-                "budget_vs_actual.pptx",
-                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                 key=f"download_budget_vs_actual_ppt_{selected_sheet}_{sheet_index}"
-                 )
-                return chart_data_for_ppt
+                    with st.expander("📊 View Data Table"):
+                        st.dataframe(chart_data_for_ppt, use_container_width=True)
+
+                    ppt_bytes = create_ppt_with_chart(
+                        title=f"Budget vs Actual - {table_name} - {selected_sheet}",
+                        chart_data=chart_data_for_ppt,
+                        x_col=x_col_for_ppt,
+                        y_col="Value",
+                        chart_type=ppt_type,
+                        selected_filter=selected_branch if is_branch_analysis else selected_product if is_product_analysis else None
+                    )
+
+                    st.download_button(
+                        "⬇️ Download Budget vs Actual PPT",
+                        ppt_bytes,
+                        "budget_vs_actual.pptx",
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                        key=f"download_budget_vs_actual_ppt_{selected_sheet}_{sheet_index}"
+                    )
+                    return chart_data_for_ppt
 
             def plot_monthly_comparison(tab, label, visual_type):
                 with tab:
@@ -1591,7 +1603,7 @@ if uploaded_file:
                 
                     regions_df = regions_df.sort_values(by=ytd_act_col, ascending=False)
                     
-                    # ✅ FIX: Create a clean dataframe with only the columns we need
+                    # Create a clean dataframe with only the columns we need
                     clean_regions_df = regions_df[[first_col, ytd_act_col]].copy()
                     clean_regions_df.columns = ['Branch', 'Performance']  # Standardize column names
                     
@@ -1626,9 +1638,9 @@ if uploaded_file:
                     ppt_type = 'bar' if visual_type == "Bar Chart" else 'line' if visual_type == "Line Chart" else 'pie'
                     ppt_bytes = create_ppt_with_chart(
                         f"Branch Performance - {table_name} - {selected_sheet}",
-                        clean_regions_df,  # ✅ Use clean data
-                        'Branch',          # ✅ Use standardized column name
-                        'Performance',     # ✅ Use standardized column name
+                        clean_regions_df,
+                        'Branch',
+                        'Performance',
                         ppt_type,
                         selected_filter=selected_branch if selected_branch != "Select All" else None
                     )
@@ -1640,7 +1652,7 @@ if uploaded_file:
                         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                         key=f"download_region_performance_ppt_{selected_sheet}_{sheet_index}"
                     )
-                    return clean_regions_df  # ✅ Return clean data for master PPT
+                    return clean_regions_df
 
             def plot_branch_monthwise(tab, visual_type):
                 with tab:
@@ -1672,7 +1684,7 @@ if uploaded_file:
                     act_cols_sorted = sorted(act_cols, key=get_sort_key)
                 
                     first_col = table_df.columns[0]
-                    # ✅ Apply filtering here for Branch Monthwise visualization
+                    # Apply filtering here for Branch Monthwise visualization
                     regions_df = table_df[~table_df[first_col].str.contains('|'.join(BRANCH_EXCLUDE_TERMS), na=False, case=False, regex=True)].copy()
                     # Remove total rows for monthwise analysis
                     regions_df = regions_df[~regions_df[first_col].str.contains(
@@ -1776,7 +1788,7 @@ if uploaded_file:
                 
                     products_df = products_df.sort_values(by=ytd_act_col, ascending=False)
                     
-                    # ✅ FIX: Create a clean dataframe with only the columns we need
+                    # Create a clean dataframe with only the columns we need
                     clean_products_df = products_df[[first_col, ytd_act_col]].copy()
                     clean_products_df.columns = ['Product', 'Performance']  # Standardize column names
                     
@@ -1811,9 +1823,9 @@ if uploaded_file:
                     ppt_type = 'bar' if visual_type == "Bar Chart" else 'line' if visual_type == "Line Chart" else 'pie'
                     ppt_bytes = create_ppt_with_chart(
                         f"Product Performance - {selected_sheet}",
-                        clean_products_df,  # ✅ Use clean data
-                        'Product',          # ✅ Use standardized column name
-                        'Performance',      # ✅ Use standardized column name
+                        clean_products_df,
+                        'Product',
+                        'Performance',
                         ppt_type,
                         selected_filter=selected_product if selected_product != "Select All" else None
                     )
@@ -1825,7 +1837,7 @@ if uploaded_file:
                         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                         key=f"download_product_performance_ppt_{selected_sheet}_{sheet_index}"
                     )
-                    return clean_products_df  # ✅ Return clean data for master PPT
+                    return clean_products_df
 
             def plot_product_monthwise(tab, visual_type):
                 with tab:
@@ -1857,7 +1869,7 @@ if uploaded_file:
                     act_cols_sorted = sorted(act_cols, key=get_sort_key)
                 
                     first_col = table_df.columns[0]
-                    # ✅ Apply filtering here for Product Monthwise visualization
+                    # Apply filtering here for Product Monthwise visualization
                     exclude_terms = ['Total', 'TOTAL', 'Grand', 'GRAND', 'Total Sales']
                     products_df = table_df[~table_df[first_col].str.contains('|'.join(exclude_terms), na=False, case=False, regex=True)].copy()
                     # Remove total rows for monthwise analysis
