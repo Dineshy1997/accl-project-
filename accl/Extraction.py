@@ -2579,9 +2579,13 @@ with tab3:
     else: 
         st.info("ℹ️ Please upload both Sales and Budget files and select appropriate sheets.")
 
+
+
+
 with tab4:
     st.header("📊 Product-wise Analysis")
-    
+
+    # Fiscal year calculation
     current_date = datetime.now()
     current_year = current_date.year
     if current_date.month >= 4:
@@ -2594,9 +2598,10 @@ with tab4:
     last_fiscal_year_start = fiscal_year_start - 1
     last_fiscal_year_end = fiscal_year_end - 1
     last_fiscal_year_str = f"{str(last_fiscal_year_start)[-2:]}-{str(last_fiscal_year_end)[-2:]}"
-    
+
     months = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar']
-    
+
+    # Budget sheet selection
     selected_sheet_budget = None
     if st.session_state.get('uploaded_file_budget'):
         xls_budget = pd.ExcelFile(st.session_state.uploaded_file_budget)
@@ -2605,23 +2610,29 @@ with tab4:
             selected_sheet_budget = budget_sheet_names[0]
             if 'budget_sheet_selection' in st.session_state:
                 selected_sheet_budget = st.session_state.budget_sheet_selection
-    
-    if (st.session_state.get('uploaded_file_sales') and st.session_state.get('uploaded_file_budget') and 
+
+    if (st.session_state.get('uploaded_file_sales') and st.session_state.get('uploaded_file_budget') and
         'selected_sheets_sales' in st.session_state and selected_sheet_budget):
         try:
+            # Load and clean budget data
             xls_budget = pd.ExcelFile(st.session_state.uploaded_file_budget)
             df_budget = pd.read_excel(xls_budget, sheet_name=selected_sheet_budget)
             df_budget.columns = df_budget.columns.str.strip()
             df_budget = df_budget.dropna(how='all').reset_index(drop=True)
 
+            # Process budget data
             budget_data = process_budget_data(df_budget, group_type='product')
             if budget_data is None:
                 st.error("Failed to process budget data for products.")
                 st.stop()
+            
+            # Standardize product names
+            budget_data['PRODUCT NAME'] = budget_data['PRODUCT NAME'].astype(str).str.strip().str.upper().replace('', np.nan).fillna('UNKNOWN')
             st.session_state.product_budget_data = budget_data
 
             required_cols = ['PRODUCT NAME']
             if all(col in budget_data.columns for col in required_cols):
+                # Define YTD periods
                 ytd_periods = {}
                 ytd_periods[f'YTD-{fiscal_year_str} (Apr to Jun)Budget'] = [f'Budget-{month}-{str(fiscal_year_start)[-2:]}' for month in months[:3]]
                 ytd_periods[f'YTD-{fiscal_year_str} (Apr to Sep)Budget'] = [f'Budget-{month}-{str(fiscal_year_start)[-2:]}' for month in months[:6]]
@@ -2645,7 +2656,7 @@ with tab4:
                     [f'Act-{month}-{str(fiscal_year_end)[-2:]}' for month in months[9:]]
                 )
 
-                # --- Centralized Product Extraction Logic ---
+                # Centralized Product Extraction
                 all_products = set(budget_data['PRODUCT NAME'].dropna().astype(str).str.strip().str.upper())
                 actual_mt_data = {}
                 actual_value_data = {}
@@ -2654,60 +2665,49 @@ with tab4:
                 # Extract products from sales sheets
                 if st.session_state.get('uploaded_file_sales') and 'selected_sheets_sales' in st.session_state:
                     xls_sales = pd.ExcelFile(st.session_state.uploaded_file_sales)
-                    
                     for sheet_name in st.session_state.selected_sheets_sales:
                         try:
                             df_sales = pd.read_excel(xls_sales, sheet_name=sheet_name, header=0)
-                            
                             if isinstance(df_sales.columns, pd.MultiIndex):
                                 df_sales.columns = ['_'.join(col).strip() for col in df_sales.columns.values]
-                            
                             df_sales = handle_duplicate_columns(df_sales)
-                            
                             product_col = find_column(df_sales, ['Type (Make)', 'Type(Make)'], case_sensitive=False)
-                            
-                            
+                            if product_col:
+                                unique_products = df_sales[product_col].dropna().astype(str).str.strip().str.upper().unique()
+                                all_products.update(unique_products)
                         except Exception as e:
-                            st.warning(f"Error processing sheet '{sheet_name}': {str(e)}")
+                            st.warning(f"Error processing sales sheet '{sheet_name}': {str(e)}")
                             continue
-                
+
                 # Extract products from last year sheet
                 if st.session_state.get('uploaded_file_last_year') and selected_sheet_last_year:
                     try:
                         xls_last_year = pd.ExcelFile(st.session_state.uploaded_file_last_year)
                         df_last_year = pd.read_excel(xls_last_year, sheet_name=selected_sheet_last_year, header=0)
-                        
                         if isinstance(df_last_year.columns, pd.MultiIndex):
                             df_last_year.columns = ['_'.join(col).strip() for col in df_last_year.columns.values]
                         df_last_year = handle_duplicate_columns(df_last_year)
-                        
                         product_col = find_column(df_last_year, ['Type (Make)', 'Type(Make)', 'Product Group', 'Product'], case_sensitive=False)
-                        
-                        # Debug: Show which column is considered the product column for last year data
-                        
                         if product_col:
-        
                             unique_products = df_last_year[product_col].dropna().astype(str).str.strip().str.upper().unique()
-                            
+                            all_products.update(unique_products)
                         else:
-                            st.warning(f"No product column found in sheet '{selected_sheet_last_year}'. Searched for: 'Type (Make)', 'Type(Make)', 'Product Group', 'Product'.")
+                            st.warning(f"No product column found in last year sheet '{selected_sheet_last_year}'.")
                     except Exception as e:
                         st.warning(f"Error processing last year data: {str(e)}")
-                
+
                 # Initialize tabs
                 tab_product_mt, tab_product_value, tab_product_merge = st.tabs(
                     ["SALES in Tonage", "SALES in Value", "Merge Preview"]
                 )
 
                 with tab_product_mt:
-                    mt_cols = [col for col in budget_data.columns if col.endswith('_MT')]
-                    mt_cols = [col for col in mt_cols if not col.endswith(f'-{last_fiscal_year_start}_MT')]
-                    
+                    mt_cols = [col for col in budget_data.columns if col.endswith('_MT') and not col.endswith(f'-{last_fiscal_year_start}_MT')]
                     if mt_cols:
-                        month_cols = sorted(set(col.replace('_MT', '') for col in mt_cols if not col.endswith(f'-{last_fiscal_year_start}_MT')))
+                        month_cols = sorted(set(col.replace('_MT', '') for col in mt_cols))
                         last_year_cols = sorted(set(col.replace('_MT', '') for col in budget_data.columns if col.endswith(f'-{last_fiscal_year_start}_MT')))
                         
-                        # Initialize result_product_mt with all unique products
+                        # Initialize result DataFrame
                         result_product_mt = pd.DataFrame({'PRODUCT NAME': sorted(list(all_products))})
                         
                         # Populate budget and last year columns
@@ -2735,28 +2735,19 @@ with tab4:
                         # Process sales sheets for actual data
                         if st.session_state.get('uploaded_file_sales') and 'selected_sheets_sales' in st.session_state:
                             xls_sales = pd.ExcelFile(st.session_state.uploaded_file_sales)
-                            
                             for sheet_name in st.session_state.selected_sheets_sales:
                                 try:
                                     df_sales = pd.read_excel(xls_sales, sheet_name=sheet_name, header=0)
-                                    
                                     if isinstance(df_sales.columns, pd.MultiIndex):
                                         df_sales.columns = ['_'.join(col).strip() for col in df_sales.columns.values]
-                                    
                                     df_sales = handle_duplicate_columns(df_sales)
-                                    
                                     product_col = find_column(df_sales, ['Type (Make)', 'Type(Make)'], case_sensitive=False)
                                     date_col = find_column(df_sales, ['Month Format', 'Date', 'Month'], case_sensitive=False)
                                     qty_col = find_column(df_sales, ['Actual Quantity', 'Acutal Quantity'], case_sensitive=False)
                                     
-                                    if sheet_name.lower() == 'sheet1' or 'total sales' in sheet_name.lower():
-                                        product_col = find_column(df_sales, ['Type (Make)', 'Type(Make)'], case_sensitive=False) or product_col
-                                        qty_col = find_column(df_sales, ['Actual Quantity', 'Acutal Quantity'], case_sensitive=False) or qty_col
-                                    
                                     if product_col and date_col and qty_col:
                                         df_sales = df_sales[[product_col, date_col, qty_col]].copy()
                                         df_sales.columns = ['Product Group', 'Month Format', 'Actual Quantity']
-                                        
                                         df_sales['Actual Quantity'] = pd.to_numeric(df_sales['Actual Quantity'], errors='coerce').fillna(0)
                                         df_sales['Product Group'] = df_sales['Product Group'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
                                         
@@ -2778,10 +2769,8 @@ with tab4:
                                             product = row['Product Group']
                                             month = row['Month']
                                             qty = row['Actual Quantity']
-                                            
                                             year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
                                             col_name = f'Act-{month}-{year}'
-                                            
                                             if product not in actual_mt_data:
                                                 actual_mt_data[product] = {}
                                             if col_name in actual_mt_data[product]:
@@ -2789,22 +2778,19 @@ with tab4:
                                             else:
                                                 actual_mt_data[product][col_name] = qty
                                     else:
-                                        st.warning(f"Required columns not found in sales sheet '{sheet_name}'. Expected: Type (Make)/Product Group, Month Format/Date, Actual Quantity. Found: {df_sales.columns.tolist()}")
-                                        
+                                        st.warning(f"Required columns not found in sales sheet '{sheet_name}'. Expected: Type (Make)/Product Group, Month Format/Date, Actual Quantity.")
                                 except Exception as e:
-                                    st.warning(f"Error processing sheet '{sheet_name}': {str(e)}")
+                                    st.warning(f"Error processing sales sheet '{sheet_name}': {str(e)}")
                                     continue
                         
-                        # Process last year data for actual data
+                        # Process last year data
                         if st.session_state.get('uploaded_file_last_year') and selected_sheet_last_year:
                             try:
                                 xls_last_year = pd.ExcelFile(st.session_state.uploaded_file_last_year)
                                 df_last_year = pd.read_excel(xls_last_year, sheet_name=selected_sheet_last_year, header=0)
-                                
                                 if isinstance(df_last_year.columns, pd.MultiIndex):
                                     df_last_year.columns = ['_'.join(col).strip() for col in df_last_year.columns.values]
                                 df_last_year = handle_duplicate_columns(df_last_year)
-                                
                                 product_col = find_column(df_last_year, ['Type (Make)', 'Type(Make)', 'Product Group', 'Product'], case_sensitive=False)
                                 date_col = find_column(df_last_year, ['Month Format', 'Date', 'Month'], case_sensitive=False)
                                 qty_col = find_column(df_last_year, ['Actual Quantity', 'Acutal Quantity', 'Quantity'], case_sensitive=False)
@@ -2812,7 +2798,6 @@ with tab4:
                                 if product_col and date_col and qty_col:
                                     df_last_year = df_last_year[[product_col, date_col, qty_col]].copy()
                                     df_last_year.columns = ['Product Group', 'Month Format', 'Actual Quantity']
-                                    
                                     df_last_year['Actual Quantity'] = pd.to_numeric(df_last_year['Actual Quantity'], errors='coerce').fillna(0)
                                     df_last_year['Product Group'] = df_last_year['Product Group'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
                                     
@@ -2834,19 +2819,16 @@ with tab4:
                                         product = row['Product Group']
                                         month = row['Month']
                                         qty = row['Actual Quantity']
-                                        
                                         year = str(last_fiscal_year_start)[-2:] if month in months[:9] else str(last_fiscal_year_end)[-2:]
                                         col_name = f'LY-{month}-{year}'
-                                        
                                         if product not in actual_mt_data:
                                             actual_mt_data[product] = {}
                                         if col_name in actual_mt_data[product]:
                                             actual_mt_data[product][col_name] += qty
                                         else:
                                             actual_mt_data[product][col_name] = qty
-                                    
                                 else:
-                                    st.warning(f"Required columns not found in last year sheet '{selected_sheet_last_year}'. Expected: Type (Make)/Product Group, Month Format/Date, Actual Quantity. Found: {df_last_year.columns.tolist()}")
+                                    st.warning(f"Required columns not found in last year sheet '{selected_sheet_last_year}'.")
                             except Exception as e:
                                 st.warning(f"Error processing last year data: {str(e)}")
                         else:
@@ -2864,14 +2846,18 @@ with tab4:
                                     result_product_mt[col] = 0.0
                                 result_product_mt.loc[idx, col] = value
                         
+                        # Handle duplicates
                         if result_product_mt['PRODUCT NAME'].duplicated().any():
+                            st.warning("Duplicate products found in tonage data. Aggregating...")
                             numeric_cols_result = result_product_mt.select_dtypes(include=[np.number]).columns
                             agg_dict = {col: 'sum' for col in numeric_cols_result}
                             result_product_mt = result_product_mt.groupby('PRODUCT NAME', as_index=False).agg(agg_dict)
                         
+                        # Ensure numeric columns
                         numeric_cols = result_product_mt.select_dtypes(include=[np.number]).columns
                         result_product_mt[numeric_cols] = result_product_mt[numeric_cols].fillna(0)
-
+                        
+                        # Calculate Growth and Achievement
                         for month in months:
                             budget_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
                             actual_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
@@ -2883,33 +2869,45 @@ with tab4:
                             gr_col = f'Gr-{month}-{actual_year}'
                             ach_col = f'Ach-{month}-{actual_year}'
                             
+                            if budget_col not in result_product_mt.columns or actual_col not in result_product_mt.columns:
+                                continue
+                            
                             if gr_col not in result_product_mt.columns:
                                 result_product_mt[gr_col] = 0.0
                             if ach_col not in result_product_mt.columns:
                                 result_product_mt[ach_col] = 0.0
                             
-                            if ly_col in result_product_mt.columns and actual_col in result_product_mt.columns:
+                            # Ensure numeric
+                            result_product_mt[budget_col] = pd.to_numeric(result_product_mt[budget_col], errors='coerce').fillna(0)
+                            result_product_mt[actual_col] = pd.to_numeric(result_product_mt[actual_col], errors='coerce').fillna(0)
+                            if ly_col in result_product_mt.columns:
+                                result_product_mt[ly_col] = pd.to_numeric(result_product_mt[ly_col], errors='coerce').fillna(0)
+                            
+                            # Calculate Growth
+                            if ly_col in result_product_mt.columns:
                                 result_product_mt[gr_col] = np.where(
-                                    (result_product_mt[ly_col] != 0) & (pd.notna(result_product_mt[ly_col])) & (pd.notna(result_product_mt[actual_col])),
+                                    (result_product_mt[ly_col] > 0.01) & (pd.notna(result_product_mt[ly_col])) & (pd.notna(result_product_mt[actual_col])),
                                     ((result_product_mt[actual_col] - result_product_mt[ly_col]) / result_product_mt[ly_col] * 100).round(2),
                                     0
                                 )
                             
-                            if budget_col in result_product_mt.columns and actual_col in result_product_mt.columns:
-                                result_product_mt[ach_col] = np.where(
-                                    (result_product_mt[budget_col] != 0) & (pd.notna(result_product_mt[budget_col])) & (pd.notna(result_product_mt[actual_col])),
-                                    (result_product_mt[actual_col] / result_product_mt[budget_col] * 100).round(2),
-                                    0
-                                )
-
-                        exclude_products = ['NORTH TOTAL', 'WEST SALES', 'GRAND TOTAL']
-                        mask = ~result_product_mt['PRODUCT NAME'].isin(exclude_products + ['TOTAL SALES'])
+                            # Calculate Achievement
+                            result_product_mt[ach_col] = np.where(
+                                (result_product_mt[budget_col] > 0.01) & (pd.notna(result_product_mt[budget_col])) & (pd.notna(result_product_mt[actual_col])),
+                                (result_product_mt[actual_col] / result_product_mt[budget_col] * 100).round(2),
+                                0
+                            )
+                        
+                        # Filter out summary rows
+                        exclude_products = ['NORTH TOTAL', 'WEST SALES', 'GRAND TOTAL', 'TOTAL SALES']
+                        mask = ~result_product_mt['PRODUCT NAME'].isin(exclude_products)
                         valid_products = result_product_mt[mask]
                         
+                        # Calculate total row
                         total_row = pd.DataFrame({'PRODUCT NAME': ['TOTAL SALES']})
                         for col in numeric_cols:
                             if col in valid_products.columns:
-                                total_row[col] = [valid_products[col].sum().round(2)]
+                                total_row[col] = [valid_products[col].sum(skipna=True).round(2)]
                         
                         for month in months:
                             budget_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
@@ -2928,7 +2926,7 @@ with tab4:
                                 else:
                                     total_row[gr_col] = [0]
                                 
-                                if total_row[budget_col].iloc[0] != 0:
+                                if total_row[budget_col].iloc[0] > 0.01:
                                     total_row[ach_col] = [(total_row[actual_col].iloc[0] / total_row[budget_col].iloc[0] * 100).round(2)]
                                 else:
                                     total_row[ach_col] = [0]
@@ -2939,10 +2937,8 @@ with tab4:
                         st.session_state.product_mt_data = result_product_mt
 
                         st.subheader(f"Product-wise Budget and Actual Tonage (Month-wise) [{fiscal_year_str}]")
-                        
                         display_df = result_product_mt.copy()
                         numeric_display_cols = display_df.select_dtypes(include=[np.number]).columns
-                        
                         try:
                             for col in numeric_display_cols:
                                 display_df[col] = display_df[col].apply(lambda x: f"{x:,.2f}" if pd.notna(x) else "0.00")
@@ -2954,24 +2950,20 @@ with tab4:
                         st.download_button(
                             "⬇️ Download Product Tonage Data",
                             csv_mt,
-                            file_name=f"product_budget_qty_{selected_sheet_budget}_{fiscal_year_str}.csv",
+                            file_name=f"product_budget_tonage_{selected_sheet_budget}_{fiscal_year_str}.csv",
                             mime="text/csv"
                         )
                     else:
                         st.warning("No budget tonage columns found.")
 
                 with tab_product_value:
-                    value_cols = [col for col in budget_data.columns if col.endswith('_Value')]
-                    value_cols = [col for col in value_cols if not col.endswith(f'-{last_fiscal_year_start}_Value')]
-                    
+                    value_cols = [col for col in budget_data.columns if col.endswith('_Value') and not col.endswith(f'-{last_fiscal_year_start}_Value')]
                     if value_cols:
-                        month_cols = sorted(set(col.replace('_Value', '') for col in value_cols if not col.endswith(f'-{last_fiscal_year_start}_Value')))
+                        month_cols = sorted(set(col.replace('_Value', '') for col in value_cols))
                         last_year_cols = sorted(set(col.replace('_Value', '') for col in budget_data.columns if col.endswith(f'-{last_fiscal_year_start}_Value')))
                         
-                        # Initialize result_product_value with all unique products
                         result_product_value = pd.DataFrame({'PRODUCT NAME': sorted(list(all_products))})
                         
-                        # Populate budget and last year columns
                         for month_col in month_cols:
                             if f'{month_col}_Value' in budget_data.columns:
                                 result_product_value[month_col] = 0.0
@@ -2996,16 +2988,12 @@ with tab4:
                         # Process sales sheets for actual data
                         if st.session_state.get('uploaded_file_sales') and 'selected_sheets_sales' in st.session_state:
                             xls_sales = pd.ExcelFile(st.session_state.uploaded_file_sales)
-                            
                             for sheet_name in st.session_state.selected_sheets_sales:
                                 try:
                                     df_sales = pd.read_excel(xls_sales, sheet_name=sheet_name, header=0)
-                                    
                                     if isinstance(df_sales.columns, pd.MultiIndex):
                                         df_sales.columns = ['_'.join(col).strip() for col in df_sales.columns.values]
-                                    
                                     df_sales = handle_duplicate_columns(df_sales)
-                                    
                                     product_col = find_column(df_sales, ['Type (Make)', 'Type(Make)'], case_sensitive=False)
                                     date_col = find_column(df_sales, ['Month Format', 'Date', 'Month'], case_sensitive=False)
                                     value_col = find_column(df_sales, ['Amount', 'Value', 'Sales Value'], case_sensitive=False)
@@ -3013,7 +3001,6 @@ with tab4:
                                     if product_col and date_col and value_col:
                                         df_sales = df_sales[[product_col, date_col, value_col]].copy()
                                         df_sales.columns = ['Product Group', 'Month Format', 'Value']
-                                        
                                         df_sales['Value'] = pd.to_numeric(df_sales['Value'], errors='coerce').fillna(0)
                                         df_sales['Product Group'] = df_sales['Product Group'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
                                         
@@ -3035,10 +3022,8 @@ with tab4:
                                             product = row['Product Group']
                                             month = row['Month']
                                             value = row['Value']
-                                            
                                             year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
                                             col_name = f'Act-{month}-{year}'
-                                            
                                             if product not in actual_value_data:
                                                 actual_value_data[product] = {}
                                             if col_name in actual_value_data[product]:
@@ -3046,22 +3031,19 @@ with tab4:
                                             else:
                                                 actual_value_data[product][col_name] = value
                                     else:
-                                        st.warning(f"Required columns not found in sales sheet '{sheet_name}'. Expected: Type (Make)/Product Group, Month Format/Date, Amount/Value. Found: {df_sales.columns.tolist()}")
-                                        
+                                        st.warning(f"Required columns not found in sales sheet '{sheet_name}'. Expected: Type (Make)/Product Group, Month Format/Date, Amount/Value.")
                                 except Exception as e:
-                                    st.warning(f"Error processing sheet '{sheet_name}': {str(e)}")
+                                    st.warning(f"Error processing sales sheet '{sheet_name}': {str(e)}")
                                     continue
                         
-                        # Process last year data for actual data
+                        # Process last year data
                         if st.session_state.get('uploaded_file_last_year') and selected_sheet_last_year:
                             try:
                                 xls_last_year = pd.ExcelFile(st.session_state.uploaded_file_last_year)
                                 df_last_year = pd.read_excel(xls_last_year, sheet_name=selected_sheet_last_year, header=0)
-                                
                                 if isinstance(df_last_year.columns, pd.MultiIndex):
                                     df_last_year.columns = ['_'.join(col).strip() for col in df_last_year.columns.values]
                                 df_last_year = handle_duplicate_columns(df_last_year)
-                                
                                 product_col = find_column(df_last_year, ['Type (Make)', 'Type(Make)', 'Product Group', 'Product'], case_sensitive=False)
                                 date_col = find_column(df_last_year, ['Month Format', 'Date', 'Month'], case_sensitive=False)
                                 amount_col = find_column(df_last_year, ['Amount', 'Value', 'Sales Value'], case_sensitive=False)
@@ -3069,7 +3051,6 @@ with tab4:
                                 if product_col and date_col and amount_col:
                                     df_last_year = df_last_year[[product_col, date_col, amount_col]].copy()
                                     df_last_year.columns = ['Product Group', 'Month Format', 'Amount']
-                                    
                                     df_last_year['Amount'] = pd.to_numeric(df_last_year['Amount'], errors='coerce').fillna(0)
                                     df_last_year['Product Group'] = df_last_year['Product Group'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
                                     
@@ -3091,19 +3072,16 @@ with tab4:
                                         product = row['Product Group']
                                         month = row['Month']
                                         amount = row['Amount']
-                                        
                                         year = str(last_fiscal_year_start)[-2:] if month in months[:9] else str(last_fiscal_year_end)[-2:]
                                         col_name = f'LY-{month}-{year}'
-                                        
                                         if product not in actual_value_data:
                                             actual_value_data[product] = {}
                                         if col_name in actual_value_data[product]:
                                             actual_value_data[product][col_name] += amount
                                         else:
                                             actual_value_data[product][col_name] = amount
-                                    
                                 else:
-                                    st.warning(f"Required columns not found in last year sheet '{selected_sheet_last_year}'. Expected: Type (Make)/Product Group, Month Format/Date, Amount/Value. Found: {df_last_year.columns.tolist()}")
+                                    st.warning(f"Required columns not found in last year sheet '{selected_sheet_last_year}'.")
                             except Exception as e:
                                 st.warning(f"Error processing last year value data: {str(e)}")
                         else:
@@ -3121,14 +3099,17 @@ with tab4:
                                     result_product_value[col] = 0.0
                                 result_product_value.loc[idx, col] = value
                         
+                        # Handle duplicates
                         if result_product_value['PRODUCT NAME'].duplicated().any():
+                            st.warning("Duplicate products found in value data. Aggregating...")
                             numeric_cols_result = result_product_value.select_dtypes(include=[np.number]).columns
                             agg_dict = {col: 'sum' for col in numeric_cols_result}
                             result_product_value = result_product_value.groupby('PRODUCT NAME', as_index=False).agg(agg_dict)
                         
                         numeric_cols = result_product_value.select_dtypes(include=[np.number]).columns
                         result_product_value[numeric_cols] = result_product_value[numeric_cols].fillna(0)
-
+                        
+                        # Calculate Growth and Achievement
                         for month in months:
                             budget_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
                             actual_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
@@ -3140,33 +3121,44 @@ with tab4:
                             gr_col = f'Gr-{month}-{actual_year}'
                             ach_col = f'Ach-{month}-{actual_year}'
                             
+                            if budget_col not in result_product_value.columns or actual_col not in result_product_value.columns:
+                                
+                                continue
+                            
                             if gr_col not in result_product_value.columns:
                                 result_product_value[gr_col] = 0.0
                             if ach_col not in result_product_value.columns:
                                 result_product_value[ach_col] = 0.0
                             
-                            if ly_col in result_product_value.columns and actual_col in result_product_value.columns:
+                            # Ensure numeric
+                            result_product_value[budget_col] = pd.to_numeric(result_product_value[budget_col], errors='coerce').fillna(0)
+                            result_product_value[actual_col] = pd.to_numeric(result_product_value[actual_col], errors='coerce').fillna(0)
+                            if ly_col in result_product_value.columns:
+                                result_product_value[ly_col] = pd.to_numeric(result_product_value[ly_col], errors='coerce').fillna(0)
+                            
+                            # Calculate Growth
+                            if ly_col in result_product_value.columns:
                                 result_product_value[gr_col] = np.where(
-                                    (result_product_value[ly_col] != 0) & (pd.notna(result_product_value[ly_col])) & (pd.notna(result_product_value[actual_col])),
+                                    (result_product_value[ly_col] > 0.01) & (pd.notna(result_product_value[ly_col])) & (pd.notna(result_product_value[actual_col])),
                                     ((result_product_value[actual_col] - result_product_value[ly_col]) / result_product_value[ly_col] * 100).round(2),
                                     0
                                 )
                             
-                            if budget_col in result_product_value.columns and actual_col in result_product_value.columns:
-                                result_product_value[ach_col] = np.where(
-                                    (result_product_value[budget_col] != 0) & (pd.notna(result_product_value[budget_col])) & (pd.notna(result_product_value[actual_col])),
-                                    (result_product_value[actual_col] / result_product_value[budget_col] * 100).round(2),
-                                    0
-                                )
-
-                        exclude_products = ['NORTH TOTAL', 'WEST SALES', 'GRAND TOTAL']
-                        mask = ~result_product_value['PRODUCT NAME'].isin(exclude_products + ['TOTAL SALES'])
+                            # Calculate Achievement
+                            result_product_value[ach_col] = np.where(
+                                (result_product_value[budget_col] > 0.01) & (pd.notna(result_product_value[budget_col])) & (pd.notna(result_product_value[actual_col])),
+                                (result_product_value[actual_col] / result_product_value[budget_col] * 100).round(2),
+                                0
+                            )
+                        
+                        exclude_products = ['NORTH TOTAL', 'WEST SALES', 'GRAND TOTAL', 'TOTAL SALES']
+                        mask = ~result_product_value['PRODUCT NAME'].isin(exclude_products)
                         valid_products = result_product_value[mask]
                         
                         total_row = pd.DataFrame({'PRODUCT NAME': ['TOTAL SALES']})
                         for col in numeric_cols:
                             if col in valid_products.columns:
-                                total_row[col] = [valid_products[col].sum().round(2)]
+                                total_row[col] = [valid_products[col].sum(skipna=True).round(2)]
                         
                         for month in months:
                             budget_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
@@ -3185,7 +3177,7 @@ with tab4:
                                 else:
                                     total_row[gr_col] = [0]
                                 
-                                if total_row[budget_col].iloc[0] != 0:
+                                if total_row[budget_col].iloc[0] > 0.01:
                                     total_row[ach_col] = [(total_row[actual_col].iloc[0] / total_row[budget_col].iloc[0] * 100).round(2)]
                                 else:
                                     total_row[ach_col] = [0]
@@ -3196,10 +3188,8 @@ with tab4:
                         st.session_state.product_value_data = result_product_value
 
                         st.subheader(f"Product-wise Budget and Actual Value (Month-wise) [{fiscal_year_str}]")
-                        
                         display_df = result_product_value.copy()
                         numeric_display_cols = display_df.select_dtypes(include=[np.number]).columns
-                        
                         try:
                             for col in numeric_display_cols:
                                 display_df[col] = display_df[col].apply(lambda x: f"{x:,.2f}" if pd.notna(x) else "0.00")
@@ -3283,7 +3273,6 @@ with tab4:
                                     mt_table = df_auditor.iloc[mt_data_start:].dropna(how='all')
                                 
                                 mt_table = mt_table[~mt_table.iloc[:, 0].astype(str).str.upper().str.contains('PRODUCT NAME', na=False)]
-                                
                                 mt_table.columns = df_auditor.iloc[mt_idx]
                                 mt_table.columns = rename_columns(mt_table.columns)
                                 mt_table = handle_duplicate_columns(mt_table)
@@ -3297,9 +3286,7 @@ with tab4:
                             
                             if value_idx is not None:
                                 value_table = df_auditor.iloc[value_data_start:].dropna(how='all')
-                                
                                 value_table = value_table[~value_table.iloc[:, 0].astype(str).str.upper().str.contains('PRODUCT NAME', na=False)]
-                                
                                 value_table.columns = df_auditor.iloc[value_idx]
                                 value_table.columns = rename_columns(value_table.columns)
                                 value_table = handle_duplicate_columns(value_table)
@@ -3312,13 +3299,11 @@ with tab4:
                                 auditor_value_table = value_table
 
                             merged_mt_data = pd.DataFrame()
-                            if (auditor_mt_table is not None and 
-                                'product_mt_data' in st.session_state and 
+                            if (auditor_mt_table is not None and
+                                'product_mt_data' in st.session_state and
                                 not st.session_state.product_mt_data.empty):
-                                
                                 auditor_mt = auditor_mt_table.copy()
                                 generated_mt = st.session_state.product_mt_data.copy()
-                                
                                 if 'SALES in Tonage' in generated_mt.columns:
                                     generated_mt = generated_mt.rename(columns={'SALES in Tonage': 'PRODUCT NAME'})
                                 generated_mt['PRODUCT NAME'] = generated_mt['PRODUCT NAME'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
@@ -3351,7 +3336,7 @@ with tab4:
                                 
                                 if common_cols:
                                     if generated_mt['PRODUCT NAME'].duplicated().any():
-                                        st.warning("⚠️ Duplicate products detected in generated data. Aggregating values...")
+                                        st.warning("⚠️ Duplicate products detected in generated tonage data. Aggregating values...")
                                         numeric_cols_gen = generated_mt.select_dtypes(include=[np.number]).columns
                                         agg_dict = {col: 'sum' for col in numeric_cols_gen}
                                         for col in generated_mt.columns:
@@ -3377,10 +3362,13 @@ with tab4:
                                             merged_mt_data['SALES in Tonage'] == 'TOTAL SALES', col
                                         ] = round(sum_value, 2)
                                 
+                                # YTD calculations
                                 for ytd_col, months_list in ytd_periods.items():
                                     valid_months = [month for month in months_list if month in merged_mt_data.columns]
                                     if valid_months:
                                         merged_mt_data[ytd_col] = merged_mt_data[valid_months].sum(axis=1, skipna=True).round(2)
+                                    else:
+                                        st.warning(f"No valid months found for YTD column: {ytd_col}")
                                 
                                 ytd_pairs = [
                                     ('Apr to Jun', f'YTD-{fiscal_year_str} (Apr to Jun)Budget', f'YTD-{last_fiscal_year_str} (Apr to Jun)LY', f'Act-YTD-{fiscal_year_str} (Apr to Jun)'),
@@ -3392,12 +3380,12 @@ with tab4:
                                 for period, budget_col, ly_col, act_col in ytd_pairs:
                                     if all(col in merged_mt_data.columns for col in [budget_col, ly_col, act_col]):
                                         merged_mt_data[f'Gr-YTD-{fiscal_year_str} ({period})'] = np.where(
-                                            merged_mt_data[ly_col] != 0,
+                                            merged_mt_data[ly_col] > 0.01,
                                             ((merged_mt_data[act_col] - merged_mt_data[ly_col]) / merged_mt_data[ly_col] * 100).round(2),
                                             0
                                         )
                                         merged_mt_data[f'Ach-YTD-{fiscal_year_str} ({period})'] = np.where(
-                                            merged_mt_data[budget_col] != 0,
+                                            merged_mt_data[budget_col] > 0.01,
                                             (merged_mt_data[act_col] / merged_mt_data[budget_col] * 100).round(2),
                                             0
                                         )
@@ -3405,13 +3393,11 @@ with tab4:
                                 st.session_state.merged_product_mt_data = merged_mt_data
                             
                             merged_value_data = pd.DataFrame()
-                            if (auditor_value_table is not None and 
-                                'product_value_data' in st.session_state and 
+                            if (auditor_value_table is not None and
+                                'product_value_data' in st.session_state and
                                 not st.session_state.product_value_data.empty):
-                                
                                 auditor_value = auditor_value_table.copy()
                                 generated_value = st.session_state.product_value_data.copy()
-                                
                                 if 'SALES in Value' in generated_value.columns:
                                     generated_value = generated_value.rename(columns={'SALES in Value': 'PRODUCT NAME'})
                                 generated_value['PRODUCT NAME'] = generated_value['PRODUCT NAME'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper() if pd.notnull(x) else '')
@@ -3453,7 +3439,7 @@ with tab4:
                                         generated_value = generated_value.groupby('PRODUCT NAME', as_index=False).agg(agg_dict)
                                     
                                     generated_dict = generated_value.set_index('PRODUCT NAME').to_dict('index')
-                                    for product in merged_value_data['SALES in Value']:
+                                    for product in sorted_products:
                                         if product in generated_dict:
                                             for col in common_cols:
                                                 if col in generated_dict[product] and pd.notna(generated_dict[product][col]):
@@ -3470,20 +3456,23 @@ with tab4:
                                             merged_value_data['SALES in Value'] == 'TOTAL SALES', col
                                         ] = round(sum_value, 2)
 
+                                # YTD calculations
                                 for ytd_col, months_list in ytd_periods.items():
                                     valid_months = [month for month in months_list if month in merged_value_data.columns]
                                     if valid_months:
                                         merged_value_data[ytd_col] = merged_value_data[valid_months].sum(axis=1, skipna=True).round(2)
+                                    else:
+                                        st.warning(f"No valid months found for YTD column: {ytd_col}")
                                 
                                 for period, budget_col, ly_col, act_col in ytd_pairs:
                                     if all(col in merged_value_data.columns for col in [budget_col, ly_col, act_col]):
                                         merged_value_data[f'Gr-YTD-{fiscal_year_str} ({period})'] = np.where(
-                                            merged_value_data[ly_col] != 0,
+                                            merged_value_data[ly_col] > 0.01,
                                             ((merged_value_data[act_col] - merged_value_data[ly_col]) / merged_value_data[ly_col] * 100).round(2),
                                             0
                                         )
                                         merged_value_data[f'Ach-YTD-{fiscal_year_str} ({period})'] = np.where(
-                                            merged_value_data[budget_col] != 0,
+                                            merged_value_data[budget_col] > 0.01,
                                             (merged_value_data[act_col] / merged_value_data[budget_col] * 100).round(2),
                                             0
                                         )
@@ -3492,44 +3481,25 @@ with tab4:
 
                             if not merged_mt_data.empty:
                                 st.subheader(f"Merged Data (SALES in Tonage) [{fiscal_year_str}]")
-                                total_products = len(merged_mt_data)
-                                summary_rows = len([p for p in merged_mt_data['SALES in Tonage'] if 'TOTAL' in p.upper()])
-                                regular_products = total_products - summary_rows
-                                
-                                
-                                
-                                display_mt = merged_mt_data
-                                
-                                display_df = display_mt.copy()
+                                display_df = merged_mt_data.copy()
                                 numeric_cols = display_df.select_dtypes(include=[np.number]).columns
                                 for col in numeric_cols:
                                     display_df[col] = display_df[col].apply(lambda x: f"{x:,.2f}" if pd.notna(x) else "0.00")
-                                
                                 st.dataframe(display_df, use_container_width=True)
 
                             if not merged_value_data.empty:
                                 st.subheader(f"Merged Data (SALES in Value) [{fiscal_year_str}]")
-                                total_products = len(merged_value_data)
-                                summary_rows = len([p for p in merged_value_data['SALES in Value'] if 'TOTAL' in p.upper()])
-                                regular_products = total_products - summary_rows
-                                
-                                
-                                display_value = merged_value_data
-                                
-                                display_df = display_value.copy()
+                                display_df = merged_value_data.copy()
                                 numeric_cols = display_df.select_dtypes(include=[np.number]).columns
                                 for col in numeric_cols:
                                     display_df[col] = display_df[col].apply(lambda x: f"{x:,.2f}" if pd.notna(x) else "0.00")
-                                
                                 st.dataframe(display_df, use_container_width=True)
 
                             if not merged_mt_data.empty or not merged_value_data.empty:
                                 with st.spinner("Preparing Excel file..."):
                                     output = BytesIO()
-                                    
                                     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                                         workbook = writer.book
-                                        
                                         title_format = workbook.add_format({
                                             'bold': True, 'align': 'center', 'valign': 'vcenter',
                                             'font_size': 16, 'font_color': '#000000', 'bg_color': '#D9E1F2'
@@ -3547,22 +3517,15 @@ with tab4:
                                         if not merged_mt_data.empty:
                                             merged_mt_data.to_excel(writer, sheet_name='MT_Data', index=False, startrow=3)
                                             worksheet = writer.sheets['MT_Data']
-                                            
-                                            worksheet.merge_range(0, 0, 0, len(merged_mt_data.columns)-1, 
+                                            worksheet.merge_range(0, 0, 0, len(merged_mt_data.columns)-1,
                                                                 f"PRODUCT WISE SALES - TONAGE DATA [{fiscal_year_str}]", title_format)
-                                            
                                             for col_num, value in enumerate(merged_mt_data.columns):
                                                 worksheet.write(3, col_num, value, header_format)
-                                            
                                             for row_num in range(len(merged_mt_data)):
                                                 product_name = merged_mt_data.iloc[row_num, 0]
                                                 is_total = 'TOTAL' in str(product_name).upper()
-                                                
                                                 for col_num in range(len(merged_mt_data.columns)):
-                                                    if col_num == 0:
-                                                        fmt = total_format if is_total else text_format
-                                                    else:
-                                                        fmt = total_format if is_total else num_format
+                                                    fmt = total_format if is_total else (text_format if col_num == 0 else num_format)
                                                     value = merged_mt_data.iloc[row_num, col_num]
                                                     if col_num > 0 and isinstance(value, str):
                                                         try:
@@ -3570,7 +3533,6 @@ with tab4:
                                                         except (ValueError, TypeError):
                                                             value = value
                                                     worksheet.write(row_num + 4, col_num, value, fmt)
-                                            
                                             for i, col in enumerate(merged_mt_data.columns):
                                                 if i == 0:
                                                     max_len = max(merged_mt_data[col].astype(str).str.len().max(), len(col)) + 2
@@ -3581,22 +3543,15 @@ with tab4:
                                         if not merged_value_data.empty:
                                             merged_value_data.to_excel(writer, sheet_name='Value_Data', index=False, startrow=3)
                                             worksheet = writer.sheets['Value_Data']
-                                            
                                             worksheet.merge_range(0, 0, 0, len(merged_value_data.columns)-1,
                                                                 f"PRODUCT WISE SALES - VALUE DATA [{fiscal_year_str}]", title_format)
-                                            
                                             for col_num, value in enumerate(merged_value_data.columns):
                                                 worksheet.write(3, col_num, value, header_format)
-                                            
                                             for row_num in range(len(merged_value_data)):
                                                 product_name = merged_value_data.iloc[row_num, 0]
                                                 is_total = 'TOTAL' in str(product_name).upper()
-                                                
                                                 for col_num in range(len(merged_value_data.columns)):
-                                                    if col_num == 0:
-                                                        fmt = total_format if is_total else text_format
-                                                    else:
-                                                        fmt = total_format if is_total else num_format
+                                                    fmt = total_format if is_total else (text_format if col_num == 0 else num_format)
                                                     value = merged_value_data.iloc[row_num, col_num]
                                                     if col_num > 0 and isinstance(value, str):
                                                         try:
@@ -3604,7 +3559,6 @@ with tab4:
                                                         except (ValueError, TypeError):
                                                             value = value
                                                     worksheet.write(row_num + 4, col_num, value, fmt)
-                                            
                                             for i, col in enumerate(merged_value_data.columns):
                                                 if i == 0:
                                                     max_len = max(merged_value_data[col].astype(str).str.len().max(), len(col)) + 2
@@ -3613,7 +3567,6 @@ with tab4:
                                                     worksheet.set_column(i, i, 12)
                                 
                                 excel_data = output.getvalue()
-                                
                                 st.download_button(
                                     label="⬇️ Download Complete Merged Product Data",
                                     data=excel_data,
@@ -3621,23 +3574,16 @@ with tab4:
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                     key="product_merge_download"
                                 )
-                                
                         except Exception as e:
                             st.error(f"Error during merge process: {str(e)}")
                     else:
                         st.info("ℹ️ Upload auditor file to see merge preview")
-        
             else:
                 st.warning("Required column 'PRODUCT NAME' not found in budget data.")
-                
         except Exception as e:
-            st.error("An error occurred while processing the data. Please check your input files and try again.")
-            st.error(f"Error details: {str(e)}")
-            
-    else: 
+            st.error(f"An error occurred while processing the data: {str(e)}")
+    else:
         st.info("ℹ️ Please upload both Sales and Budget files and select appropriate sheets.")
-
-
 
 with tab5:
     st.header("📊 TS-PW Data Analysis (NORTH)")
