@@ -204,7 +204,7 @@ def create_consolidated_ppt(dfs_info, logo_file=None, title="Consolidated Report
         return None
 
 # First, add this debug function to help identify data matching issues
-def debug_budget_calculation(sales_df, budget_df, selected_month, 
+def calculate_budget_values(sales_df, budget_df, selected_month, 
                            sales_date_col, sales_area_col, sales_value_col, sales_qty_col,
                            sales_product_group_col, sales_sl_code_col, sales_exec_col,
                            budget_area_col, budget_value_col, budget_qty_col,
