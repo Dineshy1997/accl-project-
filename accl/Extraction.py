@@ -2581,7 +2581,6 @@ with tab3:
 
 
 
-
 with tab4:
     st.header("📊 Product-wise Analysis")
 
@@ -2857,46 +2856,57 @@ with tab4:
                         numeric_cols = result_product_mt.select_dtypes(include=[np.number]).columns
                         result_product_mt[numeric_cols] = result_product_mt[numeric_cols].fillna(0)
                         
-                        # Calculate Growth and Achievement
-                        for month in months:
-                            budget_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
-                            actual_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
-                            ly_year = str(last_fiscal_year_start)[-2:] if month in months[:9] else str(last_fiscal_year_end)[-2:]
+                        # ENHANCED: Calculate Growth and Achievement for ALL months (Apr to Mar)
+                        for month in months:  # All 12 months from Apr to Mar
+                            # Determine the correct year based on fiscal year logic
+                            if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']:
+                                budget_year = str(fiscal_year_start)[-2:]
+                                actual_year = str(fiscal_year_start)[-2:]
+                                ly_year = str(last_fiscal_year_start)[-2:]
+                            else:  # Jan, Feb, Mar
+                                budget_year = str(fiscal_year_end)[-2:]
+                                actual_year = str(fiscal_year_end)[-2:]
+                                ly_year = str(last_fiscal_year_end)[-2:]
                             
+                            # Define column names
                             budget_col = f'Budget-{month}-{budget_year}'
                             actual_col = f'Act-{month}-{actual_year}'
                             ly_col = f'LY-{month}-{ly_year}'
                             gr_col = f'Gr-{month}-{actual_year}'
                             ach_col = f'Ach-{month}-{actual_year}'
                             
-                            if budget_col not in result_product_mt.columns or actual_col not in result_product_mt.columns:
-                                continue
-                            
+                            # Always create Growth and Achievement columns for all months
                             if gr_col not in result_product_mt.columns:
                                 result_product_mt[gr_col] = 0.0
                             if ach_col not in result_product_mt.columns:
                                 result_product_mt[ach_col] = 0.0
                             
-                            # Ensure numeric
-                            result_product_mt[budget_col] = pd.to_numeric(result_product_mt[budget_col], errors='coerce').fillna(0)
-                            result_product_mt[actual_col] = pd.to_numeric(result_product_mt[actual_col], errors='coerce').fillna(0)
-                            if ly_col in result_product_mt.columns:
-                                result_product_mt[ly_col] = pd.to_numeric(result_product_mt[ly_col], errors='coerce').fillna(0)
-                            
-                            # Calculate Growth
-                            if ly_col in result_product_mt.columns:
-                                result_product_mt[gr_col] = np.where(
-                                    (result_product_mt[ly_col] > 0.01) & (pd.notna(result_product_mt[ly_col])) & (pd.notna(result_product_mt[actual_col])),
-                                    ((result_product_mt[actual_col] - result_product_mt[ly_col]) / result_product_mt[ly_col] * 100).round(2),
+                            # If required columns exist, calculate Growth and Achievement
+                            if budget_col in result_product_mt.columns and actual_col in result_product_mt.columns:
+                                # Ensure all columns are numeric
+                                result_product_mt[budget_col] = pd.to_numeric(result_product_mt[budget_col], errors='coerce').fillna(0)
+                                result_product_mt[actual_col] = pd.to_numeric(result_product_mt[actual_col], errors='coerce').fillna(0)
+                                if ly_col in result_product_mt.columns:
+                                    result_product_mt[ly_col] = pd.to_numeric(result_product_mt[ly_col], errors='coerce').fillna(0)
+                                
+                                # Calculate Growth (only if LY column exists)
+                                if ly_col in result_product_mt.columns:
+                                    result_product_mt[gr_col] = np.where(
+                                        (result_product_mt[ly_col] > 0.01) & 
+                                        (pd.notna(result_product_mt[ly_col])) & 
+                                        (pd.notna(result_product_mt[actual_col])),
+                                        ((result_product_mt[actual_col] - result_product_mt[ly_col]) / result_product_mt[ly_col] * 100).round(2),
+                                        0
+                                    )
+                                
+                                # Calculate Achievement
+                                result_product_mt[ach_col] = np.where(
+                                    (result_product_mt[budget_col] > 0.01) & 
+                                    (pd.notna(result_product_mt[budget_col])) & 
+                                    (pd.notna(result_product_mt[actual_col])),
+                                    (result_product_mt[actual_col] / result_product_mt[budget_col] * 100).round(2),
                                     0
                                 )
-                            
-                            # Calculate Achievement
-                            result_product_mt[ach_col] = np.where(
-                                (result_product_mt[budget_col] > 0.01) & (pd.notna(result_product_mt[budget_col])) & (pd.notna(result_product_mt[actual_col])),
-                                (result_product_mt[actual_col] / result_product_mt[budget_col] * 100).round(2),
-                                0
-                            )
                         
                         # Filter out summary rows
                         exclude_products = ['NORTH TOTAL', 'WEST SALES', 'GRAND TOTAL', 'TOTAL SALES']
@@ -2909,10 +2919,31 @@ with tab4:
                             if col in valid_products.columns:
                                 total_row[col] = [valid_products[col].sum(skipna=True).round(2)]
                         
+                        # Add missing columns to total_row
                         for month in months:
-                            budget_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
-                            actual_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
-                            ly_year = str(last_fiscal_year_start)[-2:] if month in months[:9] else str(last_fiscal_year_end)[-2:]
+                            if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']:
+                                actual_year = str(fiscal_year_start)[-2:]
+                            else:
+                                actual_year = str(fiscal_year_end)[-2:]
+                            
+                            gr_col = f'Gr-{month}-{actual_year}'
+                            ach_col = f'Ach-{month}-{actual_year}'
+                            
+                            if gr_col not in total_row.columns:
+                                total_row[gr_col] = [0.0]
+                            if ach_col not in total_row.columns:
+                                total_row[ach_col] = [0.0]
+                        
+                        # Calculate Growth and Achievement for total row
+                        for month in months:
+                            if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']:
+                                budget_year = str(fiscal_year_start)[-2:]
+                                actual_year = str(fiscal_year_start)[-2:]
+                                ly_year = str(last_fiscal_year_start)[-2:]
+                            else:
+                                budget_year = str(fiscal_year_end)[-2:]
+                                actual_year = str(fiscal_year_end)[-2:]
+                                ly_year = str(last_fiscal_year_end)[-2:]
                             
                             budget_col = f'Budget-{month}-{budget_year}'
                             actual_col = f'Act-{month}-{actual_year}'
@@ -2920,16 +2951,25 @@ with tab4:
                             gr_col = f'Gr-{month}-{actual_year}'
                             ach_col = f'Ach-{month}-{actual_year}'
                             
-                            if all(col in total_row.columns for col in [budget_col, actual_col, ly_col]):
-                                if total_row[ly_col].iloc[0] != 0:
-                                    total_row[gr_col] = [((total_row[actual_col].iloc[0] - total_row[ly_col].iloc[0]) / total_row[ly_col].iloc[0] * 100).round(2)]
-                                else:
-                                    total_row[gr_col] = [0]
+                            if all(col in total_row.columns for col in [budget_col, actual_col]):
+                                total_budget = total_row[budget_col].iloc[0] if budget_col in total_row.columns else 0
+                                total_actual = total_row[actual_col].iloc[0] if actual_col in total_row.columns else 0
                                 
-                                if total_row[budget_col].iloc[0] > 0.01:
-                                    total_row[ach_col] = [(total_row[actual_col].iloc[0] / total_row[budget_col].iloc[0] * 100).round(2)]
+                                # Calculate total Growth if LY column exists
+                                if ly_col in total_row.columns:
+                                    total_ly = total_row[ly_col].iloc[0]
+                                    if total_ly > 0.01:
+                                        total_growth = ((total_actual - total_ly) / total_ly * 100).round(2)
+                                    else:
+                                        total_growth = 0
+                                    total_row[gr_col] = [total_growth]
+                                
+                                # Calculate total Achievement
+                                if total_budget > 0.01:
+                                    total_achievement = (total_actual / total_budget * 100).round(2)
                                 else:
-                                    total_row[ach_col] = [0]
+                                    total_achievement = 0
+                                total_row[ach_col] = [total_achievement]
                         
                         result_product_mt = pd.concat([valid_products, total_row], ignore_index=True)
                         result_product_mt = result_product_mt.rename(columns={'PRODUCT NAME': 'SALES in Tonage'})
@@ -3109,47 +3149,57 @@ with tab4:
                         numeric_cols = result_product_value.select_dtypes(include=[np.number]).columns
                         result_product_value[numeric_cols] = result_product_value[numeric_cols].fillna(0)
                         
-                        # Calculate Growth and Achievement
-                        for month in months:
-                            budget_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
-                            actual_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
-                            ly_year = str(last_fiscal_year_start)[-2:] if month in months[:9] else str(last_fiscal_year_end)[-2:]
+                        # ENHANCED: Calculate Growth and Achievement for ALL months (Apr to Mar)
+                        for month in months:  # All 12 months from Apr to Mar
+                            # Determine the correct year based on fiscal year logic
+                            if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']:
+                                budget_year = str(fiscal_year_start)[-2:]
+                                actual_year = str(fiscal_year_start)[-2:]
+                                ly_year = str(last_fiscal_year_start)[-2:]
+                            else:  # Jan, Feb, Mar
+                                budget_year = str(fiscal_year_end)[-2:]
+                                actual_year = str(fiscal_year_end)[-2:]
+                                ly_year = str(last_fiscal_year_end)[-2:]
                             
+                            # Define column names
                             budget_col = f'Budget-{month}-{budget_year}'
                             actual_col = f'Act-{month}-{actual_year}'
                             ly_col = f'LY-{month}-{ly_year}'
                             gr_col = f'Gr-{month}-{actual_year}'
                             ach_col = f'Ach-{month}-{actual_year}'
                             
-                            if budget_col not in result_product_value.columns or actual_col not in result_product_value.columns:
-                                
-                                continue
-                            
+                            # Always create Growth and Achievement columns for all months
                             if gr_col not in result_product_value.columns:
                                 result_product_value[gr_col] = 0.0
                             if ach_col not in result_product_value.columns:
                                 result_product_value[ach_col] = 0.0
                             
-                            # Ensure numeric
-                            result_product_value[budget_col] = pd.to_numeric(result_product_value[budget_col], errors='coerce').fillna(0)
-                            result_product_value[actual_col] = pd.to_numeric(result_product_value[actual_col], errors='coerce').fillna(0)
-                            if ly_col in result_product_value.columns:
-                                result_product_value[ly_col] = pd.to_numeric(result_product_value[ly_col], errors='coerce').fillna(0)
-                            
-                            # Calculate Growth
-                            if ly_col in result_product_value.columns:
-                                result_product_value[gr_col] = np.where(
-                                    (result_product_value[ly_col] > 0.01) & (pd.notna(result_product_value[ly_col])) & (pd.notna(result_product_value[actual_col])),
-                                    ((result_product_value[actual_col] - result_product_value[ly_col]) / result_product_value[ly_col] * 100).round(2),
+                            # If required columns exist, calculate Growth and Achievement
+                            if budget_col in result_product_value.columns and actual_col in result_product_value.columns:
+                                # Ensure all columns are numeric
+                                result_product_value[budget_col] = pd.to_numeric(result_product_value[budget_col], errors='coerce').fillna(0)
+                                result_product_value[actual_col] = pd.to_numeric(result_product_value[actual_col], errors='coerce').fillna(0)
+                                if ly_col in result_product_value.columns:
+                                    result_product_value[ly_col] = pd.to_numeric(result_product_value[ly_col], errors='coerce').fillna(0)
+                                
+                                # Calculate Growth (only if LY column exists)
+                                if ly_col in result_product_value.columns:
+                                    result_product_value[gr_col] = np.where(
+                                        (result_product_value[ly_col] > 0.01) & 
+                                        (pd.notna(result_product_value[ly_col])) & 
+                                        (pd.notna(result_product_value[actual_col])),
+                                        ((result_product_value[actual_col] - result_product_value[ly_col]) / result_product_value[ly_col] * 100).round(2),
+                                        0
+                                    )
+                                
+                                # Calculate Achievement
+                                result_product_value[ach_col] = np.where(
+                                    (result_product_value[budget_col] > 0.01) & 
+                                    (pd.notna(result_product_value[budget_col])) & 
+                                    (pd.notna(result_product_value[actual_col])),
+                                    (result_product_value[actual_col] / result_product_value[budget_col] * 100).round(2),
                                     0
                                 )
-                            
-                            # Calculate Achievement
-                            result_product_value[ach_col] = np.where(
-                                (result_product_value[budget_col] > 0.01) & (pd.notna(result_product_value[budget_col])) & (pd.notna(result_product_value[actual_col])),
-                                (result_product_value[actual_col] / result_product_value[budget_col] * 100).round(2),
-                                0
-                            )
                         
                         exclude_products = ['NORTH TOTAL', 'WEST SALES', 'GRAND TOTAL', 'TOTAL SALES']
                         mask = ~result_product_value['PRODUCT NAME'].isin(exclude_products)
@@ -3160,10 +3210,31 @@ with tab4:
                             if col in valid_products.columns:
                                 total_row[col] = [valid_products[col].sum(skipna=True).round(2)]
                         
+                        # Add missing columns to total_row
                         for month in months:
-                            budget_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
-                            actual_year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
-                            ly_year = str(last_fiscal_year_start)[-2:] if month in months[:9] else str(last_fiscal_year_end)[-2:]
+                            if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']:
+                                actual_year = str(fiscal_year_start)[-2:]
+                            else:
+                                actual_year = str(fiscal_year_end)[-2:]
+                            
+                            gr_col = f'Gr-{month}-{actual_year}'
+                            ach_col = f'Ach-{month}-{actual_year}'
+                            
+                            if gr_col not in total_row.columns:
+                                total_row[gr_col] = [0.0]
+                            if ach_col not in total_row.columns:
+                                total_row[ach_col] = [0.0]
+                        
+                        # Calculate Growth and Achievement for total row
+                        for month in months:
+                            if month in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']:
+                                budget_year = str(fiscal_year_start)[-2:]
+                                actual_year = str(fiscal_year_start)[-2:]
+                                ly_year = str(last_fiscal_year_start)[-2:]
+                            else:
+                                budget_year = str(fiscal_year_end)[-2:]
+                                actual_year = str(fiscal_year_end)[-2:]
+                                ly_year = str(last_fiscal_year_end)[-2:]
                             
                             budget_col = f'Budget-{month}-{budget_year}'
                             actual_col = f'Act-{month}-{actual_year}'
@@ -3171,16 +3242,25 @@ with tab4:
                             gr_col = f'Gr-{month}-{actual_year}'
                             ach_col = f'Ach-{month}-{actual_year}'
                             
-                            if all(col in total_row.columns for col in [budget_col, actual_col, ly_col]):
-                                if total_row[ly_col].iloc[0] != 0:
-                                    total_row[gr_col] = [((total_row[actual_col].iloc[0] - total_row[ly_col].iloc[0]) / total_row[ly_col].iloc[0] * 100).round(2)]
-                                else:
-                                    total_row[gr_col] = [0]
+                            if all(col in total_row.columns for col in [budget_col, actual_col]):
+                                total_budget = total_row[budget_col].iloc[0] if budget_col in total_row.columns else 0
+                                total_actual = total_row[actual_col].iloc[0] if actual_col in total_row.columns else 0
                                 
-                                if total_row[budget_col].iloc[0] > 0.01:
-                                    total_row[ach_col] = [(total_row[actual_col].iloc[0] / total_row[budget_col].iloc[0] * 100).round(2)]
+                                # Calculate total Growth if LY column exists
+                                if ly_col in total_row.columns:
+                                    total_ly = total_row[ly_col].iloc[0]
+                                    if total_ly > 0.01:
+                                        total_growth = ((total_actual - total_ly) / total_ly * 100).round(2)
+                                    else:
+                                        total_growth = 0
+                                    total_row[gr_col] = [total_growth]
+                                
+                                # Calculate total Achievement
+                                if total_budget > 0.01:
+                                    total_achievement = (total_actual / total_budget * 100).round(2)
                                 else:
-                                    total_row[ach_col] = [0]
+                                    total_achievement = 0
+                                total_row[ach_col] = [total_achievement]
                         
                         result_product_value = pd.concat([valid_products, total_row], ignore_index=True)
                         result_product_value = result_product_value.rename(columns={'PRODUCT NAME': 'SALES in Value'})
@@ -3206,7 +3286,7 @@ with tab4:
                         )
                     else:
                         st.warning("No budget value columns found.")
-
+                
                 with tab_product_merge:
                     duplicate_info = []
                     if 'product_mt_data' in st.session_state and not st.session_state.product_mt_data.empty:
@@ -3352,15 +3432,26 @@ with tab4:
                                                     idx = merged_mt_data[merged_mt_data['SALES in Tonage'] == product].index[0]
                                                     merged_mt_data.loc[idx, col] = generated_dict[product][col]
                                 
+                                # Add missing Growth and Achievement columns from generated data
+                                for col in generated_cols:
+                                    if col.startswith(('Gr-', 'Ach-')) and col not in merged_mt_data.columns:
+                                        merged_mt_data[col] = 0.0
+                                        generated_dict = generated_mt.set_index('PRODUCT NAME').to_dict('index')
+                                        for product in merged_mt_data['SALES in Tonage']:
+                                            if product in generated_dict and col in generated_dict[product]:
+                                                idx = merged_mt_data[merged_mt_data['SALES in Tonage'] == product].index[0]
+                                                merged_mt_data.loc[idx, col] = generated_dict[product][col]
+                                
                                 if 'TOTAL SALES' in merged_mt_data['SALES in Tonage'].values:
                                     numeric_cols = merged_mt_data.select_dtypes(include=[np.number]).columns
                                     for col in numeric_cols:
-                                        sum_value = merged_mt_data[
-                                            ~merged_mt_data['SALES in Tonage'].isin(['TOTAL SALES', 'GRAND TOTAL'])
-                                        ][col].sum()
-                                        merged_mt_data.loc[
-                                            merged_mt_data['SALES in Tonage'] == 'TOTAL SALES', col
-                                        ] = round(sum_value, 2)
+                                        if not col.startswith(('Gr-', 'Ach-')):  # Skip recalculating Growth and Achievement for totals
+                                            sum_value = merged_mt_data[
+                                                ~merged_mt_data['SALES in Tonage'].isin(['TOTAL SALES', 'GRAND TOTAL'])
+                                            ][col].sum()
+                                            merged_mt_data.loc[
+                                                merged_mt_data['SALES in Tonage'] == 'TOTAL SALES', col
+                                            ] = round(sum_value, 2)
                                 
                                 # YTD calculations
                                 for ytd_col, months_list in ytd_periods.items():
@@ -3446,15 +3537,26 @@ with tab4:
                                                     idx = merged_value_data[merged_value_data['SALES in Value'] == product].index[0]
                                                     merged_value_data.loc[idx, col] = generated_dict[product][col]
                                 
+                                # Add missing Growth and Achievement columns from generated data
+                                for col in generated_cols:
+                                    if col.startswith(('Gr-', 'Ach-')) and col not in merged_value_data.columns:
+                                        merged_value_data[col] = 0.0
+                                        generated_dict = generated_value.set_index('PRODUCT NAME').to_dict('index')
+                                        for product in merged_value_data['SALES in Value']:
+                                            if product in generated_dict and col in generated_dict[product]:
+                                                idx = merged_value_data[merged_value_data['SALES in Value'] == product].index[0]
+                                                merged_value_data.loc[idx, col] = generated_dict[product][col]
+                                
                                 if 'TOTAL SALES' in merged_value_data['SALES in Value'].values:
                                     numeric_cols = merged_value_data.select_dtypes(include=[np.number]).columns
                                     for col in numeric_cols:
-                                        sum_value = merged_value_data[
-                                            ~merged_value_data['SALES in Value'].isin(['TOTAL SALES', 'GRAND TOTAL'])
-                                        ][col].sum()
-                                        merged_value_data.loc[
-                                            merged_value_data['SALES in Value'] == 'TOTAL SALES', col
-                                        ] = round(sum_value, 2)
+                                        if not col.startswith(('Gr-', 'Ach-')):  # Skip recalculating Growth and Achievement for totals
+                                            sum_value = merged_value_data[
+                                                ~merged_value_data['SALES in Value'].isin(['TOTAL SALES', 'GRAND TOTAL'])
+                                            ][col].sum()
+                                            merged_value_data.loc[
+                                                merged_value_data['SALES in Value'] == 'TOTAL SALES', col
+                                            ] = round(sum_value, 2)
 
                                 # YTD calculations
                                 for ytd_col, months_list in ytd_periods.items():
@@ -3500,6 +3602,8 @@ with tab4:
                                     output = BytesIO()
                                     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                                         workbook = writer.book
+                                        
+                                        # Format definitions
                                         title_format = workbook.add_format({
                                             'bold': True, 'align': 'center', 'valign': 'vcenter',
                                             'font_size': 16, 'font_color': '#000000', 'bg_color': '#D9E1F2'
@@ -3513,14 +3617,25 @@ with tab4:
                                         total_format = workbook.add_format({
                                             'bold': True, 'num_format': '#,##0.00', 'bg_color': '#E2EFDA', 'border': 1
                                         })
+                                        spacing_format = workbook.add_format({'bg_color': '#F2F2F2'})
 
+                                        # Create single sheet with both tables
+                                        worksheet = workbook.add_worksheet('Product_Analysis')
+                                        current_row = 0
+                                        
+                                        # TONAGE TABLE
                                         if not merged_mt_data.empty:
-                                            merged_mt_data.to_excel(writer, sheet_name='MT_Data', index=False, startrow=3)
-                                            worksheet = writer.sheets['MT_Data']
-                                            worksheet.merge_range(0, 0, 0, len(merged_mt_data.columns)-1,
+                                            # Title for Tonage table
+                                            worksheet.merge_range(current_row, 0, current_row, len(merged_mt_data.columns)-1,
                                                                 f"PRODUCT WISE SALES - TONAGE DATA [{fiscal_year_str}]", title_format)
+                                            current_row += 2
+                                            
+                                            # Headers for Tonage table
                                             for col_num, value in enumerate(merged_mt_data.columns):
-                                                worksheet.write(3, col_num, value, header_format)
+                                                worksheet.write(current_row, col_num, value, header_format)
+                                            current_row += 1
+                                            
+                                            # Data for Tonage table
                                             for row_num in range(len(merged_mt_data)):
                                                 product_name = merged_mt_data.iloc[row_num, 0]
                                                 is_total = 'TOTAL' in str(product_name).upper()
@@ -3532,21 +3647,33 @@ with tab4:
                                                             value = float(value.replace(',', '')) if value else 0.0
                                                         except (ValueError, TypeError):
                                                             value = value
-                                                    worksheet.write(row_num + 4, col_num, value, fmt)
+                                                    worksheet.write(current_row, col_num, value, fmt)
+                                                current_row += 1
+                                            
+                                            # Set column widths for Tonage table
                                             for i, col in enumerate(merged_mt_data.columns):
                                                 if i == 0:
                                                     max_len = max(merged_mt_data[col].astype(str).str.len().max(), len(col)) + 2
                                                     worksheet.set_column(i, i, min(max_len, 30))
                                                 else:
                                                     worksheet.set_column(i, i, 12)
-                                        
+                                            
+                                            # Add spacing between tables
+                                            current_row += 3
+
+                                        # VALUE TABLE
                                         if not merged_value_data.empty:
-                                            merged_value_data.to_excel(writer, sheet_name='Value_Data', index=False, startrow=3)
-                                            worksheet = writer.sheets['Value_Data']
-                                            worksheet.merge_range(0, 0, 0, len(merged_value_data.columns)-1,
+                                            # Title for Value table
+                                            worksheet.merge_range(current_row, 0, current_row, len(merged_value_data.columns)-1,
                                                                 f"PRODUCT WISE SALES - VALUE DATA [{fiscal_year_str}]", title_format)
+                                            current_row += 2
+                                            
+                                            # Headers for Value table
                                             for col_num, value in enumerate(merged_value_data.columns):
-                                                worksheet.write(3, col_num, value, header_format)
+                                                worksheet.write(current_row, col_num, value, header_format)
+                                            current_row += 1
+                                            
+                                            # Data for Value table
                                             for row_num in range(len(merged_value_data)):
                                                 product_name = merged_value_data.iloc[row_num, 0]
                                                 is_total = 'TOTAL' in str(product_name).upper()
@@ -3558,21 +3685,30 @@ with tab4:
                                                             value = float(value.replace(',', '')) if value else 0.0
                                                         except (ValueError, TypeError):
                                                             value = value
-                                                    worksheet.write(row_num + 4, col_num, value, fmt)
-                                            for i, col in enumerate(merged_value_data.columns):
+                                                    worksheet.write(current_row, col_num, value, fmt)
+                                                current_row += 1
+                                            
+                                            # Update column widths to accommodate both tables
+                                            max_cols = max(len(merged_mt_data.columns) if not merged_mt_data.empty else 0,
+                                                         len(merged_value_data.columns) if not merged_value_data.empty else 0)
+                                            
+                                            for i in range(max_cols):
                                                 if i == 0:
-                                                    max_len = max(merged_value_data[col].astype(str).str.len().max(), len(col)) + 2
-                                                    worksheet.set_column(i, i, min(max_len, 30))
+                                                    # Product name column - make it wider
+                                                    mt_len = merged_mt_data.iloc[:, 0].astype(str).str.len().max() if not merged_mt_data.empty and i < len(merged_mt_data.columns) else 0
+                                                    val_len = merged_value_data.iloc[:, 0].astype(str).str.len().max() if not merged_value_data.empty and i < len(merged_value_data.columns) else 0
+                                                    max_len = max(mt_len, val_len, 15) + 2
+                                                    worksheet.set_column(i, i, min(max_len, 35))
                                                 else:
                                                     worksheet.set_column(i, i, 12)
                                 
                                 excel_data = output.getvalue()
                                 st.download_button(
-                                    label="⬇️ Download Complete Merged Product Data",
+                                    label="⬇️ Download Complete Merged Product Data (Single File)",
                                     data=excel_data,
-                                    file_name=f"complete_merged_product_data_{fiscal_year_str}.xlsx",
+                                    file_name=f"merged_product_analysis_{fiscal_year_str}.xlsx",
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    key="product_merge_download"
+                                    key="product_single_file_download"
                                 )
                         except Exception as e:
                             st.error(f"Error during merge process: {str(e)}")
@@ -3583,8 +3719,8 @@ with tab4:
         except Exception as e:
             st.error(f"An error occurred while processing the data: {str(e)}")
     else:
-        st.info("ℹ️ Please upload both Sales and Budget files and select appropriate sheets.")
-
+        st.info("ℹ️ Please upload both Sales and Budget files to proceed with Product-wise Analysis.")
+    
 with tab5:
     st.header("📊 TS-PW Data Analysis (NORTH)")
     
@@ -6473,7 +6609,7 @@ with tab8:
                         
                         for row_idx in range(len(value_data)):
                             excel_row = start_row + 1 + row_idx
-                            first_col_val = str(value_data.iloc[row_idx, 0]).strip().upper()
+                            first_col_val = str(value_data.iloc[row_idx, 0]).strip().upper() 
                             is_total = any(total_word in first_col_val for total_word in 
                                          ['TOTAL', 'GRAND', 'NORTH', 'WEST', 'SALES'])
                             
