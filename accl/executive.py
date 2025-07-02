@@ -266,7 +266,7 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
                 st.error("No data found for selected executives.")
                 return None, None, None, None
 
-        # FIXED: Proper SL Code standardization to handle float/decimal issues
+        # Clean SL Code standardization to handle float/decimal issues
         def clean_sl_code(sl_code):
             """Clean SL code by removing decimal points and standardizing format"""
             if pd.isna(sl_code):
@@ -283,11 +283,6 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
         filtered_sales_df[sales_product_group_col] = filtered_sales_df[sales_product_group_col].astype(str).str.strip().str.upper()
         budget_df[budget_sl_code_col] = budget_df[budget_sl_code_col].apply(clean_sl_code)
         budget_df[budget_product_group_col] = budget_df[budget_product_group_col].astype(str).str.strip().str.upper()
-
-        # Debug: Show cleaned data sample
-        st.write("✅ **Data Cleaning Applied**")
-        st.write("📝 Sample cleaned sales SL codes:", filtered_sales_df[sales_sl_code_col].head(5).tolist())
-        st.write("📝 Sample cleaned budget SL codes:", budget_df[budget_sl_code_col].head(5).tolist())
 
         # Group budget data
         budget_grouped = budget_df.groupby([
@@ -311,7 +306,6 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
         # Process each budget entry and find matches
         final_results = []
         matches_found = 0
-        total_budget_entries = len(budget_valid)
 
         for idx, budget_row in budget_valid.iterrows():
             executive = budget_row[budget_exec_col]
@@ -349,11 +343,9 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
                 'Final_Value': final_value
             })
 
-        st.write(f"🎯 **Matching Results**: {matches_found} matches found out of {total_budget_entries} budget entries")
-
         results_df = pd.DataFrame(final_results)
 
-        # Aggregate by executive for Budget vs Billed
+        # FIXED: Aggregate by executive for Budget vs Billed with proper grouping
         exec_qty_summary = results_df.groupby('Executive').agg({
             'Budget_Qty': 'sum',
             'Final_Qty': 'sum'
@@ -364,6 +356,7 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             axis=1
         )
 
+        # FIXED: Create final DataFrame ensuring no duplicates
         budget_vs_billed_qty_df = pd.DataFrame({'Executive': executives_to_display})
         budget_vs_billed_qty_df = pd.merge(
             budget_vs_billed_qty_df,
@@ -371,6 +364,9 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             on='Executive',
             how='left'
         ).fillna({'Budget Qty': 0, 'Billed Qty': 0, '%': 0})
+
+        # Remove any duplicate executives (keep first occurrence)
+        budget_vs_billed_qty_df = budget_vs_billed_qty_df.drop_duplicates(subset=['Executive'], keep='first')
 
         exec_value_summary = results_df.groupby('Executive').agg({
             'Budget_Value': 'sum',
@@ -389,6 +385,9 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             on='Executive',
             how='left'
         ).fillna({'Budget Value': 0, 'Billed Value': 0, '%': 0})
+
+        # Remove any duplicate executives (keep first occurrence)
+        budget_vs_billed_value_df = budget_vs_billed_value_df.drop_duplicates(subset=['Executive'], keep='first')
 
         # Calculate overall sales
         overall_sales_data = filtered_sales_df.groupby(sales_exec_col).agg({
@@ -417,6 +416,9 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             how='left'
         ).fillna({'Billed Qty': 0})
 
+        # Remove any duplicate executives
+        overall_sales_qty_df = overall_sales_qty_df.drop_duplicates(subset=['Executive'], keep='first')
+
         overall_sales_value_df = pd.DataFrame({'Executive': executives_to_display})
         overall_sales_value_df = pd.merge(
             overall_sales_value_df,
@@ -430,6 +432,9 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             on='Executive',
             how='left'
         ).fillna({'Billed Value': 0})
+
+        # Remove any duplicate executives
+        overall_sales_value_df = overall_sales_value_df.drop_duplicates(subset=['Executive'], keep='first')
 
         # Add totals
         total_budget_qty = budget_vs_billed_qty_df['Budget Qty'].sum()
