@@ -240,6 +240,16 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             return None, None, None, None
 
         # Standardize area and executive names
+        def extract_executive_name(name):
+            if pd.isna(name):
+                return 'UNKNOWN'
+            return str(name).strip().upper()
+
+        def extract_area_name(area):
+            if pd.isna(area):
+                return 'UNKNOWN'
+            return str(area).strip().upper()
+
         filtered_sales_df[sales_area_col] = filtered_sales_df[sales_area_col].apply(extract_area_name).astype(str).str.strip().str.upper()
         filtered_sales_df[sales_exec_col] = filtered_sales_df[sales_exec_col].apply(extract_executive_name)
         budget_df[budget_area_col] = budget_df[budget_area_col].apply(extract_area_name).astype(str).str.strip().str.upper()
@@ -252,11 +262,9 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             if filtered_sales_df.empty or budget_df.empty:
                 st.error(f"No data found for selected branches: {', '.join(selected_branches)}")
                 return None, None, None, None
-            # FIXED: Get unique executives properly
             executives_to_display = sorted(list(set(filtered_sales_df[sales_exec_col].dropna().unique()) | 
                                               set(budget_df[budget_exec_col].dropna().unique())))
         else:
-            # FIXED: Get unique executives properly
             executives_to_display = sorted(list(set(filtered_sales_df[sales_exec_col].dropna().unique()) | 
                                               set(budget_df[budget_exec_col].dropna().unique())))
 
@@ -270,23 +278,19 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
 
         # Clean SL Code standardization to handle float/decimal issues
         def clean_sl_code(sl_code):
-            """Clean SL code by removing decimal points and standardizing format"""
             if pd.isna(sl_code):
                 return 'UNKNOWN'
-            # Convert to string, remove decimal if present, strip whitespace, uppercase
             sl_str = str(sl_code).strip().upper()
-            # Remove .0 if present (handles float to string conversion)
             if sl_str.endswith('.0'):
                 sl_str = sl_str[:-2]
             return sl_str
 
-        # Apply the cleaning function to both datasets
         filtered_sales_df[sales_sl_code_col] = filtered_sales_df[sales_sl_code_col].apply(clean_sl_code)
         filtered_sales_df[sales_product_group_col] = filtered_sales_df[sales_product_group_col].astype(str).str.strip().str.upper()
         budget_df[budget_sl_code_col] = budget_df[budget_sl_code_col].apply(clean_sl_code)
         budget_df[budget_product_group_col] = budget_df[budget_product_group_col].astype(str).str.strip().str.upper()
 
-        # Group budget data
+        # Group budget data and aggregate duplicates
         budget_grouped = budget_df.groupby([
             budget_exec_col, 
             budget_sl_code_col, 
@@ -305,10 +309,9 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             st.error("No valid budget data found (with qty > 0 and value > 0).")
             return None, None, None, None
 
-        # Process each budget entry and find matches
+        # Process each budget entry
         final_results = []
         matches_found = 0
-
         for idx, budget_row in budget_valid.iterrows():
             executive = budget_row[budget_exec_col]
             sl_code = budget_row[budget_sl_code_col]
@@ -316,7 +319,6 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             budget_qty = budget_row[budget_qty_col]
             budget_value = budget_row[budget_value_col]
 
-            # Find matching sales
             matching_sales = filtered_sales_df[
                 (filtered_sales_df[sales_exec_col] == executive) &
                 (filtered_sales_df[sales_sl_code_col] == sl_code) &
@@ -329,7 +331,6 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             if not matching_sales.empty:
                 matches_found += 1
 
-            # Calculate final values (minimum of budget vs sales)
             final_qty = min(budget_qty, sales_qty_total)
             final_value = min(budget_value, sales_value_total)
 
@@ -358,8 +359,7 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             axis=1
         )
 
-        # FIXED: Create DataFrame ensuring unique executives only
-        unique_executives = sorted(list(set(executives_to_display)))  # Ensure uniqueness
+        unique_executives = sorted(list(set(executives_to_display)))
         budget_vs_billed_qty_df = pd.DataFrame({'Executive': unique_executives})
         budget_vs_billed_qty_df = pd.merge(
             budget_vs_billed_qty_df,
