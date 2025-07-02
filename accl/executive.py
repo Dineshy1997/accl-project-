@@ -260,11 +260,13 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
 
         # Filter data by executives if provided
         if sales_executives:
+            sales_executives = [str(e).strip().upper() for e in sales_executives]
             filtered_sales_df = filtered_sales_df[filtered_sales_df[sales_exec_col].isin(sales_executives)].copy()
             budget_df = budget_df[budget_df[budget_exec_col].isin(sales_executives)].copy()
             if filtered_sales_df.empty or budget_df.empty:
                 st.error("No data found for selected executives.")
                 return None, None, None, None
+            executives_to_display = sales_executives
 
         # FIXED: Proper SL Code standardization to handle float/decimal issues
         def clean_sl_code(sl_code):
@@ -364,13 +366,7 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             axis=1
         )
 
-        budget_vs_billed_qty_df = pd.DataFrame({'Executive': executives_to_display})
-        budget_vs_billed_qty_df = pd.merge(
-            budget_vs_billed_qty_df,
-            exec_qty_summary,
-            on='Executive',
-            how='left'
-        ).fillna({'Budget Qty': 0, 'Billed Qty': 0, '%': 0})
+        budget_vs_billed_qty_df = exec_qty_summary[exec_qty_summary['Executive'].isin(executives_to_display)]
 
         exec_value_summary = results_df.groupby('Executive').agg({
             'Budget_Value': 'sum',
@@ -382,13 +378,7 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             axis=1
         )
 
-        budget_vs_billed_value_df = pd.DataFrame({'Executive': executives_to_display})
-        budget_vs_billed_value_df = pd.merge(
-            budget_vs_billed_value_df,
-            exec_value_summary,
-            on='Executive',
-            how='left'
-        ).fillna({'Budget Value': 0, 'Billed Value': 0, '%': 0})
+        budget_vs_billed_value_df = exec_value_summary[exec_value_summary['Executive'].isin(executives_to_display)]
 
         # Calculate overall sales
         overall_sales_data = filtered_sales_df.groupby(sales_exec_col).agg({
@@ -403,33 +393,19 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
         }).reset_index()
         budget_totals.columns = ['Executive', 'Total_Budget_Qty', 'Total_Budget_Value']
 
-        overall_sales_qty_df = pd.DataFrame({'Executive': executives_to_display})
-        overall_sales_qty_df = pd.merge(
-            overall_sales_qty_df,
+        overall_sales_qty_df = overall_sales_data[overall_sales_data['Executive'].isin(executives_to_display)][['Executive', 'Overall_Sales_Qty']].rename(columns={'Overall_Sales_Qty': 'Billed Qty'})
+        overall_sales_qty_df = overall_sales_qty_df.merge(
             budget_totals[['Executive', 'Total_Budget_Qty']].rename(columns={'Total_Budget_Qty': 'Budget Qty'}),
             on='Executive',
             how='left'
         ).fillna({'Budget Qty': 0})
-        overall_sales_qty_df = pd.merge(
-            overall_sales_qty_df,
-            overall_sales_data[['Executive', 'Overall_Sales_Qty']].rename(columns={'Overall_Sales_Qty': 'Billed Qty'}),
-            on='Executive',
-            how='left'
-        ).fillna({'Billed Qty': 0})
 
-        overall_sales_value_df = pd.DataFrame({'Executive': executives_to_display})
-        overall_sales_value_df = pd.merge(
-            overall_sales_value_df,
+        overall_sales_value_df = overall_sales_data[overall_sales_data['Executive'].isin(executives_to_display)][['Executive', 'Overall_Sales_Value']].rename(columns={'Overall_Sales_Value': 'Billed Value'})
+        overall_sales_value_df = overall_sales_value_df.merge(
             budget_totals[['Executive', 'Total_Budget_Value']].rename(columns={'Total_Budget_Value': 'Budget Value'}),
             on='Executive',
             how='left'
         ).fillna({'Budget Value': 0})
-        overall_sales_value_df = pd.merge(
-            overall_sales_value_df,
-            overall_sales_data[['Executive', 'Overall_Sales_Value']].rename(columns={'Overall_Sales_Value': 'Billed Value'}),
-            on='Executive',
-            how='left'
-        ).fillna({'Billed Value': 0})
 
         # Add totals
         total_budget_qty = budget_vs_billed_qty_df['Budget Qty'].sum()
@@ -587,11 +563,11 @@ def create_customer_table(sales_df, date_col, branch_col, customer_id_col, execu
         else:
             executives_to_display = sorted(fy_df['Executive_Upper'].dropna().unique())
         if selected_executives:
-            fy_df = fy_df[fy_df['Executive_Upper'].isin([str(e).upper() for e in selected_executives])]
+            selected_executives_upper = [str(e).strip().upper() for e in selected_executives]
+            fy_df = fy_df[fy_df['Executive_Upper'].isin(selected_executives_upper)]
             if fy_df.empty:
                 continue
-        if not executives_to_display:
-            continue
+            executives_to_display = selected_executives_upper
         grouped_df = fy_df.groupby(['Executive_Upper', 'Month_Year'])[customer_id_col].nunique().reset_index(name='Customer_Count')
         pivot_df = grouped_df.pivot_table(
             values='Customer_Count',
@@ -601,13 +577,10 @@ def create_customer_table(sales_df, date_col, branch_col, customer_id_col, execu
             fill_value=0
         ).reset_index()
         pivot_df = pivot_df.rename(columns={'Executive_Upper': 'Executive Name'})
-        result_df = pd.DataFrame({'Executive Name': executives_to_display})
-        result_df = pd.merge(
-            result_df,
-            pivot_df,
-            on='Executive Name',
-            how='left'
-        ).fillna(0)
+        
+        # Filter pivot_df to include only executives in executives_to_display
+        result_df = pivot_df[pivot_df['Executive Name'].isin(executives_to_display)]
+        
         columns_to_keep = ['Executive Name'] + month_names
         result_df = result_df[[col for col in columns_to_keep if col in result_df.columns]]
         for col in result_df.columns[1:]:
@@ -794,10 +767,12 @@ def filter_os_qty(os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
     else:
         executives_to_display = sorted(os_df[os_exec_col].dropna().unique())
     if selected_executives:
-        os_df = os_df[os_df[os_exec_col].isin(selected_executives)]
+        selected_executives_upper = [str(e).strip().upper() for e in selected_executives]
+        os_df = os_df[os_df[os_exec_col].isin(selected_executives_upper)]
         if os_df.empty:
             st.error("No data matches the selected executives.")
             return None, None, None
+        executives_to_display = selected_executives_upper
     os_df[os_qty_col] = pd.to_numeric(os_df[os_qty_col], errors='coerce').fillna(0) / 100000
     if os_df[os_qty_col].isna().any():
         st.warning(f"Non-numeric values in '{os_qty_col}' replaced with 0.")
@@ -809,8 +784,7 @@ def filter_os_qty(os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
                  .agg({os_qty_col: 'sum'})
                  .reset_index()
                  .rename(columns={os_exec_col: 'Executive', os_qty_col: 'TARGET'}))
-    result_df = pd.DataFrame({'Executive': executives_to_display})
-    result_df = pd.merge(result_df, os_grouped_qty, on='Executive', how='left').fillna({'TARGET': 0})
+    result_df = os_grouped_qty[os_grouped_qty['Executive'].isin(executives_to_display)]
     total_row = pd.DataFrame([{'Executive': 'TOTAL', 'TARGET': result_df['TARGET'].sum()}])
     result_df = pd.concat([result_df, total_row], ignore_index=True)
     result_df['TARGET'] = result_df['TARGET'].round(2)
@@ -961,30 +935,30 @@ def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
     os_jan[os_jan_due_date_col] = pd.to_datetime(os_jan[os_jan_due_date_col], errors='coerce')
     os_jan[os_jan_ref_date_col] = pd.to_datetime(os_jan.get(os_jan_ref_date_col), errors='coerce')
     os_jan["SL Code"] = os_jan[os_jan_sl_code_col].astype(str)
-    os_jan["Executive"] = os_jan[os_jan_exec_col].astype(str).str.strip().str.upper()
+    os_jan["Executive"] = os_jan[os_jan_exec_col].apply(extract_executive_name)
     os_feb[os_feb_due_date_col] = pd.to_datetime(os_feb[os_feb_due_date_col], errors='coerce')
     os_feb[os_feb_ref_date_col] = pd.to_datetime(os_feb.get(os_feb_ref_date_col), errors='coerce')
     os_feb["SL Code"] = os_feb[os_feb_sl_code_col].astype(str)
-    os_feb["Executive"] = os_feb[os_feb_exec_col].astype(str).str.strip().str.upper()
+    os_feb["Executive"] = os_feb[os_feb_exec_col].apply(extract_executive_name)
     total_sale[sale_bill_date_col] = pd.to_datetime(total_sale[sale_bill_date_col], errors='coerce')
     total_sale[sale_due_date_col] = pd.to_datetime(total_sale[sale_due_date_col], errors='coerce')
     total_sale["SL Code"] = total_sale[sale_sl_code_col].astype(str)
-    total_sale["Executive"] = total_sale[sale_exec_col].astype(str).str.strip().str.upper()
+    total_sale["Executive"] = total_sale[sale_exec_col].apply(extract_executive_name)
     
     # Determine executives to display based on branch-filtered data
-    executives_to_display = sorted(set(os_jan["Executive"].dropna().unique()) | 
-                                 set(os_feb["Executive"].dropna().unique()) | 
-                                 set(total_sale["Executive"].dropna().unique()))
-    
-    # Apply executive filter
     if selected_executives:
-        executives_to_filter = [str(e).strip().upper() for e in selected_executives]
-        os_jan = os_jan[os_jan["Executive"].isin(executives_to_filter)]
-        os_feb = os_feb[os_feb["Executive"].isin(executives_to_filter)]
-        total_sale = total_sale[total_sale["Executive"].isin(executives_to_filter)]
+        selected_executives = [str(e).strip().upper() for e in selected_executives]
+        os_jan = os_jan[os_jan["Executive"].isin(selected_executives)]
+        os_feb = os_feb[os_feb["Executive"].isin(selected_executives)]
+        total_sale = total_sale[total_sale["Executive"].isin(selected_executives)]
         if os_jan.empty or os_feb.empty or total_sale.empty:
             st.error("No data remains after executive filtering.")
             return None
+        executives_to_display = selected_executives
+    else:
+        executives_to_display = sorted(set(os_jan["Executive"].dropna().unique()) | 
+                                     set(os_feb["Executive"].dropna().unique()) | 
+                                     set(total_sale["Executive"].dropna().unique()))
     
     specified_date = pd.to_datetime("01-" + selected_month_str, format="%d-%b-%y")
     specified_month_end = specified_date + pd.offsets.MonthEnd(0)
@@ -1023,8 +997,8 @@ def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
     final = collection.drop(columns=["OS Jan Coll", "OS Feb Coll"]).merge(overdue_sum, on="Executive", how="outer").merge(month_collection_final, on="Executive", how="outer").fillna(0)
     final["% Achieved (Selected Month)"] = np.where(final["For the month Overdue"] > 0, (final["For the month Collection"] / final["For the month Overdue"]) * 100, 0)
     
-    # Ensure all executives_to_display are included
-    final = pd.DataFrame({'Executive': executives_to_display}).merge(final, on='Executive', how='left').fillna(0)
+    # Filter to include only selected executives
+    final = final[final["Executive"].isin(executives_to_display)]
     
     final = final[~final["Executive"].str.upper().isin(["HO", "HEAD OFFICE"])]
     val_cols = ["Due Target", "Collection Achieved", "For the month Overdue", "For the month Collection"]
