@@ -252,11 +252,13 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             if filtered_sales_df.empty or budget_df.empty:
                 st.error(f"No data found for selected branches: {', '.join(selected_branches)}")
                 return None, None, None, None
-            executives_to_display = sorted(set(filtered_sales_df[sales_exec_col].dropna().unique()) | 
-                                         set(budget_df[budget_exec_col].dropna().unique()))
+            # FIXED: Get unique executives properly
+            executives_to_display = sorted(list(set(filtered_sales_df[sales_exec_col].dropna().unique()) | 
+                                              set(budget_df[budget_exec_col].dropna().unique())))
         else:
-            executives_to_display = sorted(set(filtered_sales_df[sales_exec_col].dropna().unique()) | 
-                                         set(budget_df[budget_exec_col].dropna().unique()))
+            # FIXED: Get unique executives properly
+            executives_to_display = sorted(list(set(filtered_sales_df[sales_exec_col].dropna().unique()) | 
+                                              set(budget_df[budget_exec_col].dropna().unique())))
 
         # Filter data by executives if provided
         if sales_executives:
@@ -345,7 +347,7 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
 
         results_df = pd.DataFrame(final_results)
 
-        # FIXED: Aggregate by executive for Budget vs Billed with proper grouping
+        # Aggregate by executive for Budget vs Billed
         exec_qty_summary = results_df.groupby('Executive').agg({
             'Budget_Qty': 'sum',
             'Final_Qty': 'sum'
@@ -356,17 +358,15 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             axis=1
         )
 
-        # FIXED: Create final DataFrame ensuring no duplicates
-        budget_vs_billed_qty_df = pd.DataFrame({'Executive': executives_to_display})
+        # FIXED: Create DataFrame ensuring unique executives only
+        unique_executives = sorted(list(set(executives_to_display)))  # Ensure uniqueness
+        budget_vs_billed_qty_df = pd.DataFrame({'Executive': unique_executives})
         budget_vs_billed_qty_df = pd.merge(
             budget_vs_billed_qty_df,
             exec_qty_summary,
             on='Executive',
             how='left'
         ).fillna({'Budget Qty': 0, 'Billed Qty': 0, '%': 0})
-
-        # Remove any duplicate executives (keep first occurrence)
-        budget_vs_billed_qty_df = budget_vs_billed_qty_df.drop_duplicates(subset=['Executive'], keep='first')
 
         exec_value_summary = results_df.groupby('Executive').agg({
             'Budget_Value': 'sum',
@@ -378,16 +378,13 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             axis=1
         )
 
-        budget_vs_billed_value_df = pd.DataFrame({'Executive': executives_to_display})
+        budget_vs_billed_value_df = pd.DataFrame({'Executive': unique_executives})
         budget_vs_billed_value_df = pd.merge(
             budget_vs_billed_value_df,
             exec_value_summary,
             on='Executive',
             how='left'
         ).fillna({'Budget Value': 0, 'Billed Value': 0, '%': 0})
-
-        # Remove any duplicate executives (keep first occurrence)
-        budget_vs_billed_value_df = budget_vs_billed_value_df.drop_duplicates(subset=['Executive'], keep='first')
 
         # Calculate overall sales
         overall_sales_data = filtered_sales_df.groupby(sales_exec_col).agg({
@@ -402,7 +399,7 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
         }).reset_index()
         budget_totals.columns = ['Executive', 'Total_Budget_Qty', 'Total_Budget_Value']
 
-        overall_sales_qty_df = pd.DataFrame({'Executive': executives_to_display})
+        overall_sales_qty_df = pd.DataFrame({'Executive': unique_executives})
         overall_sales_qty_df = pd.merge(
             overall_sales_qty_df,
             budget_totals[['Executive', 'Total_Budget_Qty']].rename(columns={'Total_Budget_Qty': 'Budget Qty'}),
@@ -416,10 +413,7 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             how='left'
         ).fillna({'Billed Qty': 0})
 
-        # Remove any duplicate executives
-        overall_sales_qty_df = overall_sales_qty_df.drop_duplicates(subset=['Executive'], keep='first')
-
-        overall_sales_value_df = pd.DataFrame({'Executive': executives_to_display})
+        overall_sales_value_df = pd.DataFrame({'Executive': unique_executives})
         overall_sales_value_df = pd.merge(
             overall_sales_value_df,
             budget_totals[['Executive', 'Total_Budget_Value']].rename(columns={'Total_Budget_Value': 'Budget Value'}),
@@ -432,9 +426,6 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             on='Executive',
             how='left'
         ).fillna({'Billed Value': 0})
-
-        # Remove any duplicate executives
-        overall_sales_value_df = overall_sales_value_df.drop_duplicates(subset=['Executive'], keep='first')
 
         # Add totals
         total_budget_qty = budget_vs_billed_qty_df['Budget Qty'].sum()
