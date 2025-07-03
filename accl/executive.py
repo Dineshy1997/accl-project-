@@ -285,11 +285,7 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
         filtered_sales_df[sales_product_group_col] = filtered_sales_df[sales_product_group_col].astype(str).str.strip().str.upper()
         budget_df[budget_sl_code_col] = budget_df[budget_sl_code_col].apply(clean_sl_code)
         budget_df[budget_product_group_col] = budget_df[budget_product_group_col].astype(str).str.strip().str.upper()
-
-        # Debug: Show cleaned data sample
-        st.write("✅ **Data Cleaning Applied**")
-        st.write("📝 Sample cleaned sales SL codes:", filtered_sales_df[sales_sl_code_col].head(5).tolist())
-        st.write("📝 Sample cleaned budget SL codes:", budget_df[budget_sl_code_col].head(5).tolist())
+        
 
         # Group budget data
         budget_grouped = budget_df.groupby([
