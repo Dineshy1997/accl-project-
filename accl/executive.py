@@ -208,7 +208,7 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
                            sales_product_group_col, sales_sl_code_col, sales_exec_col,
                            budget_area_col, budget_value_col, budget_qty_col,
                            budget_product_group_col, budget_sl_code_col, budget_exec_col,
-                           selected_branches=None):  # Added selected_branches parameter
+                           selected_branches=None):
     try:
         # Create copies to avoid modifying original DataFrames
         sales_df = sales_df.copy()
@@ -216,9 +216,9 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
 
         # Validate column existence
         required_sales_cols = [sales_date_col, sales_value_col, sales_qty_col, sales_exec_col,
-                              sales_product_group_col, sales_sl_code_col, sales_area_col]  # Added sales_area_col
+                              sales_product_group_col, sales_sl_code_col, sales_area_col]
         required_budget_cols = [budget_value_col, budget_qty_col, budget_exec_col,
-                               budget_product_group_col, budget_sl_code_col, budget_area_col]  # Added budget_area_col
+                               budget_product_group_col, budget_sl_code_col, budget_area_col]
         
         missing_sales_cols = [col for col in required_sales_cols if col not in sales_df.columns]
         missing_budget_cols = [col for col in required_budget_cols if col not in budget_df.columns]
@@ -257,22 +257,19 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
                 st.error(f"No data found for selected branches: {', '.join(selected_branches)}")
                 return None, None, None, None
 
-        # FIX 1: Determine executives to display based on selected branches and executives
+        # Determine executives to display
         if selected_branches:
-            # If any branches are selected, get executives associated with those branches
             branch_sales_df = filtered_sales_df[filtered_sales_df[sales_area_col].isin([b.upper() for b in selected_branches])]
             branch_budget_df = budget_df[budget_df[budget_area_col].isin([b.upper() for b in selected_branches])]
             branch_executives = sorted(set(branch_sales_df[sales_exec_col].dropna().unique()) | 
                                      set(branch_budget_df[budget_exec_col].dropna().unique()))
             
-            # If specific executives are also selected, use intersection
             if sales_executives:
                 selected_execs_upper = [str(exec).strip().upper() for exec in sales_executives]
                 executives_to_display = [exec for exec in branch_executives if exec in selected_execs_upper]
             else:
                 executives_to_display = branch_executives
         else:
-            # Use provided sales_executives or all executives in filtered data
             executives_to_display = [str(exec).strip().upper() for exec in sales_executives] if sales_executives else \
                                     sorted(set(filtered_sales_df[sales_exec_col].dropna().unique()) | 
                                           set(budget_df[budget_exec_col].dropna().unique()))
@@ -291,10 +288,7 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
         budget_filtered[budget_sl_code_col] = budget_filtered[budget_sl_code_col].astype(str).str.strip().str.upper()
         budget_filtered[budget_product_group_col] = budget_filtered[budget_product_group_col].astype(str).str.strip().str.upper()
 
-        # STEP 1: Process Budget Data
-        print("Processing Budget Data...")
-        
-        # Group by Executive + SL Code + Product and sum quantities/values
+        # Process Budget Data
         budget_grouped = budget_filtered.groupby([
             budget_exec_col, 
             budget_sl_code_col, 
@@ -304,7 +298,6 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             budget_value_col: 'sum'
         }).reset_index()
         
-        # Filter: Only include rows where BOTH qty > 0 AND value > 0
         budget_valid = budget_grouped[
             (budget_grouped[budget_qty_col] > 0) & 
             (budget_grouped[budget_value_col] > 0)
@@ -314,15 +307,9 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             st.error("No valid budget data found (with qty > 0 and value > 0).")
             return None, None, None, None
         
-        print(f"Valid budget records: {len(budget_valid)}")
-        
-        # STEP 2: Process Sales Data - Match exactly with budget combinations
-        print("Processing Sales Data...")
-        
-        # Initialize results storage
+        # Process Sales Data
         final_results = []
         
-        # For each valid budget record, find matching sales
         for _, budget_row in budget_valid.iterrows():
             executive = budget_row[budget_exec_col]
             sl_code = budget_row[budget_sl_code_col]
@@ -330,14 +317,12 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             budget_qty = budget_row[budget_qty_col]
             budget_value = budget_row[budget_value_col]
             
-            # Find matching sales records (same executive + sl_code + product)
             matching_sales = filtered_sales_df[
                 (filtered_sales_df[sales_exec_col] == executive) &
                 (filtered_sales_df[sales_sl_code_col] == sl_code) &
                 (filtered_sales_df[sales_product_group_col] == product)
             ]
             
-            # Sum all matching sales records for this combination
             if not matching_sales.empty:
                 sales_qty_total = matching_sales[sales_qty_col].sum()
                 sales_value_total = matching_sales[sales_value_col].sum()
@@ -345,12 +330,9 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
                 sales_qty_total = 0
                 sales_value_total = 0
             
-            # Apply the comparison logic
-            # If sales > budget, use budget; else use sales
             final_qty = budget_qty if sales_qty_total > budget_qty else sales_qty_total
             final_value = budget_value if sales_value_total > budget_value else sales_value_total
             
-            # Store result
             final_results.append({
                 'Executive': executive,
                 'SL_Code': sl_code,
@@ -363,131 +345,114 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
                 'Final_Value': final_value
             })
         
-        # Convert to DataFrame for easier manipulation
         results_df = pd.DataFrame(final_results)
         
-        print(f"Processed {len(results_df)} budget-sales combinations")
-        
-        # STEP 3: Aggregate by Executive for final reports
-        
-        # Budget vs Billed Quantity DataFrame
+        # Aggregate by Executive
         exec_qty_summary = results_df.groupby('Executive').agg({
             'Budget_Qty': 'sum',
             'Final_Qty': 'sum'
         }).reset_index()
         exec_qty_summary.columns = ['Executive', 'Budget Qty', 'Billed Qty']
         
-        # FIX 2: Corrected percentage calculation for quantity
-        def calculate_percentage(budget, billed):
-            # Convert to float and handle NaN/None values
-            try:
-                budget = float(budget) if pd.notna(budget) else 0.0
-                billed = float(billed) if pd.notna(billed) else 0.0
-            except (ValueError, TypeError):
-                budget = 0.0
-                billed = 0.0
-            
-            # Round to avoid floating point precision issues
-            budget = round(budget, 6)
-            billed = round(billed, 6)
-            
-            # Debug print for problematic case
-            if budget == 0.0 and billed == 0.0:
-                print(f"Both zero case: budget={budget}, billed={billed}, returning 0.0")
-                return 0.0  # Both are zero, percentage should be 0
-            elif budget == 0.0:
-                print(f"Budget zero case: budget={budget}, billed={billed}, returning 0.0")
-                return 0.0  # Budget is zero, can't calculate meaningful percentage
-            else:
-                result = round((billed / budget * 100), 2)
-                print(f"Normal case: budget={budget}, billed={billed}, returning {result}")
-                return result
-        
-        # Apply percentage calculation to the summary data
-        exec_qty_summary['%'] = exec_qty_summary.apply(
-            lambda row: calculate_percentage(row['Budget Qty'], row['Billed Qty']),
-            axis=1
-        )
-        
-        # Debug: Print the summary to check values
-        print("Executive Quantity Summary:")
-        print(exec_qty_summary)
-        
-        # Ensure all selected executives are included (even if no data)
-        budget_vs_billed_qty_df = pd.DataFrame({'Executive': executives_to_display})
-        budget_vs_billed_qty_df = pd.merge(
-            budget_vs_billed_qty_df,
-            exec_qty_summary,
-            on='Executive',
-            how='left'
-        ).fillna({'Budget Qty': 0.0, 'Billed Qty': 0.0, '%': 0.0})
-        
-        # FORCE recalculate percentages for ALL rows to ensure correct values
-        print("Before percentage recalculation:")
-        print(budget_vs_billed_qty_df[['Executive', 'Budget Qty', 'Billed Qty', '%']])
-        
-        budget_vs_billed_qty_df['%'] = budget_vs_billed_qty_df.apply(
-            lambda row: calculate_percentage(row['Budget Qty'], row['Billed Qty']),
-            axis=1
-        )
-        
-        print("After percentage recalculation:")
-        print(budget_vs_billed_qty_df[['Executive', 'Budget Qty', 'Billed Qty', '%']])
-        
-        # Budget vs Billed Value DataFrame
         exec_value_summary = results_df.groupby('Executive').agg({
             'Budget_Value': 'sum',
             'Final_Value': 'sum'
         }).reset_index()
         exec_value_summary.columns = ['Executive', 'Budget Value', 'Billed Value']
         
-        # Apply percentage calculation to the summary data
-        exec_value_summary['%'] = exec_value_summary.apply(
-            lambda row: calculate_percentage(row['Budget Value'], row['Billed Value']),
-            axis=1
+        # NUCLEAR FIX: Completely rebuild DataFrames from scratch
+        # This ensures no residual data or memory issues
+        
+        # Build QUANTITY DataFrame from scratch
+        qty_data = []
+        for exec_name in executives_to_display:
+            # Find matching data in summary
+            exec_qty_row = exec_qty_summary[exec_qty_summary['Executive'] == exec_name]
+            
+            if not exec_qty_row.empty:
+                budget_val = round(float(exec_qty_row['Budget Qty'].iloc[0]), 2)
+                billed_val = round(float(exec_qty_row['Billed Qty'].iloc[0]), 2)
+            else:
+                budget_val = 0.0
+                billed_val = 0.0
+            
+            # Calculate percentage from scratch
+            if budget_val > 0:
+                percentage = round((billed_val / budget_val) * 100, 2)
+            else:
+                percentage = 0.0
+            
+            qty_data.append({
+                'Executive': exec_name,
+                'Budget Qty': budget_val,
+                'Billed Qty': billed_val,
+                '%': percentage
+            })
+        
+        # Create fresh DataFrame
+        budget_vs_billed_qty_df = pd.DataFrame(qty_data)
+        
+        # Build VALUE DataFrame from scratch
+        value_data = []
+        for exec_name in executives_to_display:
+            # Find matching data in summary
+            exec_value_row = exec_value_summary[exec_value_summary['Executive'] == exec_name]
+            
+            if not exec_value_row.empty:
+                budget_val = round(float(exec_value_row['Budget Value'].iloc[0]), 2)
+                billed_val = round(float(exec_value_row['Billed Value'].iloc[0]), 2)
+            else:
+                budget_val = 0.0
+                billed_val = 0.0
+            
+            # Calculate percentage from scratch
+            if budget_val > 0:
+                percentage = round((billed_val / budget_val) * 100, 2)
+            else:
+                percentage = 0.0
+            
+            value_data.append({
+                'Executive': exec_name,
+                'Budget Value': budget_val,
+                'Billed Value': billed_val,
+                '%': percentage
+            })
+        
+        # Create fresh DataFrame
+        budget_vs_billed_value_df = pd.DataFrame(value_data)
+        
+        # ADDITIONAL SAFETY CHECK: Force fix any remaining anomalies
+        # Check for any impossible percentages (non-zero % with zero budget and billed)
+        anomaly_mask_qty = (
+            (budget_vs_billed_qty_df['Budget Qty'] == 0) & 
+            (budget_vs_billed_qty_df['Billed Qty'] == 0) & 
+            (budget_vs_billed_qty_df['%'] != 0.0)
         )
+        if anomaly_mask_qty.any():
+            budget_vs_billed_qty_df.loc[anomaly_mask_qty, '%'] = 0.0
+            print(f"🔧 SAFETY FIX: Reset {anomaly_mask_qty.sum()} anomalous quantity percentages to 0.0%")
         
-        # Debug: Print the summary to check values
-        print("Executive Value Summary:")
-        print(exec_value_summary)
-        
-        # Ensure all selected executives are included (even if no data)
-        budget_vs_billed_value_df = pd.DataFrame({'Executive': executives_to_display})
-        budget_vs_billed_value_df = pd.merge(
-            budget_vs_billed_value_df,
-            exec_value_summary,
-            on='Executive',
-            how='left'
-        ).fillna({'Budget Value': 0.0, 'Billed Value': 0.0, '%': 0.0})
-        
-        # FORCE recalculate percentages for ALL rows to ensure correct values
-        print("Value Before percentage recalculation:")
-        print(budget_vs_billed_value_df[['Executive', 'Budget Value', 'Billed Value', '%']])
-        
-        budget_vs_billed_value_df['%'] = budget_vs_billed_value_df.apply(
-            lambda row: calculate_percentage(row['Budget Value'], row['Billed Value']),
-            axis=1
+        anomaly_mask_value = (
+            (budget_vs_billed_value_df['Budget Value'] == 0) & 
+            (budget_vs_billed_value_df['Billed Value'] == 0) & 
+            (budget_vs_billed_value_df['%'] != 0.0)
         )
+        if anomaly_mask_value.any():
+            budget_vs_billed_value_df.loc[anomaly_mask_value, '%'] = 0.0
+            print(f"🔧 SAFETY FIX: Reset {anomaly_mask_value.sum()} anomalous value percentages to 0.0%")
         
-        print("Value After percentage recalculation:")
-        print(budget_vs_billed_value_df[['Executive', 'Budget Value', 'Billed Value', '%']])
-        
-        # STEP 4: Create Overall Sales DataFrames (use all sales data, not just matched)
-        
-        # Overall Sales - use complete sales data for selected executives
+        # Create Overall Sales DataFrames
         overall_sales_data = filtered_sales_df.groupby(sales_exec_col).agg({
             sales_qty_col: 'sum',
             sales_value_col: 'sum'
         }).reset_index()
         overall_sales_data.columns = ['Executive', 'Overall_Sales_Qty', 'Overall_Sales_Value']
         
-        # For overall sales, use the same budget totals for consistency
         budget_totals = results_df.groupby('Executive').agg({
             'Budget_Qty': 'sum',
             'Budget_Value': 'sum'
         }).reset_index()
         
-        # Overall Sales Quantity DataFrame
         overall_sales_qty_df = pd.DataFrame({'Executive': executives_to_display})
         overall_sales_qty_df = pd.merge(
             overall_sales_qty_df,
@@ -503,7 +468,6 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             how='left'
         ).fillna({'Billed Qty': 0})
         
-        # Overall Sales Value DataFrame
         overall_sales_value_df = pd.DataFrame({'Executive': executives_to_display})
         overall_sales_value_df = pd.merge(
             overall_sales_value_df,
@@ -519,12 +483,10 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             how='left'
         ).fillna({'Billed Value': 0})
         
-        # STEP 5: Add Total Rows
-        
-        # Add total row for budget vs billed quantity
-        total_budget_qty = budget_vs_billed_qty_df['Budget Qty'].sum()
-        total_billed_qty = budget_vs_billed_qty_df['Billed Qty'].sum()
-        total_percentage_qty = calculate_percentage(total_budget_qty, total_billed_qty)
+        # Add Total Rows
+        total_budget_qty = round(budget_vs_billed_qty_df['Budget Qty'].sum(), 2)
+        total_billed_qty = round(budget_vs_billed_qty_df['Billed Qty'].sum(), 2)
+        total_percentage_qty = round((total_billed_qty / total_budget_qty * 100), 2) if total_budget_qty > 0 else 0.0
         
         total_row_qty = pd.DataFrame({
             'Executive': ['TOTAL'],
@@ -534,10 +496,9 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
         })
         budget_vs_billed_qty_df = pd.concat([budget_vs_billed_qty_df, total_row_qty], ignore_index=True)
         
-        # Add total row for budget vs billed value
-        total_budget_value = budget_vs_billed_value_df['Budget Value'].sum()
-        total_billed_value = budget_vs_billed_value_df['Billed Value'].sum()
-        total_percentage_value = calculate_percentage(total_budget_value, total_billed_value)
+        total_budget_value = round(budget_vs_billed_value_df['Budget Value'].sum(), 2)
+        total_billed_value = round(budget_vs_billed_value_df['Billed Value'].sum(), 2)
+        total_percentage_value = round((total_billed_value / total_budget_value * 100), 2) if total_budget_value > 0 else 0.0
         
         total_row_value = pd.DataFrame({
             'Executive': ['TOTAL'],
@@ -547,27 +508,44 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
         })
         budget_vs_billed_value_df = pd.concat([budget_vs_billed_value_df, total_row_value], ignore_index=True)
         
-        # Add total rows for overall sales
         total_row_overall_qty = pd.DataFrame({
             'Executive': ['TOTAL'],
-            'Budget Qty': [overall_sales_qty_df['Budget Qty'].sum()],
-            'Billed Qty': [overall_sales_qty_df['Billed Qty'].sum()]
+            'Budget Qty': [round(overall_sales_qty_df['Budget Qty'].sum(), 2)],
+            'Billed Qty': [round(overall_sales_qty_df['Billed Qty'].sum(), 2)]
         })
         overall_sales_qty_df = pd.concat([overall_sales_qty_df, total_row_overall_qty], ignore_index=True)
         
         total_row_overall_value = pd.DataFrame({
             'Executive': ['TOTAL'],
-            'Budget Value': [overall_sales_value_df['Budget Value'].sum()],
-            'Billed Value': [overall_sales_value_df['Billed Value'].sum()]
+            'Budget Value': [round(overall_sales_value_df['Budget Value'].sum(), 2)],
+            'Billed Value': [round(overall_sales_value_df['Billed Value'].sum(), 2)]
         })
         overall_sales_value_df = pd.concat([overall_sales_value_df, total_row_overall_value], ignore_index=True)
         
-        # Round all numeric columns to 2 decimal places
+        # Round all numeric columns
         for df in [budget_vs_billed_qty_df, budget_vs_billed_value_df, overall_sales_qty_df, overall_sales_value_df]:
             numeric_cols = df.select_dtypes(include=[np.number]).columns
             df[numeric_cols] = df[numeric_cols].round(2)
         
-        print("Budget vs Billed calculation completed successfully!")
+        # FINAL NUCLEAR SAFETY CHECK - Force any remaining issues
+        for df_name, df in [("QTY", budget_vs_billed_qty_df), ("VALUE", budget_vs_billed_value_df)]:
+            if df_name == "QTY":
+                budget_col, billed_col = 'Budget Qty', 'Billed Qty'
+            else:
+                budget_col, billed_col = 'Budget Value', 'Billed Value'
+            
+            # Check for any remaining anomalies
+            final_anomaly_mask = (
+                (df[budget_col] == 0.0) & 
+                (df[billed_col] == 0.0) & 
+                (df['%'] != 0.0)
+            )
+            
+            if final_anomaly_mask.any():
+                print(f"🚨 FINAL CHECK: Found {final_anomaly_mask.sum()} anomalies in {df_name} DataFrame")
+                print(f"Anomalous executives: {df[final_anomaly_mask]['Executive'].tolist()}")
+                df.loc[final_anomaly_mask, '%'] = 0.0
+                print(f"✅ Fixed all anomalies in {df_name} DataFrame")
         
         return (budget_vs_billed_value_df, budget_vs_billed_qty_df,
                 overall_sales_qty_df, overall_sales_value_df)
@@ -582,20 +560,26 @@ def create_budget_ppt(budget_vs_billed_value_df, budget_vs_billed_qty_df, overal
         prs.slide_width = Inches(13.33)
         prs.slide_height = Inches(7.5)
         create_title_slide(prs, f"Monthly Review Meeting – {month_title}", logo_file)
+        
         def process_df_for_slides(df, title_base, percent_cols=None):
             if percent_cols is None:
                 percent_cols = []
             df = df[df['Executive'] != "ACCLP"].copy()
             num_executives = df[df['Executive'] != 'TOTAL'].shape[0]
-            split_threshold = 12
+            
+            # INCREASED SPLIT THRESHOLD: From 12 to 20 executives
+            split_threshold = 20
+            
             if num_executives <= split_threshold:
                 add_table_slide(prs, df, title_base, percent_cols=percent_cols)
                 return
+            
             data_rows = df[df['Executive'] != 'TOTAL'].copy()
             total_row = df[df['Executive'] == 'TOTAL'].copy()
             split_point = math.ceil(num_executives / 2)
             part1 = data_rows.iloc[:split_point].copy()
             part2 = data_rows.iloc[split_point:].copy()
+            
             for i, part in enumerate([part1, part2], 1):
                 part_total = {}
                 for col in df.columns:
@@ -606,20 +590,39 @@ def create_budget_ppt(budget_vs_billed_value_df, budget_vs_billed_qty_df, overal
                         billed_col = 'Billed Value' if 'Billed Value' in df.columns else 'Billed Qty'
                         budget_sum = part[budget_col].sum()
                         billed_sum = part[billed_col].sum()
-                        part_total[col] = round((billed_sum / budget_sum * 100), 2) if budget_sum != 0 else 0
+                        part_total[col] = round((billed_sum / budget_sum * 100), 2) if budget_sum != 0 else 0.0
                     else:
-                        part_total[col] = part[col].sum()
+                        # ENHANCED ROUNDING: Double-round to eliminate floating point errors
+                        raw_sum = part[col].sum()
+                        part_total[col] = round(round(raw_sum, 4), 2)  # First round to 4, then to 2 decimals
+                
+                # Create DataFrame for part with total and ensure all numeric columns are rounded
                 part_with_total = pd.concat([part, pd.DataFrame([part_total])], ignore_index=True)
+                
+                # ADDITIONAL SAFETY ROUNDING: Ensure all numeric columns are properly rounded
+                numeric_cols = part_with_total.select_dtypes(include=[np.number]).columns
+                for col in numeric_cols:
+                    part_with_total[col] = part_with_total[col].apply(lambda x: round(float(x), 2))
+                
                 add_table_slide(prs, part_with_total, f"{title_base} - Part {i}", percent_cols=percent_cols)
+            
+            # Also ensure the grand total row is properly rounded
+            numeric_cols = total_row.select_dtypes(include=[np.number]).columns
+            for col in numeric_cols:
+                total_row[col] = total_row[col].apply(lambda x: round(float(x), 2))
+            
             add_table_slide(prs, total_row, f"{title_base} - Grand Total", percent_cols=percent_cols)
+        
         process_df_for_slides(budget_vs_billed_qty_df, "BUDGET AGAINST BILLED (Qty in Mt)", percent_cols=[3])
         process_df_for_slides(budget_vs_billed_value_df, "BUDGET AGAINST BILLED (Value in Lakhs)", percent_cols=[3])
         process_df_for_slides(overall_sales_qty_df, "OVERALL SALES (Qty in Mt)", percent_cols=[])
         process_df_for_slides(overall_sales_value_df, "OVERALL SALES (Value in Lakhs)", percent_cols=[])
+        
         ppt_buffer = BytesIO()
         prs.save(ppt_buffer)
         ppt_buffer.seek(0)
         return ppt_buffer
+        
     except Exception as e:
         logger.error(f"Error creating Budget PPT: {e}")
         st.error(f"Error creating Budget PPT: {e}")
@@ -636,7 +639,6 @@ def determine_financial_year(date):
 def create_customer_table(sales_df, date_col, branch_col, customer_id_col, executive_col, selected_months=None, selected_branches=None, selected_executives=None):
     """
     Creates a table of unique customer counts per executive for selected months, branches, and executives.
-    If a single branch is selected, only executives assigned to that branch are included.
     
     Parameters:
     - sales_df: DataFrame containing sales data.
@@ -727,25 +729,31 @@ def create_customer_table(sales_df, date_col, branch_col, customer_id_col, execu
             st.error(f"Error processing columns: {e}")
             continue
         
-        # Apply branch filter
+        # Apply branch filter if provided
         if selected_branches:
             fy_df = fy_df[fy_df['Branch'].isin([b.upper() for b in selected_branches])]
             if fy_df.empty:
                 continue
         
-        # Determine executives to display
-        if selected_branches and len(selected_branches) == 1:
-            # If exactly one branch is selected, get executives associated with that branch
-            branch = selected_branches[0].upper()
-            branch_df = fy_df[fy_df['Branch'] == branch]
-            executives_to_display = sorted(branch_df['Executive_Upper'].dropna().unique())
+        # FIX: Determine executives to display based on both branch and executive selections
+        if selected_branches:
+            # If branches are selected, get executives associated with those branches
+            branch_df = fy_df[fy_df['Branch'].isin([b.upper() for b in selected_branches])]
+            branch_executives = sorted(branch_df['Executive_Upper'].dropna().unique())
+            
+            # If specific executives are also selected, use intersection
+            if selected_executives:
+                selected_execs_upper = [str(e).upper() for e in selected_executives]
+                executives_to_display = [exec for exec in branch_executives if exec in selected_execs_upper]
+            else:
+                executives_to_display = branch_executives
         else:
-            # Otherwise, use selected executives or all executives in filtered data
+            # Use provided selected_executives or all executives in filtered data
             executives_to_display = [str(e).upper() for e in selected_executives] if selected_executives else sorted(fy_df['Executive_Upper'].dropna().unique())
         
         # Apply executive filter
-        if selected_executives:
-            fy_df = fy_df[fy_df['Executive_Upper'].isin([str(e).upper() for e in selected_executives])]
+        if executives_to_display:
+            fy_df = fy_df[fy_df['Executive_Upper'].isin(executives_to_display)]
             if fy_df.empty:
                 continue
         
