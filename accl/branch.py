@@ -516,51 +516,65 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
         
         print(f"Processed {len(results_df)} budget-sales combinations")
         
-        # STEP 3: Aggregate by Branch for Budget vs Billed reports
+        # STEP 3: Aggregate by Branch for Budget vs Billed reports - NUCLEAR FIX APPROACH
         
-        # Budget vs Billed Quantity DataFrame
-        branch_qty_summary = results_df.groupby('Branch').agg({
-            'Budget_Qty': 'sum',
-            'Final_Qty': 'sum'
-        }).reset_index()
-        branch_qty_summary.columns = ['Area', 'Budget Qty', 'Billed Qty']
+        # FIXED: Build QUANTITY DataFrame from scratch with proper percentage calculation
+        qty_data = []
+        for area in default_branches:
+            # Find matching data in results
+            area_qty_data = results_df[results_df['Branch'] == area]
+            
+            if not area_qty_data.empty:
+                budget_val = round(float(area_qty_data['Budget_Qty'].sum()), 2)
+                billed_val = round(float(area_qty_data['Final_Qty'].sum()), 2)
+            else:
+                budget_val = 0.0
+                billed_val = 0.0
+            
+            # Calculate percentage from scratch
+            if budget_val > 0:
+                percentage = round((billed_val / budget_val) * 100, 2)
+            else:
+                percentage = 0.0
+            
+            qty_data.append({
+                'Area': area,
+                'Budget Qty': budget_val,
+                'Billed Qty': billed_val,
+                '%': percentage
+            })
         
-        # Calculate achievement percentage for quantity
-        branch_qty_summary['%'] = branch_qty_summary.apply(
-            lambda row: int((row['Billed Qty'] / row['Budget Qty'] * 100)) if row['Budget Qty'] > 0 else 0,
-            axis=1
-        )
+        # Create fresh DataFrame
+        budget_vs_billed_qty_df = pd.DataFrame(qty_data)
         
-        # Ensure all selected branches are included (even if no data)
-        budget_vs_billed_qty_df = pd.DataFrame({'Area': default_branches})
-        budget_vs_billed_qty_df = pd.merge(
-            budget_vs_billed_qty_df,
-            branch_qty_summary,
-            on='Area',
-            how='left'
-        ).fillna({'Budget Qty': 0, 'Billed Qty': 0, '%': 0})
+        # FIXED: Build VALUE DataFrame from scratch with proper percentage calculation
+        value_data = []
+        for area in default_branches:
+            # Find matching data in results
+            area_value_data = results_df[results_df['Branch'] == area]
+            
+            if not area_value_data.empty:
+                budget_val = round(float(area_value_data['Budget_Value'].sum()), 2)
+                billed_val = round(float(area_value_data['Final_Value'].sum()), 2)
+            else:
+                budget_val = 0.0
+                billed_val = 0.0
+            
+            # Calculate percentage from scratch
+            if budget_val > 0:
+                percentage = round((billed_val / budget_val) * 100, 2)
+            else:
+                percentage = 0.0
+            
+            value_data.append({
+                'Area': area,
+                'Budget Value': budget_val,
+                'Billed Value': billed_val,
+                '%': percentage
+            })
         
-        # Budget vs Billed Value DataFrame
-        branch_value_summary = results_df.groupby('Branch').agg({
-            'Budget_Value': 'sum',
-            'Final_Value': 'sum'
-        }).reset_index()
-        branch_value_summary.columns = ['Area', 'Budget Value', 'Billed Value']
-        
-        # Calculate achievement percentage for value
-        branch_value_summary['%'] = branch_value_summary.apply(
-            lambda row: int((row['Billed Value'] / row['Budget Value'] * 100)) if row['Budget Value'] > 0 else 0,
-            axis=1
-        )
-        
-        # Ensure all selected branches are included (even if no data)
-        budget_vs_billed_value_df = pd.DataFrame({'Area': default_branches})
-        budget_vs_billed_value_df = pd.merge(
-            budget_vs_billed_value_df,
-            branch_value_summary,
-            on='Area',
-            how='left'
-        ).fillna({'Budget Value': 0, 'Billed Value': 0, '%': 0})
+        # Create fresh DataFrame
+        budget_vs_billed_value_df = pd.DataFrame(value_data)
         
         # STEP 4: Create Overall Sales DataFrames (use all sales data, not just matched)
         
@@ -610,12 +624,12 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
             how='left'
         ).fillna({'Billed Value': 0})
         
-        # STEP 5: Add Total Rows
+        # STEP 5: Add Total Rows with proper rounding
         
         # Add total row for budget vs billed quantity
-        total_budget_qty = budget_vs_billed_qty_df['Budget Qty'].sum()
-        total_billed_qty = budget_vs_billed_qty_df['Billed Qty'].sum()
-        total_percentage_qty = int((total_billed_qty / total_budget_qty * 100)) if total_budget_qty > 0 else 0
+        total_budget_qty = round(budget_vs_billed_qty_df['Budget Qty'].sum(), 2)
+        total_billed_qty = round(budget_vs_billed_qty_df['Billed Qty'].sum(), 2)
+        total_percentage_qty = round((total_billed_qty / total_budget_qty * 100), 2) if total_budget_qty > 0 else 0.0
         
         total_row_qty = pd.DataFrame({
             'Area': ['TOTAL'],
@@ -626,9 +640,9 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
         budget_vs_billed_qty_df = pd.concat([budget_vs_billed_qty_df, total_row_qty], ignore_index=True)
         
         # Add total row for budget vs billed value
-        total_budget_value = budget_vs_billed_value_df['Budget Value'].sum()
-        total_billed_value = budget_vs_billed_value_df['Billed Value'].sum()
-        total_percentage_value = int((total_billed_value / total_budget_value * 100)) if total_budget_value > 0 else 0
+        total_budget_value = round(budget_vs_billed_value_df['Budget Value'].sum(), 2)
+        total_billed_value = round(budget_vs_billed_value_df['Billed Value'].sum(), 2)
+        total_percentage_value = round((total_billed_value / total_budget_value * 100), 2) if total_budget_value > 0 else 0.0
         
         total_row_value = pd.DataFrame({
             'Area': ['TOTAL'],
@@ -641,19 +655,19 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
         # Add total rows for overall sales
         total_row_overall_qty = pd.DataFrame({
             'Area': ['TOTAL'],
-            'Budget Qty': [overall_sales_qty_df['Budget Qty'].sum()],
-            'Billed Qty': [overall_sales_qty_df['Billed Qty'].sum()]
+            'Budget Qty': [round(overall_sales_qty_df['Budget Qty'].sum(), 2)],
+            'Billed Qty': [round(overall_sales_qty_df['Billed Qty'].sum(), 2)]
         })
         overall_sales_qty_df = pd.concat([overall_sales_qty_df, total_row_overall_qty], ignore_index=True)
         
         total_row_overall_value = pd.DataFrame({
             'Area': ['TOTAL'],
-            'Budget Value': [overall_sales_value_df['Budget Value'].sum()],
-            'Billed Value': [overall_sales_value_df['Billed Value'].sum()]
+            'Budget Value': [round(overall_sales_value_df['Budget Value'].sum(), 2)],
+            'Billed Value': [round(overall_sales_value_df['Billed Value'].sum(), 2)]
         })
         overall_sales_value_df = pd.concat([overall_sales_value_df, total_row_overall_value], ignore_index=True)
         
-        # Convert to integers for final display
+        # FINAL ROUNDING: Convert to integers for final display (keeping original behavior)
         budget_vs_billed_value_df['Budget Value'] = budget_vs_billed_value_df['Budget Value'].round(0).astype(int)
         budget_vs_billed_value_df['Billed Value'] = budget_vs_billed_value_df['Billed Value'].round(0).astype(int)
         budget_vs_billed_qty_df['Budget Qty'] = budget_vs_billed_qty_df['Budget Qty'].round(0).astype(int)
@@ -662,6 +676,25 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
         overall_sales_qty_df['Billed Qty'] = overall_sales_qty_df['Billed Qty'].round(0).astype(int)
         overall_sales_value_df['Budget Value'] = overall_sales_value_df['Budget Value'].round(0).astype(int)
         overall_sales_value_df['Billed Value'] = overall_sales_value_df['Billed Value'].round(0).astype(int)
+        
+        # ADDITIONAL SAFETY CHECK: Force fix any remaining percentage anomalies
+        for df_name, df in [("QTY", budget_vs_billed_qty_df), ("VALUE", budget_vs_billed_value_df)]:
+            if df_name == "QTY":
+                budget_col, billed_col = 'Budget Qty', 'Billed Qty'
+            else:
+                budget_col, billed_col = 'Budget Value', 'Billed Value'
+            
+            # Check for any remaining anomalies
+            final_anomaly_mask = (
+                (df[budget_col] == 0) & 
+                (df[billed_col] == 0) & 
+                (df['%'] != 0.0)
+            )
+            
+            if final_anomaly_mask.any():
+                print(f"🚨 FINAL CHECK: Found {final_anomaly_mask.sum()} anomalies in {df_name} DataFrame")
+                df.loc[final_anomaly_mask, '%'] = 0.0
+                print(f"✅ Fixed all anomalies in {df_name} DataFrame")
         
         print("Budget vs Billed calculation completed successfully!")
         
