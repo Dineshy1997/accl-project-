@@ -1412,6 +1412,54 @@ def create_combined_nbc_od_ppt(customer_df, customer_title, sorted_months, od_ta
         logger.error(f"Error creating Combined NBC & OD Target PPT: {e}")
         st.error(f"Error creating Combined NBC & OD Target PPT: {e}")
         return None
+def create_nbc_individual_ppt(customer_df, customer_title, sorted_months, financial_year, logo_file=None):
+    """Create individual PPT for NBC report only."""
+    try:
+        prs = Presentation()
+        prs.slide_width = Inches(13.33)
+        prs.slide_height = Inches(7.5)
+        
+        # Create title slide
+        create_title_slide(prs, "Number of Billed Customers Report", logo_file)
+        
+        # Add NBC slide
+        slide_layout = prs.slide_layouts[6]  # Blank slide
+        slide1 = prs.slides.add_slide(slide_layout)
+        create_customer_ppt_slide(slide1, customer_df, customer_title, sorted_months, financial_year)
+        
+        ppt_buffer = BytesIO()
+        prs.save(ppt_buffer)
+        ppt_buffer.seek(0)
+        return ppt_buffer
+    except Exception as e:
+        logger.error(f"Error creating NBC PPT: {e}")
+        st.error(f"Error creating NBC PPT: {e}")
+        return None
+
+def create_od_individual_ppt(od_target_df, od_title, logo_file=None):
+    """Create individual PPT for OD Target report only."""
+    try:
+        prs = Presentation()
+        prs.slide_width = Inches(13.33)
+        prs.slide_height = Inches(7.5)
+        
+        # Create title slide
+        create_title_slide(prs, "OD Target Report", logo_file)
+        
+        # Add OD Target slide
+        slide_layout = prs.slide_layouts[1]  # Title and content
+        slide2 = prs.slides.add_slide(slide_layout)
+        create_od_ppt_slide(slide2, od_target_df, od_title)
+        
+        ppt_buffer = BytesIO()
+        prs.save(ppt_buffer)
+        ppt_buffer.seek(0)
+        return ppt_buffer
+    except Exception as e:
+        logger.error(f"Error creating OD Target PPT: {e}")
+        st.error(f"Error creating OD Target PPT: {e}")
+        return None
+
 def tab_billed_customers():
     """Number of Billed Customers Report and OD Target Report Tab with AUTO-MAPPING."""
     st.header("Number of Billed Customers & OD Target Report")   
@@ -1503,6 +1551,26 @@ def tab_billed_customers():
                         img_buffer = create_customer_table_image(result_df, title, sorted_months, fy)
                         if img_buffer:
                             st.image(img_buffer, use_column_width=True)
+                        
+                        # ADD INDIVIDUAL NBC PPT DOWNLOAD HERE
+                        nbc_ppt_buffer = create_nbc_individual_ppt(
+                            result_df, 
+                            f"NUMBER OF BILLED CUSTOMERS - FY {fy}",
+                            sorted_months,
+                            fy,
+                            st.session_state.logo_file
+                        )
+                        
+                        if nbc_ppt_buffer:
+                            unique_id = str(uuid.uuid4())[:8]
+                            st.download_button(
+                                label=f"Download NBC Report PPT (FY {fy})",
+                                data=nbc_ppt_buffer,
+                                file_name=f"NBC_Report_FY_{fy}_{unique_id}.pptx",
+                                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                key=f'nbc_individual_download_{fy}_{unique_id}'
+                            )
+                        
                         customers_dfs = [{'df': result_df, 'title': f"NUMBER OF BILLED CUSTOMERS - FY {fy}"}]
                         st.session_state.customers_results = customers_dfs
                         dfs_info.append({'df': result_df, 'title': f"NUMBER OF BILLED CUSTOMERS - FY {fy}"})
@@ -1645,6 +1713,24 @@ def tab_billed_customers():
                                 img_buffer = create_od_table_image(od_target_df, od_title)
                                 if img_buffer:
                                     st.image(img_buffer, use_column_width=True)
+                                
+                                # ADD INDIVIDUAL OD TARGET PPT DOWNLOAD HERE
+                                od_ppt_buffer = create_od_individual_ppt(
+                                    od_target_df,
+                                    od_title,
+                                    st.session_state.logo_file
+                                )
+                                
+                                if od_ppt_buffer:
+                                    unique_id = str(uuid.uuid4())[:8]
+                                    st.download_button(
+                                        label="Download OD Target Report PPT",
+                                        data=od_ppt_buffer,
+                                        file_name=f"OD_Target_Report_{end_str}_{unique_id}.pptx",
+                                        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                        key=f'od_individual_download_{unique_id}'
+                                    )
+                                
                                 if 'customers_results' not in st.session_state or st.session_state.customers_results is None:
                                     st.session_state.customers_results = []
                                 st.session_state.customers_results.append({'df': od_target_df, 'title': od_title})
@@ -1654,50 +1740,7 @@ def tab_billed_customers():
             except Exception as e:
                 st.error(f"Error in OD Target tab: {e}")
                 logger.error(f"Error in OD Target tab: {e}")
-    st.divider()
-    st.subheader("Combined Report")    
-    if hasattr(st.session_state, 'nbc_results') and hasattr(st.session_state, 'od_results'):
-        try:
-            nbc_data = st.session_state.nbc_results
-            od_data = st.session_state.od_results
-            
-            ppt_buffer = create_combined_nbc_od_ppt(
-                nbc_data['df'],
-                nbc_data['title'],
-                nbc_data['sorted_months'],
-                od_data['df'],
-                od_data['title'],
-                st.session_state.logo_file
-            )            
-            if ppt_buffer:
-                st.download_button(
-                    label="Download Combined NBC & OD Target PPT",
-                    data=ppt_buffer,
-                    file_name="NBC_OD_Target_Combined.pptx",
-                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    key='nbc_od_combined_download'
-                )
-        except Exception as e:
-            st.error(f"Error creating combined report: {e}")
-            logger.error(f"Error creating combined report: {e}")
-        if hasattr(st.session_state, 'nbc_results') and isinstance(st.session_state.nbc_results, dict) and 'df' in st.session_state.nbc_results:
-            if 'customers_results' not in st.session_state or not st.session_state.customers_results:
-                st.session_state.customers_results = []
-            nbc_data = {'df': st.session_state.nbc_results['df'], 'title': st.session_state.nbc_results.get('title', 'Number of Billed Customers')}
-            if not any(d.get('title') == nbc_data['title'] for d in st.session_state.customers_results):
-                st.session_state.customers_results.append(nbc_data)
-        if hasattr(st.session_state, 'od_results') and isinstance(st.session_state.od_results, dict) and 'df' in st.session_state.od_results:
-            if 'customers_results' not in st.session_state or not st.session_state.customers_results:
-                st.session_state.customers_results = []
-            od_data = {'df': st.session_state.od_results['df'], 'title': st.session_state.od_results.get('title', 'OD Target')}
-            if not any(d.get('title') == od_data['title'] for d in st.session_state.customers_results):
-                st.session_state.customers_results.append(od_data)                
-    elif hasattr(st.session_state, 'nbc_results'):
-        st.info("Only Number of Billed Customers report is available. Generate OD Target report to enable combined download.")
-    elif hasattr(st.session_state, 'od_results'):
-        st.info("Only OD Target report is available. Generate Number of Billed Customers report to enable combined download.")
-    else:
-        st.info("Generate both Number of Billed Customers and OD Target reports to enable combined download.")    
+    
     return dfs_info
 def validate_numeric_column(df, col_name, file_name):
     """Validate that a column contains numeric data."""
