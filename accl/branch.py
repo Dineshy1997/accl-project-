@@ -1827,7 +1827,7 @@ def create_region_branch_mapping(os_first, os_second, total_sale,
     
     return region_branch_mapping
 def create_dynamic_regional_summary(final_df, region_branch_mapping):
-    """Create regional summary table using dynamic region-branch mapping."""
+    """Create regional summary table using dynamic region-branch mapping with consistent % Achieved calculations."""
     if final_df.empty or not region_branch_mapping:
         return None
     
@@ -1857,7 +1857,7 @@ def create_dynamic_regional_summary(final_df, region_branch_mapping):
     # Group by region and sum numeric columns (values are already in lakhs)
     regional_summary = df.groupby('Region')[numeric_cols].sum().reset_index()
     
-    # Calculate percentage columns
+    # Calculate percentage columns for regions
     regional_summary["Overall % Achieved"] = np.where(
         regional_summary["Due Target"] > 0,
         (regional_summary["Collection Achieved"] / regional_summary["Due Target"]) * 100,
@@ -1877,11 +1877,12 @@ def create_dynamic_regional_summary(final_df, region_branch_mapping):
     total_row = {'Region': 'TOTAL'}
     for col in numeric_cols:
         total_row[col] = round(regional_summary[col].sum(), 2)
+    # Calculate total percentages using the same logic as calculate_od_values_updated
     total_row["Overall % Achieved"] = round(
-        regional_summary["Overall % Achieved"].replace([np.inf, -np.inf], 0).mean(), 2
+        (total_row["Collection Achieved"] / total_row["Due Target"] * 100) if total_row["Due Target"] > 0 else 0, 2
     )
     total_row["% Achieved (Selected Month)"] = round(
-        regional_summary["% Achieved (Selected Month)"].replace([np.inf, -np.inf], 0).mean(), 2
+        (total_row["For the month Collection"] / total_row["For the month Overdue"] * 100) if total_row["For the month Overdue"] > 0 else 0, 2
     )
     
     # Append total row
@@ -2051,9 +2052,6 @@ def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_
                                                   (final["For the month Collection"] / final["For the month Overdue"]) * 100, 
                                                   0)
 
-   # *** REMOVED THE PROBLEMATIC LINE ***
-   # final["Branch"] = final["Branch"].replace({"Puducherry": "Pondicherry"})
-
    # Convert to lakhs and round
    val_cols = ["Due Target", "Collection Achieved", "For the month Overdue", "For the month Collection"]
    final[val_cols] = final[val_cols].div(100000)
@@ -2069,12 +2067,19 @@ def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_
    # Calculate regional summary BEFORE adding total row
    regional_summary = create_dynamic_regional_summary(final, region_branch_mapping)
 
-   # Add total row
+   # *** FIXED: Add total row using exact formula like regional summary ***
    total_row = {'Branch': 'TOTAL'}
    for col in final.columns[1:]:
-       if col in ["Overall % Achieved", "% Achieved (Selected Month)"]:
-           avg_val = final[col].replace([np.inf, -np.inf], 0).mean()
-           total_row[col] = round(avg_val, 2)
+       if col == "Overall % Achieved":
+           # Use exact formula: (Total Collection Achieved / Total Due Target) * 100
+           total_due = final["Due Target"].sum()
+           total_achieved = final["Collection Achieved"].sum()
+           total_row[col] = round((total_achieved / total_due * 100) if total_due > 0 else 0, 2)
+       elif col == "% Achieved (Selected Month)":
+           # Use exact formula: (Total Month Collection / Total Month Overdue) * 100
+           total_overdue = final["For the month Overdue"].sum()
+           total_month_collection = final["For the month Collection"].sum()
+           total_row[col] = round((total_month_collection / total_overdue * 100) if total_overdue > 0 else 0, 2)
        else:
            total_row[col] = round(final[col].sum(), 2)
    
