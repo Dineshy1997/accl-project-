@@ -2498,13 +2498,13 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
         st.write("Standardizing product and company group names...")
         
         # Handle possible missing values before applying standardize_name
-        ly_filtered_df[ly_product_col] = ly_filtered_df[ly_product_col].fillna("")
-        cy_filtered_df[cy_product_col] = cy_filtered_df[cy_product_col].fillna("")
-        budget_df[budget_product_group_col] = budget_df[budget_product_group_col].fillna("")
+        ly_filtered_df[ly_product_col] = ly_filtered_df[ly_product_col].fillna("").astype(str)
+        cy_filtered_df[cy_product_col] = cy_filtered_df[cy_product_col].fillna("").astype(str)
+        budget_df[budget_product_group_col] = budget_df[budget_product_group_col].fillna("").astype(str)
         
-        ly_filtered_df[ly_company_group_col] = ly_filtered_df[ly_company_group_col].fillna("")
-        cy_filtered_df[cy_company_group_col] = cy_filtered_df[cy_company_group_col].fillna("")
-        budget_df[budget_company_group_col] = budget_df[budget_company_group_col].fillna("")
+        ly_filtered_df[ly_company_group_col] = ly_filtered_df[ly_company_group_col].fillna("").astype(str)
+        cy_filtered_df[cy_company_group_col] = cy_filtered_df[cy_company_group_col].fillna("").astype(str)
+        budget_df[budget_company_group_col] = budget_df[budget_company_group_col].fillna("").astype(str)
         
         # Apply standardization
         ly_filtered_df[ly_product_col] = ly_filtered_df[ly_product_col].apply(standardize_name)
@@ -2581,6 +2581,19 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
             st.warning("No valid company groups found in the data. Please check company group columns.")
             return None
 
+        # Define helper functions for calculations
+        def calc_achievement_percentage(cy_value, ly_value):
+            """Calculate achievement percentage correctly"""
+            if pd.isna(ly_value) or ly_value == 0:
+                return 0.00 if cy_value == 0 else 100.00
+            return round(((cy_value - ly_value) / ly_value) * 100, 2)
+
+        def calc_total_growth_percentage(total_cy, total_ly):
+            """Calculate total growth percentage based on total values"""
+            if pd.isna(total_ly) or total_ly == 0:
+                return 0.00 if total_cy == 0 else 100.00
+            return round(((total_cy - total_ly) / total_ly) * 100, 2)
+
         result = {}
         st.write("Processing data by company group...")
         
@@ -2631,22 +2644,23 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
             all_products_df = pd.DataFrame({'PRODUCT NAME': group_products})
 
             # Merge with left join to include all product groups
-            qty_df = all_products_df.merge(ly_qty, on='PRODUCT NAME', how='left').merge(cy_qty, on='PRODUCT NAME', how='left').merge(budget_qty, on='PRODUCT NAME', how='left').fillna(0)
-            value_df = all_products_df.merge(ly_value, on='PRODUCT NAME', how='left').merge(cy_value, on='PRODUCT NAME', how='left').merge(budget_value, on='PRODUCT NAME', how='left').fillna(0)
+            qty_df = all_products_df.merge(ly_qty, on='PRODUCT NAME', how='left')\
+                                   .merge(cy_qty, on='PRODUCT NAME', how='left')\
+                                   .merge(budget_qty, on='PRODUCT NAME', how='left')\
+                                   .fillna(0)
+            
+            value_df = all_products_df.merge(ly_value, on='PRODUCT NAME', how='left')\
+                                     .merge(cy_value, on='PRODUCT NAME', how='left')\
+                                     .merge(budget_value, on='PRODUCT NAME', how='left')\
+                                     .fillna(0)
 
-            # Define function for calculating achievement percentage
-            def calc_achievement(row, cy_col, ly_col):
-                if pd.isna(row[ly_col]) or row[ly_col] == 0:
-                    return 0.00 if row[cy_col] == 0 else 100.00
-                return ((row[cy_col] - row[ly_col]) / row[ly_col]) * 100
-
-            # Calculate achievement percentages without rounding (we'll round all columns together later)
-            qty_df['ACHIEVEMENT %'] = qty_df.apply(lambda row: calc_achievement(row, 'CY_QTY', 'LY_QTY'), axis=1)
-            value_df['ACHIEVEMENT %'] = value_df.apply(lambda row: calc_achievement(row, 'CY_VALUE', 'LY_VALUE'), axis=1)
+            # Calculate achievement percentages for each product
+            qty_df['ACHIEVEMENT %'] = qty_df.apply(lambda row: calc_achievement_percentage(row['CY_QTY'], row['LY_QTY']), axis=1)
+            value_df['ACHIEVEMENT %'] = value_df.apply(lambda row: calc_achievement_percentage(row['CY_VALUE'], row['LY_VALUE']), axis=1)
 
             # Round all numeric columns to 2 decimal places
-            numeric_cols_qty = ['LY_QTY', 'BUDGET_QTY', 'CY_QTY', 'ACHIEVEMENT %']
-            numeric_cols_value = ['LY_VALUE', 'BUDGET_VALUE', 'CY_VALUE', 'ACHIEVEMENT %']
+            numeric_cols_qty = ['LY_QTY', 'BUDGET_QTY', 'CY_QTY']
+            numeric_cols_value = ['LY_VALUE', 'BUDGET_VALUE', 'CY_VALUE']
             
             for col in numeric_cols_qty:
                 qty_df[col] = qty_df[col].round(2)
@@ -2654,26 +2668,35 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
             for col in numeric_cols_value:
                 value_df[col] = value_df[col].round(2)
             
-            # Rename columns to uppercase
+            # Reorder columns
             qty_df = qty_df[['PRODUCT NAME', 'LY_QTY', 'BUDGET_QTY', 'CY_QTY', 'ACHIEVEMENT %']]
             value_df = value_df[['PRODUCT NAME', 'LY_VALUE', 'BUDGET_VALUE', 'CY_VALUE', 'ACHIEVEMENT %']]
 
-            # Add totals - make sure totals are also rounded
+            # Calculate totals correctly
+            total_ly_qty = qty_df['LY_QTY'].sum()
+            total_cy_qty = qty_df['CY_QTY'].sum()
+            total_budget_qty = qty_df['BUDGET_QTY'].sum()
+            
+            total_ly_value = value_df['LY_VALUE'].sum()
+            total_cy_value = value_df['CY_VALUE'].sum()
+            total_budget_value = value_df['BUDGET_VALUE'].sum()
+
+            # Add totals with correct growth calculation
             qty_totals = pd.DataFrame({
                 'PRODUCT NAME': ['TOTAL'],
-                'LY_QTY': [qty_df['LY_QTY'].sum().round(2)],
-                'BUDGET_QTY': [qty_df['BUDGET_QTY'].sum().round(2)],
-                'CY_QTY': [qty_df['CY_QTY'].sum().round(2)],
-                'ACHIEVEMENT %': [qty_df['ACHIEVEMENT %'].replace([np.inf, -np.inf], 0).mean().round(2) if len(qty_df) > 1 else 0]
+                'LY_QTY': [round(total_ly_qty, 2)],
+                'BUDGET_QTY': [round(total_budget_qty, 2)],
+                'CY_QTY': [round(total_cy_qty, 2)],
+                'ACHIEVEMENT %': [calc_total_growth_percentage(total_cy_qty, total_ly_qty)]
             })
             qty_df = pd.concat([qty_df, qty_totals], ignore_index=True)
 
             value_totals = pd.DataFrame({
                 'PRODUCT NAME': ['TOTAL'],
-                'LY_VALUE': [value_df['LY_VALUE'].sum().round(2)],
-                'BUDGET_VALUE': [value_df['BUDGET_VALUE'].sum().round(2)],
-                'CY_VALUE': [value_df['CY_VALUE'].sum().round(2)],
-                'ACHIEVEMENT %': [value_df['ACHIEVEMENT %'].replace([np.inf, -np.inf], 0).mean().round(2) if len(value_df) > 1 else 0]
+                'LY_VALUE': [round(total_ly_value, 2)],
+                'BUDGET_VALUE': [round(total_budget_value, 2)],
+                'CY_VALUE': [round(total_cy_value, 2)],
+                'ACHIEVEMENT %': [calc_total_growth_percentage(total_cy_value, total_ly_value)]
             })
             value_df = pd.concat([value_df, value_totals], ignore_index=True)
 
