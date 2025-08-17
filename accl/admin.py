@@ -3,12 +3,9 @@ import pandas as pd
 import numpy as np
 import io
 import os
-import re
 import json
 import datetime
 import pickle
-from openpyxl import Workbook
-from openpyxl.utils.dataframe import dataframe_to_rows
 import openpyxl
 from openpyxl.utils import get_column_letter
 
@@ -27,82 +24,6 @@ def to_excel_buffer(df):
         df.to_excel(writer, index=False, sheet_name='Sheet1')
     output.seek(0)
     return output
-
-def to_excel_buffer_with_formatting(df, exec_code_col):
-    """Convert DataFrame to Excel buffer with proper number formatting for executive code column"""
-    buffer = io.BytesIO()
-    
-    # Create a workbook and worksheet
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Processed_Data"
-    
-    # Add data to worksheet
-    for r in dataframe_to_rows(df, index=False, header=True):
-        ws.append(r)
-    
-    # Find the executive code column index
-    exec_code_col_idx = None
-    for idx, cell in enumerate(ws[1]):  # Header row
-        if cell.value == exec_code_col:
-            exec_code_col_idx = idx + 1  # Excel columns are 1-indexed
-            break
-    
-    # Format the executive code column as numbers
-    if exec_code_col_idx:
-        col_letter = ws.cell(row=1, column=exec_code_col_idx).column_letter
-        for row in range(2, ws.max_row + 1):  # Skip header row
-            cell = ws[f"{col_letter}{row}"]
-            if cell.value is not None:
-                try:
-                    # Convert to integer and set number format
-                    cell.value = int(float(cell.value))
-                    cell.number_format = '0'  # Integer format
-                except (ValueError, TypeError):
-                    cell.value = 0
-                    cell.number_format = '0'
-    
-    # Save to buffer
-    wb.save(buffer)
-    buffer.seek(0)
-    
-    return buffer.getvalue()
-
-def ensure_numeric_executive_code(df, exec_code_col):
-    """Ensure executive code column is properly numeric"""
-    if exec_code_col not in df.columns:
-        return df
-    
-    print(f"Original {exec_code_col} data type: {df[exec_code_col].dtype}")
-    print(f"Sample original values: {df[exec_code_col].head().tolist()}")
-    
-    # Create a copy to avoid modifying original
-    df_copy = df.copy()
-    
-    # Convert to string first to handle mixed data types
-    df_copy[exec_code_col] = df_copy[exec_code_col].astype(str)
-    
-    # Handle NaN/None/empty values
-    df_copy[exec_code_col] = df_copy[exec_code_col].replace(['nan', 'None', 'NaN', ''], '0')
-    
-    # Extract only digits from each value
-    df_copy[exec_code_col] = df_copy[exec_code_col].apply(
-        lambda x: re.sub(r'\D', '', str(x)) if pd.notna(x) else '0'
-    )
-    
-    # Handle empty strings after digit extraction
-    df_copy[exec_code_col] = df_copy[exec_code_col].apply(lambda x: '0' if x == '' else x)
-    
-    # Convert to numeric, coerce errors to NaN, then fill NaN with 0
-    df_copy[exec_code_col] = pd.to_numeric(df_copy[exec_code_col], errors='coerce').fillna(0)
-    
-    # Ensure integer type
-    df_copy[exec_code_col] = df_copy[exec_code_col].astype('int64')
-    
-    print(f"Cleaned {exec_code_col} data type: {df_copy[exec_code_col].dtype}")
-    print(f"Sample cleaned values: {df_copy[exec_code_col].head().tolist()}")
-    
-    return df_copy
 
 def init_session_state():
     if 'initialized' not in st.session_state:
@@ -1635,10 +1556,8 @@ def main():
                             cust_name_col = smart_column_selector("Customer Name Column", df.columns, 'customer_name', key="budget_cust_name", include_none=True)
                         
                         if st.button("Process Budget File"):
-                            df_cleaned = ensure_numeric_executive_code(df, exec_code_col)
-                            processed_budget = process_budget_file(df_cleaned, customer_col, exec_code_col, exec_name_col, branch_col, region_col, cust_name_col)
-                            processed_budget = ensure_numeric_executive_code(processed_budget, exec_code_col)
-
+                            processed_budget = process_budget_file(df, customer_col, exec_code_col, exec_name_col, branch_col, region_col, cust_name_col)
+                            
                             total_rows = len(processed_budget)
                             updated_exec_rows = processed_budget[processed_budget[exec_name_col].notna()].shape[0]
                             updated_branch_rows = processed_budget[processed_budget['Branch'] != ''].shape[0]
@@ -1658,7 +1577,7 @@ def main():
                             
                             st.dataframe(processed_budget.head(10))
                             
-                            budget_excel = to_excel_buffer_with_formatting(processed_budget, exec_code_col)
+                            budget_excel = to_excel_buffer(processed_budget)
                             st.download_button(
                                 "Download Processed Budget File",
                                 budget_excel,
