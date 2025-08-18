@@ -1834,40 +1834,40 @@ def sidebar_ui():
 
 
 def main():
-   sidebar_ui()
-   st.title("🔄 Integrated Reports Dashboard")
+    sidebar_ui()
+    st.title("🔄 Integrated Reports Dashboard")
 
-   required_files = {
-       "Current Year Sales File": st.session_state.sales_file,
-       "Last Year Sales File": st.session_state.ly_sales_file,
-       "Budget File": st.session_state.budget_file,
-       "OS-Previous Month Excel File": st.session_state.os_jan_file,
-       "OS-Current Month Excel File": st.session_state.os_feb_file
-   }
+    required_files = {
+        "Current Year Sales File": st.session_state.sales_file,
+        "Last Year Sales File": st.session_state.ly_sales_file,
+        "Budget File": st.session_state.budget_file,
+        "OS-Previous Month Excel File": st.session_state.os_jan_file,
+        "OS-Current Month Excel File": st.session_state.os_feb_file
+    }
 
-   missing_files = [name for name, file in required_files.items() if file is None]
+    missing_files = [name for name, file in required_files.items() if file is None]
 
-   if missing_files:
-       st.warning(f"Please upload the following files in the sidebar to access full functionality: {', '.join(missing_files)}")
-       col1, col2 = st.columns(2)
-       with col1:
-           st.markdown("#### Required Files:")
-           st.markdown(f"- Current Year Sales: {'✅ Uploaded' if st.session_state.sales_file else '❌ Missing'}")
-           st.markdown(f"- Last Year Sales: {'✅ Uploaded' if st.session_state.ly_sales_file else '❌ Missing'}")
-           st.markdown(f"- Budget File: {'✅ Uploaded' if st.session_state.budget_file else '❌ Missing'}")
-       with col2:
-           st.markdown("####  ")
-           st.markdown(f"- OS-Previous Month File: {'✅ Uploaded' if st.session_state.os_jan_file else '❌ Missing'}")
-           st.markdown(f"- OS-Current Month File: {'✅ Uploaded' if st.session_state.os_feb_file else '❌ Missing'}")
+    if missing_files:
+        st.warning(f"Please upload the following files in the sidebar to access full functionality: {', '.join(missing_files)}")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("#### Required Files:")
+            st.markdown(f"- Current Year Sales: {'✅ Uploaded' if st.session_state.sales_file else '❌ Missing'}")
+            st.markdown(f"- Last Year Sales: {'✅ Uploaded' if st.session_state.ly_sales_file else '❌ Missing'}")
+            st.markdown(f"- Budget File: {'✅ Uploaded' if st.session_state.budget_file else '❌ Missing'}")
+        with col2:
+            st.markdown("####  ")
+            st.markdown(f"- OS-Previous Month File: {'✅ Uploaded' if st.session_state.os_jan_file else '❌ Missing'}")
+            st.markdown(f"- OS-Current Month File: {'✅ Uploaded' if st.session_state.os_feb_file else '❌ Missing'}")
 
-   tabs = st.tabs([
-       "📊 Budget vs Billed",
-       "💰 OD Target vs Collection",
-       "📈 Product Growth",
-       "👥 Number of Billed Customers & OD Target"
-   ])
+    tabs = st.tabs([
+        "📊 Budget vs Billed",
+        "💰 OD Target vs Collection",
+        "📈 Product Growth",
+        "👥 Number of Billed Customers & OD Target"
+    ])
 
-   with tabs[0]:
+    with tabs[0]:
        st.header("Budget vs Billed")
        if not st.session_state.sales_file or not st.session_state.budget_file:
            st.warning("⚠️ Please upload Sales and Budget files to use this tab")
@@ -2153,69 +2153,907 @@ def main():
                logger.error(error_msg, exc_info=True)
                st.error(traceback.format_exc())
 
-   # Continue with other tabs (OD Target vs Collection, Product Growth, Number of Billed Customers & OD Target)
-   # Add the remaining tabs here with the same structure as the original code...
+    with tabs[1]:
+        st.header("OD Target vs Collection Report")
+        if not st.session_state.os_jan_file or not st.session_state.os_feb_file or not st.session_state.sales_file:
+            st.warning("⚠️ Please upload OS-Previous Month, OS-Current Month and Sales files to use this tab")
+        else:
+            try:
+                os_jan_sheets = get_excel_sheets(st.session_state.os_jan_file)
+                os_feb_sheets = get_excel_sheets(st.session_state.os_feb_file)
+                sales_sheets = get_excel_sheets(st.session_state.sales_file)
+                st.subheader("Sheet Selection")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    os_jan_sheet = st.selectbox("OS-Previous Month Sheet", os_jan_sheets, key='od_os_jan_sheet')
+                    os_jan_header = st.number_input("OS-Previous Month Header Row (1-based)", min_value=1, max_value=10, value=1, key='od_os_jan_header') - 1
+                with col2:
+                    os_feb_sheet = st.selectbox("OS-Current Month Sheet", os_feb_sheets, key='od_os_feb_sheet')
+                    os_feb_header = st.number_input("OS-Current Month Header Row (1-based)", min_value=1, max_value=10, value=1, key='od_os_feb_header') - 1
+                with col3:
+                    sales_sheet = st.selectbox("Sales Sheet", sales_sheets, key='od_sales_sheet')
+                    sales_header = st.number_input("Sales Header Row (1-based)", min_value=1, max_value=10, value=1, key='od_sales_header') - 1
+                os_jan = pd.read_excel(st.session_state.os_jan_file, sheet_name=os_jan_sheet, header=os_jan_header)
+                os_feb = pd.read_excel(st.session_state.os_feb_file, sheet_name=os_feb_sheet, header=os_feb_header)
+                total_sale = pd.read_excel(st.session_state.sales_file, sheet_name=sales_sheet, header=sales_header)
 
-   with tabs[1]:
-       st.header("OD Target vs Collection Report")
-       # ... (add the complete OD Target vs Collection tab code here)
-       pass  # Placeholder - add remaining tabs as in original code
+                def find_column(columns, target_names, default_index=0):
+                    for target in target_names:
+                        for col in columns:
+                            if col.lower() == target.lower():
+                                return col
+                    return columns[default_index] if columns else None
 
-   with tabs[2]:
+                # OS-First column auto-mapping
+                os_jan_column_mappings = {
+                    'due_date': ['Due Date'],
+                    'ref_date': ['Ref. Date'],
+                    'net_value': ['Net Value'],
+                    'executive': ['Executive Name'],
+                    'sl_code': ['Party Code'],
+                    'area': ['Branch', 'Area']  # Added for branch selection
+                }
+
+                # OS-Second column auto-mapping
+                os_feb_column_mappings = {
+                    'due_date': ['Due Date'],
+                    'ref_date': ['Ref. Date'],
+                    'net_value': ['Net Value'],
+                    'executive': ['Executive Name'],
+                    'sl_code': ['Party Code'],
+                    'area': ['Branch', 'Area']  # Added for branch selection
+                }
+
+                # Total Sale column auto-mapping
+                sales_column_mappings = {
+                    'bill_date': ['Date'],
+                    'due_date': ['Due Date'],
+                    'value': ['Invoice Value'],
+                    'executive': ['Executive Name'],
+                    'sl_code': ['Customer Code'],
+                    'area': ['Branch', 'Area']  # Added for branch selection
+                }
+
+                # Initialize default selections
+                default_os_jan_cols = {}
+                for key, targets in os_jan_column_mappings.items():
+                    default_os_jan_cols[key] = find_column(os_jan.columns.tolist(), targets)
+
+                default_os_feb_cols = {}
+                for key, targets in os_feb_column_mappings.items():
+                    default_os_feb_cols[key] = find_column(os_feb.columns.tolist(), targets)
+
+                default_sales_cols = {}
+                for key, targets in sales_column_mappings.items():
+                    default_sales_cols[key] = find_column(total_sale.columns.tolist(), targets)
+
+                with st.expander("Column Mappings"):
+                    st.subheader("OS-First Column Mapping")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        os_jan_due_date_col = st.selectbox(
+                            "Due Date Column",
+                            os_jan.columns.tolist(),
+                            index=os_jan.columns.tolist().index(default_os_jan_cols['due_date']) if default_os_jan_cols['due_date'] in os_jan.columns else 0,
+                            key='od_os_jan_due_date'
+                        )
+                        os_jan_ref_date_col = st.selectbox(
+                            "Reference Date Column",
+                            os_jan.columns.tolist(),
+                            index=os_jan.columns.tolist().index(default_os_jan_cols['ref_date']) if default_os_jan_cols['ref_date'] in os_jan.columns else 0,
+                            key='od_os_jan_ref_date'
+                        )
+                    with col2:
+                        os_jan_net_value_col = st.selectbox(
+                            "Net Value Column",
+                            os_jan.columns.tolist(),
+                            index=os_jan.columns.tolist().index(default_os_jan_cols['net_value']) if default_os_jan_cols['net_value'] in os_jan.columns else 0,
+                            key='od_os_jan_net_value'
+                        )
+                        os_jan_sl_code_col = st.selectbox(
+                            "SL Code Column",
+                            os_jan.columns.tolist(),
+                            index=os_jan.columns.tolist().index(default_os_jan_cols['sl_code']) if default_os_jan_cols['sl_code'] in os_jan.columns else 0,
+                            key='od_os_jan_sl_code'
+                        )
+                    with col3:
+                        os_jan_exec_col = st.selectbox(
+                            "Executive Column",
+                            os_jan.columns.tolist(),
+                            index=os_jan.columns.tolist().index(default_os_jan_cols['executive']) if default_os_jan_cols['executive'] in os_jan.columns else 0,
+                            key='od_os_jan_exec'
+                        )
+                        os_jan_area_col = st.selectbox(
+                            "Branch Column",
+                            os_jan.columns.tolist(),
+                            index=os_jan.columns.tolist().index(default_os_jan_cols['area']) if default_os_jan_cols['area'] in os_jan.columns else 0,
+                            key='od_os_jan_area'
+                        )
+
+                    st.subheader("OS-Second Column Mapping")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        os_feb_due_date_col = st.selectbox(
+                            "Due Date Column",
+                            os_feb.columns.tolist(),
+                            index=os_feb.columns.tolist().index(default_os_feb_cols['due_date']) if default_os_feb_cols['due_date'] in os_feb.columns else 0,
+                            key='od_os_feb_due_date'
+                        )
+                        os_feb_ref_date_col = st.selectbox(
+                            "Reference Date Column",
+                            os_feb.columns.tolist(),
+                            index=os_feb.columns.tolist().index(default_os_feb_cols['ref_date']) if default_os_feb_cols['ref_date'] in os_feb.columns else 0,
+                            key='od_os_feb_ref_date'
+                        )
+                    with col2:
+                        os_feb_net_value_col = st.selectbox(
+                            "Net Value Column",
+                            os_feb.columns.tolist(),
+                            index=os_feb.columns.tolist().index(default_os_feb_cols['net_value']) if default_os_feb_cols['net_value'] in os_feb.columns else 0,
+                            key='od_os_feb_net_value'
+                        )
+                        os_feb_sl_code_col = st.selectbox(
+                            "SL Code Column",
+                            os_feb.columns.tolist(),
+                            index=os_feb.columns.tolist().index(default_os_feb_cols['sl_code']) if default_os_feb_cols['sl_code'] in os_feb.columns else 0,
+                            key='od_os_feb_sl_code'
+                        )
+                    with col3:
+                        os_feb_exec_col = st.selectbox(
+                            "Executive Column",
+                            os_feb.columns.tolist(),
+                            index=os_feb.columns.tolist().index(default_os_feb_cols['executive']) if default_os_feb_cols['executive'] in os_feb.columns else 0,
+                            key='od_os_feb'
+                        )
+                        os_feb_area_col = st.selectbox(
+                            "Branch Column",
+                            os_feb.columns.tolist(),
+                            index=os_feb.columns.tolist().index(default_os_feb_cols['area']) if default_os_feb_cols['area'] in os_feb.columns else 0,
+                            key='od_os_feb_area'
+                        )
+
+                    st.subheader("Total Sale Column Mapping")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        sale_bill_date_col = st.selectbox(
+                            "Sales Bill Date Column",
+                            total_sale.columns.tolist(),
+                            index=total_sale.columns.tolist().index(default_sales_cols['bill_date']) if default_sales_cols['bill_date'] in total_sale.columns else 0,
+                            key='od_sale_bill_date'
+                        )
+                        sale_due_date_col = st.selectbox(
+                            "Sales Due Date Column",
+                            total_sale.columns.tolist(),
+                            index=total_sale.columns.tolist().index(default_sales_cols['due_date']) if default_sales_cols['due_date'] in total_sale.columns else 0,
+                            key='od_sale_due_date'
+                        )
+                    with col2:
+                        sale_value_col = st.selectbox(
+                            "Sales Value Column",
+                            total_sale.columns.tolist(),
+                            index=total_sale.columns.tolist().index(default_sales_cols['value']) if default_sales_cols['value'] in total_sale.columns else 0,
+                            key='od_sale_value'
+                        )
+                        sale_sl_code_col = st.selectbox(
+                            "Sales SL Code Column",
+                            total_sale.columns.tolist(),
+                            index=total_sale.columns.tolist().index(default_sales_cols['sl_code']) if default_sales_cols['sl_code'] in total_sale.columns else 0,
+                            key='od_sale_sl_code'
+                        )
+                    with col3:
+                        sale_exec_col = st.selectbox(
+                            "Sales Executive Column",
+                            total_sale.columns.tolist(),
+                            index=total_sale.columns.tolist().index(default_sales_cols['executive']) if default_sales_cols['executive'] in total_sale.columns else 0,
+                            key='od_sale_exec'
+                        )
+                        sale_area_col = st.selectbox(
+                            "Sales Branch Column",
+                            total_sale.columns.tolist(),
+                            index=total_sale.columns.tolist().index(default_sales_cols['area']) if default_sales_cols['area'] in total_sale.columns else 0,
+                            key='od_sale_area'
+                        )
+                    available_months = get_available_months(
+                        os_jan, os_feb, total_sale,
+                        os_jan_due_date_col, os_jan_ref_date_col,
+                        os_feb_due_date_col, os_feb_ref_date_col,
+                        sale_bill_date_col, sale_due_date_col
+                    )
+                    if not available_months:
+                        st.error("No valid months found in the date columns.")
+                    else:
+                        st.subheader("Select Month")
+                        selected_month_str = st.selectbox("Month", available_months, key='od_month')
+                        st.subheader("Filter Options")
+                        filter_tab1, filter_tab2 = st.tabs(["Branches", "Executives"])
+                        with filter_tab1:
+                            raw_branches = set(os_jan[os_jan_area_col].apply(extract_area_name).dropna().astype(str).str.upper().unique().tolist()) | \
+                                        set(os_feb[os_feb_area_col].apply(extract_area_name).dropna().astype(str).str.upper().unique().tolist()) | \
+                                        set(total_sale[sale_area_col].apply(extract_area_name).dropna().astype(str).str.upper().unique().tolist())
+                            all_branches = sorted(raw_branches)
+                            branch_select_all = st.checkbox("Select All Branches", value=True, key='od_vs_branch_all')
+                            selected_branches = []
+                            if branch_select_all:
+                                selected_branches = all_branches
+                            else:
+                                num_cols = 3
+                                branch_cols = st.columns(num_cols)
+                                for i, branch in enumerate(all_branches):
+                                    col_idx = i % num_cols
+                                    with branch_cols[col_idx]:
+                                        if st.checkbox(branch, key=f'od_vs_branch_{branch}'):
+                                            selected_branches.append(branch)
+                        with filter_tab2:
+                            all_executives = set()
+                            for df, exec_col in [
+                                (os_jan, os_jan_exec_col),
+                                (os_feb, os_feb_exec_col),
+                                (total_sale, sale_exec_col)
+                            ]:
+                                if exec_col in df.columns:
+                                    execs = df[exec_col].dropna().astype(str).unique().tolist()
+                                    all_executives.update(execs)
+                            all_executives = sorted(list(all_executives))
+
+                            exec_select_all = st.checkbox("Select All Executives", value=True, key='od_vs_exec_all')
+                            selected_od_executives = []
+                            if exec_select_all:
+                                selected_od_executives = all_executives
+                            else:
+                                num_cols = 3
+                                exec_cols = st.columns(num_cols)
+                                for i, exec_name in enumerate(all_executives):
+                                    col_idx = i % num_cols
+                                    with exec_cols[col_idx]:
+                                        if st.checkbox(exec_name, key=f'od_vs_exec_{exec_name}'):
+                                            selected_od_executives.append(exec_name)
+                        if st.button("Generate OD Target vs Collection Report", key='od_vs_generate'):
+                            if not selected_od_executives:
+                                st.error("Please select at least one executive.")
+                            else:
+                                with st.spinner("Generating report..."):
+                                    final_df = calculate_od_values(
+                                        os_jan, os_feb, total_sale, selected_month_str,
+                                        os_jan_due_date_col, os_jan_ref_date_col, os_jan_net_value_col, os_jan_exec_col, os_jan_sl_code_col, os_jan_area_col,
+                                        os_feb_due_date_col, os_feb_ref_date_col, os_feb_net_value_col, os_feb_exec_col, os_feb_sl_code_col, os_feb_area_col,
+                                        sale_bill_date_col, sale_due_date_col, sale_value_col, sale_exec_col, sale_sl_code_col, sale_area_col,
+                                        selected_od_executives, selected_branches
+                                    )
+                                    if final_df is not None and not final_df.empty:
+                                        st.success("Success!")
+                                        st.subheader("OD Target vs Collection Results")
+                                        st.dataframe(final_df)
+                                        img_buffer = create_table_image(final_df, f"OD TARGET vs VALUE - {selected_month_str} (Value in Lakhs)", percent_cols=[3, 6])
+                                        if img_buffer:
+                                            st.image(img_buffer, use_column_width=True)
+                                        prs = Presentation()
+                                        prs.slide_width = Inches(13.33)
+                                        prs.slide_height = Inches(7.5)
+
+                                        create_title_slide(prs, f"OD Target vs Collection - {selected_month_str}", st.session_state.logo_file)
+
+                                        add_table_slide(prs, final_df, f"Executive-wise Performance - {selected_month_str}", percent_cols=[3, 6])
+
+                                        ppt_buffer = BytesIO()
+                                        prs.save(ppt_buffer)
+                                        ppt_buffer.seek(0)
+
+                                        unique_id = str(uuid.uuid4())[:8]
+                                        st.download_button(
+                                            label="Download OD Target vs Collection PPT",
+                                            data=ppt_buffer,
+                                            file_name=f"OD_Target_vs_Collection_{selected_month_str}_{unique_id}.pptx",
+                                            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                            key=f"od_vs_download_{unique_id}"
+                                        )
+                                        st.session_state.od_vs_results = [
+                                            {'df': final_df, 'title': f"OD TARGET vs COLLECTION - {selected_month_str}", 'percent_cols': [3, 6]}
+                                        ]
+                                    else:
+                                        st.error("Failed to generate report. Check your data and selections.")
+            except Exception as e:
+                st.error(f"Error in OD Target vs Collection tab: {e}")
+                st.error(traceback.format_exc())
+
+    with tabs[2]:
        st.header("Product Growth Dashboard")
-       # ... (add the complete Product Growth tab code here)
-       pass  # Placeholder - add remaining tabs as in original code
+       if not st.session_state.ly_sales_file or not st.session_state.sales_file or not st.session_state.budget_file:
+         st.warning("⚠️ Please upload Last Year Sales, Current Year Sales, and Budget files to use this tab.")
+       else:
+         try:
+            # Get sheets from all three files
+            ly_sales_sheets = get_excel_sheets(st.session_state.ly_sales_file)
+            cy_sales_sheets = get_excel_sheets(st.session_state.sales_file)
+            budget_sheets = get_excel_sheets(st.session_state.budget_file)
 
-   with tabs[3]:
-       st.header("Customer & OD Analysis")
-       # ... (add the complete Customer & OD Analysis tab code here)
-       pass  # Placeholder - add remaining tabs as in original code
+            st.subheader("Configure Files")
+            col1, col2, col3 = st.columns(3)
 
-   # Summary Report Generator
-   st.divider()
-   st.header("Summary Report Generator")
-   all_dfs_info = []
-   collected_sections = []
-   if hasattr(st.session_state, 'budget_results') and st.session_state.budget_results:
-       all_dfs_info.extend(st.session_state.budget_results)
-       collected_sections.append(f"Budget: {len(st.session_state.budget_results)} reports")
-   if hasattr(st.session_state, 'od_vs_results') and st.session_state.od_vs_results:
-       all_dfs_info.extend(st.session_state.od_vs_results)
-       collected_sections.append(f"OD vs Collection: {len(st.session_state.od_vs_results)} reports")
-   if hasattr(st.session_state, 'product_results') and st.session_state.product_results:
-       all_dfs_info.extend(st.session_state.product_results)
-       collected_sections.append(f"Product: {len(st.session_state.product_results)} reports")
-   if hasattr(st.session_state, 'customers_results') and st.session_state.customers_results:
-       all_dfs_info.extend(st.session_state.customers_results)
-       collected_sections.append(f"Customers: {len(st.session_state.customers_results)} reports")
-   if hasattr(st.session_state, 'od_results') and st.session_state.od_results:
-       all_dfs_info.extend(st.session_state.od_results)
-       collected_sections.append(f"OD Target: {len(st.session_state.od_results)} reports")
-   if all_dfs_info:
-       st.info(f"Reports collected: {', '.join(collected_sections)}")
-       title = st.text_input("Enter Consolidated Report Title", "ACCLP Integrated Report")
-       if st.button("Generate Consolidated PPT"):
-           with st.spinner("Creating consolidated PowerPoint..."):
-               consolidated_ppt = create_consolidated_ppt(
-                   all_dfs_info,
-                   st.session_state.logo_file,
-                   title
-               )
-               if consolidated_ppt:
-                   unique_id = str(uuid.uuid4())[:8]
-                   st.success(f"PowerPoint created successfully with {len(all_dfs_info)} slides!")
-                   st.download_button(
-                       label="Download Consolidated PPT",
-                       data=consolidated_ppt,
-                       file_name=f"ACCLP_Consolidated_Report_{unique_id}.pptx",
-                       mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                       key=f"consolidated_download_{unique_id}"
-                   )
-               else:
-                   st.error("Failed to create consolidated PowerPoint. Please check the reports data.")
-   else:
-       st.info("No reports generated yet.")
+            with col1:
+                st.write("**Last Year Sales File**")
+                ly_sales = st.selectbox("Last Year Sales Sheet", ly_sales_sheets, key='pg_ly_sales')
+                ly_header_row = st.number_input("Last Year Header Row (1-based)", min_value=1, max_value=10, value=1, key='pg_ly_header_row') - 1
+            with col2:
+                st.write("**Current Year Sales File**")
+                cy_sales = st.selectbox("Current Year Sales Sheet", cy_sales_sheets, key='pg_sales_cy_sales')
+                cy_header_row = st.number_input("Current Year Header Row (1-based)", min_value=1, max_value=10, value=1, key='pg_cy_header_row') - 1
+            with col3:
+                st.write("**Budget File**")
+                budget_product_sheets = st.selectbox("Budget Sheet", budget_sheets, key='pg_budget_sheet')  # Changed key to 'pg_budget_sheet'
+                budget_header_row = st.number_input("Budget Header Row (1-based)", min_value=1, value=1, key='pg_budget_header_row') - 1
+
+            # Load data from separate files
+            ly_df = pd.read_excel(st.session_state.ly_sales_file, sheet_name=ly_sales, header=ly_header_row)
+            cy_df = pd.read_excel(st.session_state.sales_file, sheet_name=cy_sales, header=cy_header_row)
+            budget_df = pd.read_excel(st.session_state.budget_file, sheet_name=budget_product_sheets, header=budget_header_row)
+
+            def find_column(columns, target_names, default=None):
+                """Helper function to find a column exactly matching any of the target names (case-insensitive)."""
+                for target in target_names:
+                    for col in columns:
+                        if col.lower() == target.lower():
+                            return col
+                return default
+
+            # Column mappings
+            ly_column_mappings = {
+                'date': ['Date'],
+                'value': ['Value'],
+                'product_group': ['Type (Make)'],
+                'quantity': ['Actual Quantity'],
+                'company_group': ['Company Group'],
+                'executive': ['Executive Name'],
+                'sl_code': ['Customer Code']
+            }
+
+            cy_column_mappings = {
+                'date': ['Date'],
+                'value': ['Value'],
+                'product_group': ['Type (Make)'],
+                'quantity': ['Actual Quantity'],
+                'company_group': ['Company Group'],
+                'executive': ['Executive Name'],
+                'sl_code': ['Customer Code']
+            }
+
+            budget_column_mappings = {
+                'company_group': ['Company Group'],
+                'product_group': ['Product Group'],
+                'quantity': ['Budget Quantity', 'Quantity'],
+                'value': ['Budget Value', 'Value'],
+                'executive': ['Executive Name'],
+                'sl_code': ['SL Code']
+            }
+
+            default_ly_cols = {}
+            for key, targets in ly_column_mappings.items():
+                default_ly_cols[key] = find_column(ly_df.columns.tolist(), targets)
+
+            default_cy_cols = {}
+            for key, targets in cy_column_mappings.items():
+                default_cy_cols[key] = find_column(cy_df.columns.tolist(), targets)
+
+            default_budget_cols = {}
+            for key, targets in budget_column_mappings.items():
+                default_budget_cols[key] = find_column(budget_df.columns.tolist(), targets)
+
+            with st.expander("Column Mappings"):
+                st.subheader("Last Year Columns")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    ly_date_col = st.selectbox("LY Date Column", ly_df.columns.tolist(), index=ly_df.columns.tolist().index(default_ly_cols['date']) if default_ly_cols['date'] else 0, key='pg_ly_date')
+                    ly_qty_col = st.selectbox("LY Quantity Column", ly_df.columns.tolist(), index=ly_df.columns.tolist().index(default_ly_cols['quantity']) if default_ly_cols['quantity'] else 0, key='pg_ly_qty')
+                with col2:
+                    ly_value_col = st.selectbox("LY Value Column", ly_df.columns.tolist(), index=ly_df.columns.tolist().index(default_ly_cols['value']) if default_ly_cols['value'] else 0, key='pg_ly_value')
+                    ly_company_group_col = st.selectbox("LY Company Group Column", ly_df.columns.tolist(), index=ly_df.columns.tolist().index(default_ly_cols['company_group']) if default_ly_cols['company_group'] else 0, key='pg_ly_company_group')
+                with col3:
+                    ly_product_group_col = st.selectbox("LY Product Group Column", ly_df.columns.tolist(), index=ly_df.columns.tolist().index(default_ly_cols['product_group']) if default_ly_cols['product_group'] else 0, key='pg_ly_product')
+                    ly_sl_code_col = st.selectbox("LY SL Code Column", ly_df.columns.tolist(), index=ly_df.columns.tolist().index(default_ly_cols['sl_code']) if default_ly_cols['sl_code'] else 0, key='pg_ly_sl')
+                    ly_exec_col = st.selectbox("LY Executive Column", ly_df.columns.tolist(), index=ly_df.columns.tolist().index(default_ly_cols['executive']) if default_ly_cols['executive'] else 0, key='pg_ly_exec')
+
+                st.subheader("Current Year Columns")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    cy_date_col = st.selectbox("CY Date Column", cy_df.columns.tolist(), index=cy_df.columns.tolist().index(default_cy_cols['date']) if default_cy_cols['date'] else 0, key='pg_cy_date')
+                    cy_qty_col = st.selectbox("CY Quantity Column", cy_df.columns.tolist(), index=cy_df.columns.tolist().index(default_cy_cols['quantity']) if default_cy_cols['quantity'] else 0, key='pg_cy_qty')
+                with col2:
+                    cy_value_col = st.selectbox("CY Value Column", cy_df.columns.tolist(), index=cy_df.columns.tolist().index(default_cy_cols['value']) if default_cy_cols['value'] else 0, key='pg_cy_value')
+                    cy_company_group_col = st.selectbox("CY Company Group Column", cy_df.columns.tolist(), index=cy_df.columns.tolist().index(default_cy_cols['company_group']) if default_cy_cols['company_group'] else 0, key='pg_cy_company_group')
+                with col3:
+                    cy_product_group_col = st.selectbox("CY Product Group Column", cy_df.columns.tolist(), index=cy_df.columns.tolist().index(default_cy_cols['product_group']) if default_cy_cols['product_group'] else 0, key='pg_cy_product')
+                    cy_sl_code_col = st.selectbox("CY SL Code Column", cy_df.columns.tolist(), index=cy_df.columns.tolist().index(default_cy_cols['sl_code']) if default_cy_cols['sl_code'] else 0, key='pg_cy_sl')
+                    cy_exec_col = st.selectbox("CY Executive Column", cy_df.columns.tolist(), index=cy_df.columns.tolist().index(default_cy_cols['executive']) if default_cy_cols['executive'] else 0, key='pg_cy_exec')
+
+                st.subheader("Budget Columns")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    budget_qty_col = st.selectbox("Budget Quantity Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_budget_cols['quantity']) if default_budget_cols['quantity'] else 0, key='pg_budget_qty')
+                    budget_value_col = st.selectbox("Budget Value Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_budget_cols['value']) if default_budget_cols['value'] else 0, key='pg_budget_value')
+                with col2:
+                    budget_company_group_col = st.selectbox("Budget Company Group Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_budget_cols['company_group']) if default_budget_cols['company_group'] else 0, key='pg_budget_company_group')
+                    budget_sl_code_col = st.selectbox("Budget SL Code Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_budget_cols['sl_code']) if default_budget_cols['sl_code'] else 0, key='pg_budget_sl')
+                with col3:
+                    budget_product_group_col = st.selectbox("Budget Product Group Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_budget_cols['product_group']) if default_budget_cols['product_group'] else 0, key='pg_budget_product')
+                    budget_exec_col = st.selectbox("Budget Executive Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_budget_cols['executive']) if default_budget_cols['executive'] else 0, key='pg_budget_exec')
+
+            # Replace empty strings with NaN and standardize
+            for df, col in [
+                (ly_df, ly_company_group_col), (cy_df, cy_company_group_col), (budget_df, budget_company_group_col),
+                (ly_df, ly_product_group_col), (cy_df, cy_product_group_col), (budget_df, budget_product_group_col),
+            ]:
+                df[col] = df[col].replace("", np.nan)
+                df[col] = df[col].fillna("")
+            
+            ly_groups = sorted(set(ly_df[ly_company_group_col].apply(standardize_name).unique()))
+            cy_groups = sorted(set(cy_df[cy_company_group_col].apply(standardize_name).unique()))
+            budget_groups = sorted(set(budget_df[budget_company_group_col].apply(standardize_name).unique()))
+            all_company_groups = sorted(set([g for g in ly_groups + cy_groups + budget_groups if g]))
+            ly_product_groups = sorted(set(ly_df[ly_product_group_col].apply(standardize_name).unique()))
+            cy_product_groups = sorted(set(cy_df[cy_product_group_col].apply(standardize_name).unique()))
+            budget_product_groups = sorted(set(budget_df[budget_product_group_col].apply(standardize_name).unique()))
+            all_product_groups = sorted(set([g for g in ly_product_groups + cy_product_groups + budget_product_groups if g]))
+
+            st.subheader("Select Sales Months")
+            ly_dates = pd.to_datetime(ly_df[ly_date_col], dayfirst=True, errors='coerce')
+            cy_dates = pd.to_datetime(cy_df[cy_date_col], dayfirst=True, errors='coerce')
+            ly_months = sorted(ly_dates.dt.strftime('%b %y').dropna().unique().tolist())
+            cy_months = sorted(cy_dates.dt.strftime('%b %y').dropna().unique().tolist())
+            col1, col2 = st.columns(2)
+            with col1:
+                selected_ly_month = st.selectbox("Last Year Month", options=ly_months, index=0, key='pg_ly_month')
+            with col2:
+                selected_cy_month = st.selectbox("Current Year Month", options=cy_months, index=0, key='pg_cy_month')
+            st.subheader("Filter Options")
+            filter_tabs = st.tabs(["Executives", "Company Groups", "Product Groups"])
+            with filter_tabs[0]:
+                all_execs = set()
+                for df, col in [(ly_df, ly_exec_col), (cy_df, cy_exec_col), (budget_df, budget_exec_col)]:
+                    execs = df[col].dropna().astype(str).unique().tolist()
+                    all_execs.update(execs)
+                all_execs = sorted(all_execs)
+                pg_exec_select_all = st.checkbox("Select All Executives", value=True, key='pg_exec_all')
+                selected_executives = []
+                if pg_exec_select_all:
+                    selected_executives = all_execs
+                else:
+                    num_cols = 3
+                    exec_cols = st.columns(num_cols)
+                    for i, exec_name in enumerate(all_execs):
+                        col_idx = i % num_cols
+                        with exec_cols[col_idx]:
+                            if st.checkbox(exec_name, key=f'pg_exec_{exec_name}'):
+                                selected_executives.append(exec_name)
+            with filter_tabs[1]:
+                pg_company_select_all = st.checkbox("Select All Company Groups", value=True, key='pg_company_all')
+                selected_companies = []
+                if pg_company_select_all:
+                    selected_companies = all_company_groups
+                else:
+                    num_cols = 3
+                    company_cols = st.columns(num_cols)
+                    for i, group in enumerate(all_company_groups):
+                        col_idx = i % num_cols
+                        with company_cols[col_idx]:
+                            if st.checkbox(group, key=f'pg_company_{group}'):
+                                selected_companies.append(group)
+            with filter_tabs[2]:
+                pg_product_select_all = st.checkbox("Select All Product Groups", value=True, key='pg_product_all')
+                selected_products = []
+                if pg_product_select_all:
+                    selected_products = all_product_groups
+                else:
+                    num_cols = 3
+                    product_cols = st.columns(num_cols)
+                    for i, group in enumerate(all_product_groups):
+                        col_idx = i % num_cols
+                        with product_cols[col_idx]:
+                            if st.checkbox(group, key=f'pg_product_{group}'):
+                                selected_products.append(group)
+            if st.button("Generate Product Growth Report", key='pg_generate'):
+                with st.spinner("Generating report..."):
+                    month_title = f"LY: {selected_ly_month} vs CY: {selected_cy_month}"
+                    group_results = calculate_product_growth(
+                        ly_df, cy_df, budget_df, selected_ly_month, selected_cy_month,
+                        ly_date_col, cy_date_col, ly_qty_col, cy_qty_col, ly_value_col, cy_value_col,
+                        budget_qty_col, budget_value_col, ly_company_group_col,
+                        cy_company_group_col, budget_company_group_col,
+                        ly_product_group_col, cy_product_group_col, budget_product_group_col,
+                        ly_sl_code_col, cy_sl_code_col, budget_sl_code_col,
+                        ly_exec_col, cy_exec_col, budget_exec_col,
+                        selected_executives,
+                        selected_companies,
+                        selected_products
+                    )
+                    if group_results:
+                        st.success("Success!")
+                        dfs_info = []
+                        for company, data in group_results.items():
+                            st.subheader(f"Company: {company}")
+                            numeric_cols_qty = ['LY_QTY', 'BUDGET_QTY', 'CY_QTY', 'ACHIEVEMENT %']
+                            for col in numeric_cols_qty:
+                                if col in data['qty_df'].columns:
+                                    data['qty_df'][col] = data['qty_df'][col].round(2)
+                            numeric_cols_value = ['LY_VALUE', 'BUDGET_VALUE', 'CY_VALUE', 'ACHIEVEMENT %']
+                            for col in numeric_cols_value:
+                                if col in data['value_df'].columns:
+                                    data['value_df'][col] = data['value_df'][col].round(2)
+                            st.write(f"**{company} - Quantity Growth (Qty in Mt)**")
+                            st.dataframe(data['qty_df'])
+                            st.write(f"**{company} - Value Growth (Value in Lakhs)**")
+                            st.dataframe(data['value_df'])
+                            dfs_info.append({'df': data['qty_df'], 'title': f"{company} - Quantity Growth (Qty in Mt)", 'percent_cols': [4]})
+                            dfs_info.append({'df': data['value_df'], 'title': f"{company} - Value Growth (Value in Lakhs)", 'percent_cols': [4]})
+                        st.session_state.product_results = dfs_info
+                        ppt_buffer = create_product_growth_ppt(
+                            group_results,
+                            month_title,
+                            st.session_state.logo_file
+                        )
+                        if ppt_buffer:
+                            unique_id = str(uuid.uuid4())[:8]
+                            st.download_button(
+                                label="Download PPT",
+                                data=ppt_buffer,
+                                file_name=f"Product_Growth_{month_title.replace(', ', '_')}_{unique_id}.pptx",
+                                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                key=f"pg_download_{unique_id}"
+                            )
+                    else:
+                        st.error("Failed to generate report. Check your data.")
+         except Exception as e:
+            st.error(f"Error in Product Growth: {e}")
+            st.error(traceback.format_exc())
+    with tabs[3]:
+        st.header("Customer & OD Analysis")
+        nbc_tab, od_tab = st.tabs(["Billed Customers", "OD Target"])
+
+        with nbc_tab:
+            if not st.session_state.sales_file:
+                st.warning("No sales data uploaded.")
+            else:
+                try:
+                    sales_sheets = get_excel_sheets(st.session_state.sales_file)
+                    st.subheader("Sales Sheet Selection")
+                    sheet_name = st.selectbox("Select Sales Sheet", sales_sheets, key='sales_sheet_nbc')
+                    sales_header_row = st.number_input("Sales Header (1-based)", min_value=1, max_value=10, value=1, step=1, key='sales_header_nbc') - 1
+                    sales_df = pd.read_excel(st.session_state.sales_file, sheet_name=sheet_name, header=sales_header_row)
+                    columns = sales_df.columns.tolist()
+                    st.subheader("Column Mapping")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        date_col = st.selectbox(
+                            "Date",
+                            columns,
+                            index=columns.index('Date') if 'Date' in columns else 0,
+                            help="Choose the column containing dates.",
+                            key='nbc_date'
+                        )
+                        branch_col = st.selectbox(
+                            "Branch",
+                            columns,
+                            index=columns.index('Branch') if 'Branch' in columns else 0,
+                            help="Choose the column containing branch names.",
+                            key='nbc_branch'
+                        )
+                    with col2:
+                        customer_id_col = st.selectbox(
+                            "SL Code",
+                            columns,
+                            index=columns.index('Customer Code') if 'Customer Code' in columns else 0,
+                            help="Choose the column containing customer IDs.",
+                            key='nbc_customer_id'
+                        )
+                        executive_col = st.selectbox(
+                            "Executive",
+                            columns,
+                            index=columns.index('Executive Name') if 'Executive Name' in columns else 0,
+                            help="Choose the column containing executive names.",
+                            key='nbc_executive'
+                        )
+                    
+                    # Get available months dynamically
+                    try:
+                        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors='coerce', dayfirst=True, format='mixed')
+                        available_months = sorted(sales_df[date_col].dt.strftime('%b %Y').dropna().unique().tolist())
+                    except Exception as e:
+                        st.error(f"Error processing date column: {e}")
+                        available_months = []
+                    
+                    # Month filter
+                    st.subheader("Select Sales Month")
+                    if not available_months:
+                        st.warning("No valid months found in the date column.")
+                        selected_months = []
+                    else:
+                        selected_months = st.multiselect(
+                            "Select Months",
+                            options=available_months,
+                            default=available_months,
+                            key='nbc_months_filter'
+                        )
+
+                    st.subheader("Filter Options")
+                    filter_tab1, filter_tab2 = st.tabs(["Branches", "Executives"])
+                    
+                    with filter_tab1:
+                        # Extract unique branches directly from the branch column
+                        raw_branches = sales_df[branch_col].dropna().astype(str).str.strip().str.upper().unique().tolist()
+                        all_branches = sorted(raw_branches)
+                        branch_select_all = st.checkbox("Select All Branches", value=True, key='nbc_branch_all')
+                        if branch_select_all:
+                            selected_branches = all_branches
+                        else:
+                            num_cols = 3
+                            branch_cols = st.columns(num_cols)
+                            selected_branches = []
+                            for i, branch in enumerate(all_branches):
+                                col_idx = i % num_cols
+                                with branch_cols[col_idx]:
+                                    if st.checkbox(branch, key=f'nbc_branch_{branch}'):
+                                        selected_branches.append(branch)
+                    
+                    with filter_tab2:
+                        all_executives = sorted(sales_df[executive_col].dropna().astype(str).str.strip().str.upper().unique().tolist())
+                        exec_select_all = st.checkbox("Select All Executives", value=True, key='nbc_exec_all')
+                        if exec_select_all:
+                            selected_executives = all_executives
+                        else:
+                            num_cols = 3
+                            exec_cols = st.columns(num_cols)
+                            selected_executives = []
+                            for i, exec_name in enumerate(all_executives):
+                                col_idx = i % num_cols
+                                with exec_cols[col_idx]:
+                                    if st.checkbox(exec_name, key=f'nbc_exec_{exec_name}'):
+                                        selected_executives.append(exec_name)
+                    
+                    if st.button("Generate Report", key='nbc_generate'):
+                        with st.spinner("Generating report..."):
+                            if not selected_months:
+                                st.error("Please select at least one month.")
+                            else:
+                                results = create_customer_table(
+                                    sales_df,
+                                    date_col,
+                                    branch_col,
+                                    customer_id_col,
+                                    executive_col,
+                                    selected_months=selected_months,
+                                    selected_branches=selected_branches,
+                                    selected_executives=selected_executives
+                                )
+                                if results:
+                                    st.success("Report generated successfully!")
+                                    st.subheader("Results")
+                                    for fy, (result_df, sorted_months) in results.items():
+                                        st.write(f"**Financial Year: {fy}**")
+                                        st.dataframe(result_df, use_container_width=True)
+                                        title = f"NUMBER OF BILLED CUSTOMERS - FY {fy}"
+                                        img_buffer = create_customer_table_image(result_df, title, sorted_months, fy)
+                                        if img_buffer:
+                                            st.image(img_buffer, use_column_width=True)
+                                        prs = Presentation()
+                                        prs.slide_width = Inches(13.33)
+                                        prs.slide_height = Inches(7.5)
+                                        create_title_slide(prs, title, st.session_state.logo_file)
+                                        slide_layout = prs.slide_layouts[6]
+                                        slide = prs.slides.add_slide(slide_layout)
+                                        create_customer_ppt_slide(slide, result_df, title, sorted_months)
+                                        ppt_buffer = BytesIO()
+                                        prs.save(ppt_buffer)
+                                        ppt_buffer.seek(0)
+                                        st.download_button(
+                                            label="Download Billed Customers PPT",
+                                            data=ppt_buffer,
+                                            file_name=f"Billed_customers_{fy}.pptx",
+                                            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                            key=f'nbc_download_{fy}'
+                                        )
+                                        st.session_state.customers_results = [
+                                            {'df': result_df, 'title': f"NUMBER OF BILLED CUSTOMERS - FY {fy}"}
+                                        ]
+                                else:
+                                    st.error("Failed to generate report. Check your data.")
+                except Exception as e:
+                    st.error(f"Error in tab: {e}")
+                    st.error(traceback.format_exc())
+        with od_tab:
+         os_file_choice = st.radio(
+            "Choose OS file for OD Target calculation",
+            ["OS-Previous Month", "OS-Current Month"],
+            key="od_file_choice"
+         )
+         chosen_os_file = st.session_state.os_jan_file if os_file_choice == "OS-Previous Month" else st.session_state.os_feb_file
+         if not chosen_os_file:
+            st.warning("⚠️ No OS file selected.")
+         else:
+            try:
+                os_sheets = get_excel_sheets(chosen_os_file)
+                st.subheader("Select Sheet")
+                os_sheet = st.selectbox("Select OS Sheet", os_sheets, key='od_sheet')
+                header_row = st.number_input("Header Row (1-based)", min_value=1, max_value=10, value=1, step=1, key='od_header_row') - 1
+                os_df = pd.read_excel(chosen_os_file, sheet_name=os_sheet, header=header_row)
+                if st.checkbox("Preview Raw OS Data"):
+                    st.write("Raw OS Data (first 20):")
+                    st.dataframe(os_df.head(20))
+                columns = os_df.columns.tolist()
+                st.subheader("OS Column Mapping")
+                col1, col2 = st.columns(2)
+                with col1:
+                    os_area_col = st.selectbox(
+                        "Select Area",
+                        columns,
+                        index=columns.index('Branch') if 'Branch' in columns else 0,
+                        help="Contains branch names",
+                        key='os_area_col'
+                    )
+                    os_qty_col = st.selectbox(
+                        "Select Net Value",
+                        columns,
+                        index=columns.index('Net Value') if 'Net Value' in columns else 0,
+                        help="Contains net values",
+                        key='os_qty_col'
+                    )
+                with col2:
+                    os_due_date_col = st.selectbox(
+                        "Select Due Date",
+                        columns,
+                        index=columns.index('Due Date') if 'Due Date' in columns else 0,
+                        help="Contains due dates",
+                        key='os_due_date_col'
+                    )
+                    os_exec_col = st.selectbox(
+                        "Select Executive Column",
+                        columns,
+                        index=columns.index('Executive Name') if 'Executive Name' in columns else 0,
+                        key='os_exec'
+                    )
+                st.subheader("Due Date Filter")
+                try:
+                    os_df[os_due_date_col] = pd.to_datetime(os_df[os_due_date_col], errors='coerce')
+                    years = sorted(os_df[os_due_date_col].dt.year.dropna().astype(int).unique().tolist())
+                except Exception as e:
+                    st.error(f"Error processing due dates: {e}. Ensure valid date format.")
+                    years = []
+                if not years:
+                    st.warning("No valid due dates found in the dataset.")
+                else:
+                    selected_years = st.multiselect(
+                        "Select years for filtering",
+                        options=[str(year) for year in years],
+                        default=[str(year) for year in years],
+                        key='year_multiselect'
+                    )
+                    if not selected_years:
+                        st.error("Please select at least one year.")
+                    else:
+                        month_options = ['January', 'February', 'March', 'April', 'May', 'June',
+                                        'July', 'August', 'September', 'October', 'November', 'December']
+                        till_month = st.selectbox("Select Month", month_options, key='till_month')
+
+                st.subheader("Filter Options")
+                filter_tabs = st.tabs(["Branches", "Executives"])
+                with filter_tabs[0]:
+                    os_branches = sorted(set([b for b in os_df[os_area_col].apply(extract_area_name).dropna().unique() if b]))
+                    if not os_branches:
+                        st.error("No valid branches found in OS data.")
+                    else:
+                        os_branch_select_all = st.checkbox("Select All OS Branches", value=True, key='od_branch_all')
+                        selected_os_branches = []
+                        if os_branch_select_all:
+                            selected_os_branches = os_branches
+                        else:
+                            num_cols = 3
+                            branch_cols = st.columns(num_cols)
+                            for i, branch in enumerate(os_branches):
+                                col_idx = i % num_cols
+                                with branch_cols[col_idx]:
+                                    if st.checkbox(branch, key=f'od_branch_{branch}'):
+                                        selected_os_branches.append(branch)
+                with filter_tabs[1]:
+                    os_executives = sorted(os_df[os_exec_col].dropna().astype(str).unique().tolist())
+                    os_exec_select_all = st.checkbox("Select All Executives", value=True, key='od_exec_all')
+                    selected_os_executives = []
+                    if os_exec_select_all:
+                        selected_os_executives = os_executives
+                    else:
+                        num_cols = 3
+                        exec_cols = st.columns(num_cols)
+                        for i, exec_name in enumerate(os_executives):
+                            col_idx = i % num_cols
+                            with exec_cols[col_idx]:
+                                if st.checkbox(exec_name, key=f'od_exec_{exec_name}'):
+                                    selected_os_executives.append(exec_name)
+                if st.button("Generate Report", key='od_generate'):
+                    if not selected_years or not till_month:
+                        st.error("Please select at least one year and one month.")
+                    else:
+                        with st.spinner("Generating report..."):
+                            od_target_df, start_date, end_date = filter_os_qty(
+                                os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
+                                selected_branches=selected_os_branches,
+                                selected_years=selected_years,
+                                till_month=till_month,
+                                selected_executives=selected_os_executives
+                            )
+                            if od_target_df is not None:
+                                start_str = start_date.strftime('%b %Y') if start_date else 'All Periods'
+                                end_str = end_date.strftime('%b %Y') if end_date else 'All Periods'
+                                od_title = f"OD Target - {end_str} (Value in Lakhs)"
+                                st.subheader(od_title)
+                                st.dataframe(od_target_df)
+                                img_buffer = create_od_table_image(od_target_df, od_title)
+                                if img_buffer:
+                                    st.image(img_buffer, use_column_width=True)
+                                prs = Presentation()
+                                prs.slide_width = Inches(13.33)
+                                prs.slide_height = Inches(7.5)
+                                create_title_slide(prs, od_title, st.session_state.logo_file)
+                                slide_layout = prs.slide_layouts[6]
+                                slide = prs.slides.add_slide(slide_layout)
+                                create_od_ppt_slide(slide, od_target_df, od_title)
+                                ppt_buffer = BytesIO()
+                                prs.save(ppt_buffer)
+                                ppt_buffer.seek(0)
+                                st.download_button(
+                                    label="Download OD Target PPT",
+                                    data=ppt_buffer,
+                                    file_name=f"OD_target_by_executive_{end_str}.pptx",
+                                    mime="application",
+                                    key='od_target_download'
+                                )
+                                if 'od_results' not in st.session_state:
+                                    st.session_state['od_results'] = []
+                                st.session_state.od_results.append({'df': od_target_df, 'title': od_title})
+                            else:
+                                st.error("Failed to generate report. Please check your data and selections.")
+            except Exception as e:
+                st.error(f"Error in tab: {e}")
+                st.error(traceback.format_exc())
+
+    st.divider()
+    st.header("Summary Report Generator")
+    all_dfs_info = []
+    collected_sections = []
+    if hasattr(st.session_state, 'budget_results') and st.session_state.budget_results:
+        all_dfs_info.extend(st.session_state.budget_results)
+        collected_sections.append(f"Budget: {len(st.session_state.budget_results)} reports")
+    if hasattr(st.session_state, 'od_vs_results') and st.session_state.od_vs_results:
+        all_dfs_info.extend(st.session_state.od_vs_results)
+        collected_sections.append(f"OD vs Collection: {len(st.session_state.od_vs_results)} reports")
+    if hasattr(st.session_state, 'product_results') and st.session_state.product_results:
+        all_dfs_info.extend(st.session_state.product_results)
+        collected_sections.append(f"Product: {len(st.session_state.product_results)} reports")
+    if hasattr(st.session_state, 'customers_results') and st.session_state.customers_results:
+        all_dfs_info.extend(st.session_state.customers_results)
+        collected_sections.append(f"Customers: {len(st.session_state.customers_results)} reports")
+    if hasattr(st.session_state, 'od_results') and st.session_state.od_results:
+        all_dfs_info.extend(st.session_state.od_results)
+        collected_sections.append(f"OD Target: {len(st.session_state.od_results)} reports")
+    if all_dfs_info:
+        st.info(f"Reports collected: {', '.join(collected_sections)}")
+        title = st.text_input("Enter Consolidated Report Title", "ACCLP Integrated Report")
+        if st.button("Generate Consolidated PPT"):
+            with st.spinner("Creating consolidated PowerPoint..."):
+                consolidated_ppt = create_consolidated_ppt(
+                    all_dfs_info,
+                    st.session_state.logo_file,
+                    title
+                )
+                if consolidated_ppt:
+                    unique_id = str(uuid.uuid4())[:8]
+                    st.success(f"PowerPoint created successfully with {len(all_dfs_info)} slides!")
+                    st.download_button(
+                        label="Download Consolidated PPT",
+                        data=consolidated_ppt,
+                        file_name=f"ACCLP_Consolidated_Report_{unique_id}.pptx",
+                        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                        key=f"consolidated_download_{unique_id}"
+                    )
+                else:
+                    st.error("Failed to create consolidated PowerPoint. Please check the reports data.")
+    else:
+        st.info("No reports generated yet.")
 
 if __name__ == "__main__":
-   main()
-
+    main()
