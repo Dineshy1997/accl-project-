@@ -13,6 +13,7 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import logging
 import uuid
+from openpyxl.styles import Font, PatternFill, Alignment
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 st.set_page_config(page_title="ACCLLP Integrated Dashboard", page_icon="📊", layout="wide")
@@ -355,6 +356,268 @@ def create_consolidated_ppt(all_dfs_with_titles, logo_file=None, title="ACCLLP C
         logger.error(f"Error creating consolidated PPT: {e}")
         st.error(f"Error creating consolidated PPT: {e}")
         return None
+def create_proof_of_calculation_excel(budget_df, sales_df, selected_month, 
+                                      budget_exec_col, budget_area_col, 
+                                      budget_sl_code_col, budget_product_group_col, 
+                                      budget_qty_col, budget_value_col,
+                                      sales_exec_col, sales_date_col, sales_area_col,
+                                      sales_sl_code_col, sales_product_group_col,
+                                      sales_qty_col, sales_value_col,
+                                      selected_executives, selected_branches=None):
+    """
+    FIXED VERSION: Creates detailed Excel file showing proof of calculation with proper branch mapping.
+    """
+    try:
+        # Create copies to avoid modifying original DataFrames
+        sales_df = sales_df.copy()
+        budget_df = budget_df.copy()
+        
+        # STEP 1: Convert sales date and filter by month
+        sales_df[sales_date_col] = pd.to_datetime(sales_df[sales_date_col], dayfirst=True, errors='coerce')
+        filtered_sales_df = sales_df[sales_df[sales_date_col].dt.strftime('%b %y') == selected_month].copy()
+        
+        if filtered_sales_df.empty:
+            st.warning(f"No sales data found for {selected_month}")
+            return None
+
+        # STEP 2: Apply executive filtering
+        if selected_executives:
+            filtered_sales_df = filtered_sales_df[filtered_sales_df[sales_exec_col].isin(selected_executives)]
+            budget_df = budget_df[budget_df[budget_exec_col].isin(selected_executives)]
+        
+        if filtered_sales_df.empty or budget_df.empty:
+            st.warning("No data found for selected executives")
+            return None
+
+        # STEP 3: Convert numeric columns
+        filtered_sales_df[sales_value_col] = pd.to_numeric(filtered_sales_df[sales_value_col], errors='coerce').fillna(0)
+        filtered_sales_df[sales_qty_col] = pd.to_numeric(filtered_sales_df[sales_qty_col], errors='coerce').fillna(0)
+        budget_df[budget_value_col] = pd.to_numeric(budget_df[budget_value_col], errors='coerce').fillna(0)
+        budget_df[budget_qty_col] = pd.to_numeric(budget_df[budget_qty_col], errors='coerce').fillna(0)
+        
+        # STEP 4: Store ORIGINAL values BEFORE any standardization for display
+        budget_df['display_branch'] = budget_df[budget_area_col].copy()
+        budget_df['display_exec'] = budget_df[budget_exec_col].copy()
+        budget_df['display_sl_code'] = budget_df[budget_sl_code_col].copy()
+        budget_df['display_product'] = budget_df[budget_product_group_col].copy()
+        
+        # STEP 5: Apply EXACT same standardization as main calculation
+        # Standardize string columns
+        filtered_sales_df[sales_area_col] = filtered_sales_df[sales_area_col].astype(str).str.strip()
+        budget_df[budget_area_col] = budget_df[budget_area_col].astype(str).str.strip()
+        filtered_sales_df[sales_product_group_col] = filtered_sales_df[sales_product_group_col].astype(str).str.strip()
+        filtered_sales_df[sales_sl_code_col] = filtered_sales_df[sales_sl_code_col].astype(str).str.strip().str.replace('\.0$', '', regex=True)
+        budget_df[budget_product_group_col] = budget_df[budget_product_group_col].astype(str).str.strip()
+        budget_df[budget_sl_code_col] = budget_df[budget_sl_code_col].astype(str).str.strip().str.replace('\.0$', '', regex=True)
+
+        # CRITICAL FIX: Apply branch mapping EXACTLY as in main calculation
+        # First extract the branch part after ' - ' and remove 'AAAA - ' prefix
+        budget_df[budget_area_col] = budget_df[budget_area_col].str.split(' - ').str[-1].str.upper()
+        budget_df[budget_area_col] = budget_df[budget_area_col].str.replace('AAAA - ', '', regex=False).str.upper()
+        
+        # Apply branch mapping (using the EXACT mapping from the main code)
+        branch_mapping = {
+            'PONDY': 'PUDUCHERRY', 'PDY': 'PUDUCHERRY', 'Puducherry - PDY': 'PUDUCHERRY',
+            'COVAI': 'COIMBATORE', 'CBE': 'COIMBATORE', 'Coimbatore - CBE': 'COIMBATORE',
+            'ERD': 'ERODE', 'Erode - ERD': 'ERODE', 'ERD002': 'ERODE', 'ERD001': 'ERODE',
+            'ERDTD1': 'ERODE', 'ERD003': 'ERODE', 'ERD004': 'ERODE', 'ERD005': 'ERODE',
+            'ERD007': 'ERODE',
+            'KRR': 'KARUR',
+            'Chennai - CHN': 'CHENNAI', 'CHN': 'CHENNAI',
+            'Tirupur - TPR': 'TIRUPUR', 'TPR': 'TIRUPUR',
+            'Madurai - MDU': 'MADURAI', 'MDU': 'MADURAI',
+            'POULTRY': 'POULTRY', 'Poultry - PLT': 'POULTRY',
+            'SALEM': 'SALEM', 'Salem - SLM': 'SALEM',
+            'HO': 'HO',
+            'SLM002': 'SALEM', 'SLMTD1': 'SALEM',
+            'BHV1': 'BHAVANI',
+            'CBU': 'COIMBATORE',
+            'VLR': 'VELLORE', 
+            'TRZ': 'TRICHY', 
+            'TVL': 'TIRUNELVELI',
+            'NGS': 'NAGERCOIL', 
+            'PONDICHERRY': 'PUDUCHERRY',
+            'BLR': 'BANGALORE', 'BANGALORE': 'BANGALORE', 'BGLR': 'BANGALORE'
+        }
+        
+        budget_df[budget_area_col] = budget_df[budget_area_col].replace(branch_mapping)
+        filtered_sales_df[sales_area_col] = filtered_sales_df[sales_area_col].str.upper().replace(branch_mapping)
+        
+        # Apply branch filtering
+        if selected_branches:
+            filtered_sales_df = filtered_sales_df[filtered_sales_df[sales_area_col].isin(selected_branches)].copy()
+            budget_df = budget_df[budget_df[budget_area_col].isin(selected_branches)].copy()
+
+        # Standardize product groups and SL codes
+        filtered_sales_df[sales_product_group_col] = filtered_sales_df[sales_product_group_col].str.upper()
+        filtered_sales_df[sales_sl_code_col] = filtered_sales_df[sales_sl_code_col].str.upper()
+        budget_df[budget_product_group_col] = budget_df[budget_product_group_col].str.upper()
+        budget_df[budget_sl_code_col] = budget_df[budget_sl_code_col].str.upper()
+
+        # STEP 6: Create detailed proof of calculation
+        print("Creating detailed proof of calculation...")
+        
+        # Group budget data by Branch + SL Code + Product Group
+        budget_grouped = budget_df.groupby([
+            budget_area_col,
+            budget_sl_code_col, 
+            budget_product_group_col
+        ]).agg({
+            'display_exec': 'first',      
+            'display_branch': 'first',    
+            'display_sl_code': 'first',   
+            'display_product': 'first',   
+            budget_qty_col: 'sum',
+            budget_value_col: 'sum'
+        }).reset_index()
+        
+        print(f"Budget records after grouping: {len(budget_grouped)}")
+        
+        # Initialize results storage
+        final_results = []
+        
+        # Process each budget record
+        for _, budget_row in budget_grouped.iterrows():
+            standardized_branch = budget_row[budget_area_col]
+            standardized_sl_code = budget_row[budget_sl_code_col]
+            standardized_product = budget_row[budget_product_group_col]
+            budget_qty = budget_row[budget_qty_col]
+            budget_value = budget_row[budget_value_col]
+            
+            # Use display values for Excel output
+            display_branch = budget_row['display_branch']
+            display_exec = budget_row['display_exec']
+            display_sl_code = budget_row['display_sl_code']
+            display_product = budget_row['display_product']
+            
+            # Check if budget conditions are met
+            budget_conditions_met = budget_qty > 0 and budget_value > 0
+            
+            if budget_conditions_met:
+                # Find matching sales using standardized values
+                matching_sales = filtered_sales_df[
+                    (filtered_sales_df[sales_area_col] == standardized_branch) &
+                    (filtered_sales_df[sales_sl_code_col] == standardized_sl_code) &
+                    (filtered_sales_df[sales_product_group_col] == standardized_product)
+                ]
+                
+                # Sum matching sales
+                if not matching_sales.empty:
+                    sales_qty_total = matching_sales[sales_qty_col].sum()
+                    sales_value_total = matching_sales[sales_value_col].sum()
+                else:
+                    sales_qty_total = 0
+                    sales_value_total = 0
+                
+                # Apply min logic (if sales > budget, use budget; else use sales)
+                final_qty = min(budget_qty, sales_qty_total) if sales_qty_total > 0 else 0
+                final_value = min(budget_value, sales_value_total) if sales_value_total > 0 else 0
+                
+                # Determine match status
+                if sales_qty_total > 0 or sales_value_total > 0:
+                    match_status = 'Mapped'
+                else:
+                    match_status = 'No Sales Data'
+            else:
+                final_qty = 0
+                final_value = 0
+                match_status = 'Budget Invalid'
+            
+            # Store result with original display values
+            final_results.append({
+                'Branch': display_branch,           
+                'Executive Name': display_exec,     
+                'SL Code': display_sl_code,         
+                'Product Group': display_product,   
+                'Budget Qty': round(budget_qty, 2),
+                'Budget Value': round(budget_value, 2),
+                'Sales Qty': round(final_qty, 2),
+                'Sales Value': round(final_value, 2),
+                'Standardized Branch': standardized_branch,  # For debugging
+                'Match Status': match_status
+            })
+        
+        # Convert to DataFrame and sort
+        proof_df = pd.DataFrame(final_results)
+        proof_df = proof_df.sort_values(['Standardized Branch', 'Executive Name', 'SL Code'])
+        
+        print(f"Created proof with {len(proof_df)} records")
+        
+        # Create Excel file with formatting
+        excel_buffer = BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            # Remove the standardized branch column before writing (it was just for debugging)
+            output_df = proof_df.drop(columns=['Standardized Branch'])
+            output_df.to_excel(writer, sheet_name='Proof of Calculation', index=False)
+            
+            # Apply formatting
+            workbook = writer.book
+            worksheet = writer.sheets['Proof of Calculation']
+            
+            from openpyxl.styles import Font, PatternFill, Alignment
+            
+            # Header formatting
+            header_font = Font(bold=True, color="FFFFFF")
+            header_fill = PatternFill(start_color="0070C0", end_color="0070C0", fill_type="solid")
+            
+            for cell in worksheet[1]:
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = Alignment(horizontal='center')
+            
+            # Conditional formatting for Match Status
+            from openpyxl.formatting.rule import CellIsRule
+            
+            green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+            red_fill = PatternFill(start_color="FFB6C1", end_color="FFB6C1", fill_type="solid")
+            yellow_fill = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
+            
+            # Apply to Match Status column (column I)
+            match_status_col = 'I'
+            last_row = len(output_df) + 1
+            
+            worksheet.conditional_formatting.add(f'{match_status_col}2:{match_status_col}{last_row}',
+                CellIsRule(operator='equal', formula=['"Mapped"'], fill=green_fill))
+            worksheet.conditional_formatting.add(f'{match_status_col}2:{match_status_col}{last_row}',
+                CellIsRule(operator='equal', formula=['"No Sales Data"'], fill=red_fill))
+            worksheet.conditional_formatting.add(f'{match_status_col}2:{match_status_col}{last_row}',
+                CellIsRule(operator='equal', formula=['"Budget Invalid"'], fill=yellow_fill))
+            
+            # Auto-adjust column widths
+            for column in worksheet.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                worksheet.column_dimensions[column_letter].width = adjusted_width
+            
+            # Add summary information
+            worksheet.insert_rows(1, 3)
+            
+            total_records = len(output_df)
+            mapped_records = len(output_df[output_df['Match Status'] == 'Mapped'])
+            no_sales_records = len(output_df[output_df['Match Status'] == 'No Sales Data'])
+            budget_invalid_records = len(output_df[output_df['Match Status'] == 'Budget Invalid'])
+            
+            worksheet['A1'] = f"Total Records: {total_records}"
+            worksheet['A2'] = f"Mapped: {mapped_records} | No Sales Data: {no_sales_records} | Budget Invalid: {budget_invalid_records}"
+            worksheet['A3'] = f"Generated for Month: {selected_month}"
+            
+            for i in range(1, 4):
+                worksheet[f'A{i}'].font = Font(bold=True)
+        
+        excel_buffer.seek(0)
+        return excel_buffer
+        
+    except Exception as e:
+        logger.error(f"Error creating proof of calculation Excel: {e}")
+        st.error(f"Error creating proof of calculation Excel: {e}")
+        return None
 def calculate_values(sales_df, budget_df, selected_month, sales_executives, budget_executives,
                      sales_date_col, sales_area_col, sales_value_col, sales_qty_col, sales_product_group_col, sales_sl_code_col, sales_exec_col,
                      budget_area_col, budget_value_col, budget_qty_col, budget_product_group_col, budget_sl_code_col, budget_exec_col, selected_branches=None):
@@ -518,7 +781,7 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
         
         # STEP 3: Aggregate by Branch for Budget vs Billed reports - NUCLEAR FIX APPROACH
         
-        # FIXED: Build QUANTITY DataFrame from scratch with proper percentage calculation
+        # FIXED: Build QUANTITY DataFrame from scratch with proper percentage calculation and units
         qty_data = []
         for area in default_branches:
             # Find matching data in results
@@ -539,15 +802,15 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
             
             qty_data.append({
                 'Area': area,
-                'Budget Qty': budget_val,
-                'Billed Qty': billed_val,
+                'Budget Qty/MT': budget_val,
+                'Billed Qty/MT': billed_val,
                 '%': percentage
             })
         
         # Create fresh DataFrame
         budget_vs_billed_qty_df = pd.DataFrame(qty_data)
         
-        # FIXED: Build VALUE DataFrame from scratch with proper percentage calculation
+        # FIXED: Build VALUE DataFrame from scratch with proper percentage calculation and units
         value_data = []
         for area in default_branches:
             # Find matching data in results
@@ -568,8 +831,8 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
             
             value_data.append({
                 'Area': area,
-                'Budget Value': budget_val,
-                'Billed Value': billed_val,
+                'Budget Value/L': budget_val,
+                'Billed Value/L': billed_val,
                 '%': percentage
             })
         
@@ -592,62 +855,62 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
         }).reset_index()
         budget_totals.columns = ['Area', 'Budget_Qty', 'Budget_Value']
         
-        # Overall Sales Quantity DataFrame
+        # Overall Sales Quantity DataFrame with units
         overall_sales_qty_df = pd.DataFrame({'Area': default_branches})
         overall_sales_qty_df = pd.merge(
             overall_sales_qty_df,
-            budget_totals[['Area', 'Budget_Qty']].rename(columns={'Budget_Qty': 'Budget Qty'}),
+            budget_totals[['Area', 'Budget_Qty']].rename(columns={'Budget_Qty': 'Budget Qty/MT'}),
             on='Area',
             how='left'
-        ).fillna({'Budget Qty': 0})
+        ).fillna({'Budget Qty/MT': 0})
         
         overall_sales_qty_df = pd.merge(
             overall_sales_qty_df,
-            overall_sales_data[['Area', 'Overall_Sales_Qty']].rename(columns={'Overall_Sales_Qty': 'Billed Qty'}),
+            overall_sales_data[['Area', 'Overall_Sales_Qty']].rename(columns={'Overall_Sales_Qty': 'Billed Qty/MT'}),
             on='Area',
             how='left'
-        ).fillna({'Billed Qty': 0})
+        ).fillna({'Billed Qty/MT': 0})
         
-        # Overall Sales Value DataFrame
+        # Overall Sales Value DataFrame with units
         overall_sales_value_df = pd.DataFrame({'Area': default_branches})
         overall_sales_value_df = pd.merge(
             overall_sales_value_df,
-            budget_totals[['Area', 'Budget_Value']].rename(columns={'Budget_Value': 'Budget Value'}),
+            budget_totals[['Area', 'Budget_Value']].rename(columns={'Budget_Value': 'Budget Value/L'}),
             on='Area',
             how='left'
-        ).fillna({'Budget Value': 0})
+        ).fillna({'Budget Value/L': 0})
         
         overall_sales_value_df = pd.merge(
             overall_sales_value_df,
-            overall_sales_data[['Area', 'Overall_Sales_Value']].rename(columns={'Overall_Sales_Value': 'Billed Value'}),
+            overall_sales_data[['Area', 'Overall_Sales_Value']].rename(columns={'Overall_Sales_Value': 'Billed Value/L'}),
             on='Area',
             how='left'
-        ).fillna({'Billed Value': 0})
+        ).fillna({'Billed Value/L': 0})
         
         # STEP 5: Add Total Rows with proper rounding
         
         # Add total row for budget vs billed quantity
-        total_budget_qty = round(budget_vs_billed_qty_df['Budget Qty'].sum(), 2)
-        total_billed_qty = round(budget_vs_billed_qty_df['Billed Qty'].sum(), 2)
+        total_budget_qty = round(budget_vs_billed_qty_df['Budget Qty/MT'].sum(), 2)
+        total_billed_qty = round(budget_vs_billed_qty_df['Billed Qty/MT'].sum(), 2)
         total_percentage_qty = round((total_billed_qty / total_budget_qty * 100), 2) if total_budget_qty > 0 else 0.0
         
         total_row_qty = pd.DataFrame({
             'Area': ['TOTAL'],
-            'Budget Qty': [total_budget_qty],
-            'Billed Qty': [total_billed_qty],
+            'Budget Qty/MT': [total_budget_qty],
+            'Billed Qty/MT': [total_billed_qty],
             '%': [total_percentage_qty]
         })
         budget_vs_billed_qty_df = pd.concat([budget_vs_billed_qty_df, total_row_qty], ignore_index=True)
         
         # Add total row for budget vs billed value
-        total_budget_value = round(budget_vs_billed_value_df['Budget Value'].sum(), 2)
-        total_billed_value = round(budget_vs_billed_value_df['Billed Value'].sum(), 2)
+        total_budget_value = round(budget_vs_billed_value_df['Budget Value/L'].sum(), 2)
+        total_billed_value = round(budget_vs_billed_value_df['Billed Value/L'].sum(), 2)
         total_percentage_value = round((total_billed_value / total_budget_value * 100), 2) if total_budget_value > 0 else 0.0
         
         total_row_value = pd.DataFrame({
             'Area': ['TOTAL'],
-            'Budget Value': [total_budget_value],
-            'Billed Value': [total_billed_value],
+            'Budget Value/L': [total_budget_value],
+            'Billed Value/L': [total_billed_value],
             '%': [total_percentage_value]
         })
         budget_vs_billed_value_df = pd.concat([budget_vs_billed_value_df, total_row_value], ignore_index=True)
@@ -655,34 +918,34 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
         # Add total rows for overall sales
         total_row_overall_qty = pd.DataFrame({
             'Area': ['TOTAL'],
-            'Budget Qty': [round(overall_sales_qty_df['Budget Qty'].sum(), 2)],
-            'Billed Qty': [round(overall_sales_qty_df['Billed Qty'].sum(), 2)]
+            'Budget Qty/MT': [round(overall_sales_qty_df['Budget Qty/MT'].sum(), 2)],
+            'Billed Qty/MT': [round(overall_sales_qty_df['Billed Qty/MT'].sum(), 2)]
         })
         overall_sales_qty_df = pd.concat([overall_sales_qty_df, total_row_overall_qty], ignore_index=True)
         
         total_row_overall_value = pd.DataFrame({
             'Area': ['TOTAL'],
-            'Budget Value': [round(overall_sales_value_df['Budget Value'].sum(), 2)],
-            'Billed Value': [round(overall_sales_value_df['Billed Value'].sum(), 2)]
+            'Budget Value/L': [round(overall_sales_value_df['Budget Value/L'].sum(), 2)],
+            'Billed Value/L': [round(overall_sales_value_df['Billed Value/L'].sum(), 2)]
         })
         overall_sales_value_df = pd.concat([overall_sales_value_df, total_row_overall_value], ignore_index=True)
         
         # FINAL ROUNDING: Convert to integers for final display (keeping original behavior)
-        budget_vs_billed_value_df['Budget Value'] = budget_vs_billed_value_df['Budget Value'].round(0).astype(int)
-        budget_vs_billed_value_df['Billed Value'] = budget_vs_billed_value_df['Billed Value'].round(0).astype(int)
-        budget_vs_billed_qty_df['Budget Qty'] = budget_vs_billed_qty_df['Budget Qty'].round(0).astype(int)
-        budget_vs_billed_qty_df['Billed Qty'] = budget_vs_billed_qty_df['Billed Qty'].round(0).astype(int)
-        overall_sales_qty_df['Budget Qty'] = overall_sales_qty_df['Budget Qty'].round(0).astype(int)
-        overall_sales_qty_df['Billed Qty'] = overall_sales_qty_df['Billed Qty'].round(0).astype(int)
-        overall_sales_value_df['Budget Value'] = overall_sales_value_df['Budget Value'].round(0).astype(int)
-        overall_sales_value_df['Billed Value'] = overall_sales_value_df['Billed Value'].round(0).astype(int)
+        budget_vs_billed_value_df['Budget Value/L'] = budget_vs_billed_value_df['Budget Value/L'].round(0).astype(int)
+        budget_vs_billed_value_df['Billed Value/L'] = budget_vs_billed_value_df['Billed Value/L'].round(0).astype(int)
+        budget_vs_billed_qty_df['Budget Qty/MT'] = budget_vs_billed_qty_df['Budget Qty/MT'].round(0).astype(int)
+        budget_vs_billed_qty_df['Billed Qty/MT'] = budget_vs_billed_qty_df['Billed Qty/MT'].round(0).astype(int)
+        overall_sales_qty_df['Budget Qty/MT'] = overall_sales_qty_df['Budget Qty/MT'].round(0).astype(int)
+        overall_sales_qty_df['Billed Qty/MT'] = overall_sales_qty_df['Billed Qty/MT'].round(0).astype(int)
+        overall_sales_value_df['Budget Value/L'] = overall_sales_value_df['Budget Value/L'].round(0).astype(int)
+        overall_sales_value_df['Billed Value/L'] = overall_sales_value_df['Billed Value/L'].round(0).astype(int)
         
         # ADDITIONAL SAFETY CHECK: Force fix any remaining percentage anomalies
         for df_name, df in [("QTY", budget_vs_billed_qty_df), ("VALUE", budget_vs_billed_value_df)]:
             if df_name == "QTY":
-                budget_col, billed_col = 'Budget Qty', 'Billed Qty'
+                budget_col, billed_col = 'Budget Qty/MT', 'Billed Qty/MT'
             else:
-                budget_col, billed_col = 'Budget Value', 'Billed Value'
+                budget_col, billed_col = 'Budget Value/L', 'Billed Value/L'
             
             # Check for any remaining anomalies
             final_anomaly_mask = (
@@ -788,10 +1051,10 @@ def create_budget_ppt(budget_vs_billed_value_df, budget_vs_billed_qty_df, overal
                         fill = cell.fill
                         fill.solid()
                         fill.fore_color.rgb = RGBColor(211, 211, 211)
-        add_table_slide("BUDGET AGAINST BILLED (Qty in Mt)", budget_vs_billed_qty_df)
-        add_table_slide("BUDGET AGAINST BILLED (Value in Lakhs)", budget_vs_billed_value_df)
-        add_table_slide("OVERALL SALES (Qty in Mt)", overall_sales_qty_df)
-        add_table_slide("OVERALL SALES (Value in Lakhs)", overall_sales_value_df)
+        add_table_slide("BUDGET AGAINST BILLED ", budget_vs_billed_qty_df)
+        add_table_slide("BUDGET AGAINST BILLED ", budget_vs_billed_value_df)
+        add_table_slide("OVERALL SALES ", overall_sales_qty_df)
+        add_table_slide("OVERALL SALES", overall_sales_value_df)
         ppt_buffer = BytesIO()
         prs.save(ppt_buffer)
         ppt_buffer.seek(0)
@@ -998,23 +1261,24 @@ def tab_budget_vs_billed():
                 with result_tabs[0]:
                     st.write("**Budget vs Billed Quantity**")
                     st.dataframe(budget_vs_billed_qty_df)
-                    img_buffer = create_budget_table_image(budget_vs_billed_qty_df, f"BUDGET AGAINST BILLED (Qty in Mt) - {selected_month}")
+                    img_buffer = create_budget_table_image(budget_vs_billed_qty_df, f"BUDGET AGAINST BILLED - {selected_month}")
                     st.image(img_buffer, use_column_width=True)                
                 with result_tabs[1]:
                     st.write("**Budget vs Billed Value**")
                     st.dataframe(budget_vs_billed_value_df)
-                    img_buffer = create_budget_table_image(budget_vs_billed_value_df, f"BUDGET AGAINST BILLED (Value in Lakhs) - {selected_month}")
+                    img_buffer = create_budget_table_image(budget_vs_billed_value_df, f"BUDGET AGAINST BILLED  - {selected_month}")
                     st.image(img_buffer, use_column_width=True)                              
                 with result_tabs[2]:
                     st.write("**Overall Sales Quantity**")
                     st.dataframe(overall_sales_qty_df)
-                    img_buffer = create_budget_table_image(overall_sales_qty_df, f"OVERALL SALES (Qty In Mt) - {selected_month}")
+                    img_buffer = create_budget_table_image(overall_sales_qty_df, f"OVERALL SALES  - {selected_month}")
                     st.image(img_buffer, use_column_width=True)              
                 with result_tabs[3]:
                     st.write("**Overall Sales Value**")
                     st.dataframe(overall_sales_value_df)
-                    img_buffer = create_budget_table_image(overall_sales_value_df, f"OVERALL SALES (Value in Lakhs) - {selected_month}")
+                    img_buffer = create_budget_table_image(overall_sales_value_df, f"OVERALL SALES  - {selected_month}")
                     st.image(img_buffer, use_column_width=True)
+                
                 logo_file = st.session_state.logo_file
                 ppt_buffer = create_budget_ppt(    
                     budget_vs_billed_qty_df,
@@ -1024,19 +1288,54 @@ def tab_budget_vs_billed():
                     month_title=selected_month, 
                     logo_file=logo_file
                 )
-                if ppt_buffer:
-                    st.download_button(
-                        label="Download Budget vs Billed PPT",
-                        data=ppt_buffer,
-                        file_name=f"Budget_vs_Billed_{selected_month}.pptx",
-                        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                        key='budget_download'
-                    )
+                
+                # UPDATED SECTION: Create download buttons row with proof of calculation
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if ppt_buffer:
+                        st.download_button(
+                            label="📊 Download Budget vs Billed PPT",
+                            data=ppt_buffer,
+                            file_name=f"Budget_vs_Billed_{selected_month}.pptx",
+                            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                            key='budget_download'
+                        )
+                
+                with col2:
+                    # Generate proof of calculation Excel
+                    try:
+                        proof_excel = create_proof_of_calculation_excel(
+                            budget_df, sales_df, selected_month,
+                            budget_exec_col, budget_area_col,
+                            budget_sl_code_col, budget_product_group_col,
+                            budget_qty_col, budget_value_col,
+                            sales_exec_col, sales_date_col, sales_area_col,
+                            sales_sl_code_col, sales_product_group_col,
+                            sales_qty_col, sales_value_col,
+                            selected_sales_execs, selected_branches
+                        )
+                        
+                        if proof_excel:
+                            unique_id_excel = str(uuid.uuid4())[:8]
+                            st.download_button(
+                                label="📋 Download Proof of Calculation (Excel)",
+                                data=proof_excel,
+                                file_name=f"Budget_vs_Billed_Proof_{selected_month}_{unique_id_excel}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key=f'proof_download_{unique_id_excel}'
+                            )
+                        else:
+                            st.warning("Could not generate proof of calculation file.")
+                    except Exception as e:
+                        st.error(f"Error generating proof file: {e}")
+                        logger.error(f"Error generating proof file: {e}")
+                
                 dfs_info = [
-                    {'df': budget_vs_billed_qty_df, 'title': f"BUDGET AGAINST BILLED QUANTITY (Qty in Mt) - {selected_month}", 'percent_cols': [3]},
-                    {'df': budget_vs_billed_value_df, 'title': f"BUDGET AGAINST BILLED (Value in Lakhs) - {selected_month}", 'percent_cols': [3]},
-                    {'df': overall_sales_qty_df, 'title': f"OVERALL SALES (Qty In Mt) - {selected_month}", 'percent_cols': [3]},
-                    {'df': overall_sales_value_df, 'title': f"OVERALL SALES (Value in Lakhs) - {selected_month}", 'percent_cols': [3]}
+                    {'df': budget_vs_billed_qty_df, 'title': f"BUDGET AGAINST BILLED QUANTITY - {selected_month}", 'percent_cols': [3]},
+                    {'df': budget_vs_billed_value_df, 'title': f"BUDGET AGAINST BILLED - {selected_month}", 'percent_cols': [3]},
+                    {'df': overall_sales_qty_df, 'title': f"OVERALL SALES - {selected_month}", 'percent_cols': [3]},
+                    {'df': overall_sales_value_df, 'title': f"OVERALL SALES - {selected_month}", 'percent_cols': [3]}
                 ]
                 st.session_state.budget_results = dfs_info
             else:
@@ -1044,6 +1343,7 @@ def tab_budget_vs_billed():
     except Exception as e:
         st.error(f"Error in Budget vs Billed tab: {e}")
         logger.error(f"Error in Budget vs Billed tab: {e}")  
+    
     # Ensure dfs_info is populated or remove the return statement if not needed
     if dfs_info:
         # If dfs_info is not used, remove the return statement
@@ -1318,19 +1618,20 @@ def filter_os_qty(os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
     os_grouped_qty = (os_df_positive.groupby(os_area_col)
                     .agg({os_qty_col: 'sum'})
                     .reset_index()
-                    .rename(columns={os_area_col: 'Area', os_qty_col: 'TARGET'}))
-    os_grouped_qty['TARGET'] = os_grouped_qty['TARGET'] / 100000  # Convert to lakhs
+                    .rename(columns={os_area_col: 'Area', os_qty_col: 'TARGET/L'}))
+    os_grouped_qty['TARGET/L'] = os_grouped_qty['TARGET/L'] / 100000  # Convert to lakhs
     branches_to_display = selected_branches if selected_branches else all_branches
     result_df = pd.DataFrame({'Area': branches_to_display})
-    result_df = pd.merge(result_df, os_grouped_qty, on='Area', how='left').fillna({'TARGET': 0})
-    total_row = pd.DataFrame([{'Area': 'TOTAL', 'TARGET': result_df['TARGET'].sum()}])
+    result_df = pd.merge(result_df, os_grouped_qty, on='Area', how='left').fillna({'TARGET/L': 0})
+    total_row = pd.DataFrame([{'Area': 'TOTAL', 'TARGET/L': result_df['TARGET/L'].sum()}])
     result_df = pd.concat([result_df, total_row], ignore_index=True)
-    result_df['TARGET'] = result_df['TARGET'].round(2)
+    result_df['TARGET/L'] = result_df['TARGET/L'].round(2)
     return result_df, start_date, end_date
+
 def create_od_table_image(df, title, columns_to_show=None):
     """Create a table image from the OD Target DataFrame."""
     if columns_to_show is None:
-        columns_to_show = ['Area', 'TARGET (Lakhs)']    
+        columns_to_show = ['Area', 'TARGET/L']    
     fig, ax = plt.subplots(figsize=(10, len(df) * 0.5))
     ax.axis('off')
     nrows, ncols = len(df), len(columns_to_show)
@@ -1341,7 +1642,7 @@ def create_od_table_image(df, title, columns_to_show=None):
 
     for row_idx in range(len(df)):
         for col_idx, col_name in enumerate(columns_to_show):
-            value = df.iloc[row_idx]['Area'] if col_name == 'Area' else df.iloc[row_idx]['TARGET']
+            value = df.iloc[row_idx]['Area'] if col_name == 'Area' else df.iloc[row_idx]['TARGET/L']
             text = str(value) if col_name == 'Area' else f"{float(value):.2f}"
             facecolor = '#DDEBF7' if row_idx % 2 == 0 else 'white'
             if row_idx == len(df) - 1 and df.iloc[row_idx, 0] == 'TOTAL':
@@ -1359,6 +1660,7 @@ def create_od_table_image(df, title, columns_to_show=None):
     plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150)
     plt.close()
     return img_buffer
+
 def create_od_ppt_slide(slide, df, title):
     """Add a slide with the OD Target table to the presentation."""
     title_shape = slide.shapes.title
@@ -1367,7 +1669,7 @@ def create_od_ppt_slide(slide, df, title):
     title_shape.text_frame.paragraphs[0].font.bold = True
     title_shape.text_frame.paragraphs[0].font.color.rgb = RGBColor(0, 0, 0)
     title_shape.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
-    columns_to_show = ['Area', 'TARGET (Lakhs)']
+    columns_to_show = ['Area', 'TARGET/L']
     rows, cols = df.shape[0] + 1, len(columns_to_show)
     table = slide.shapes.add_table(rows, cols, Inches(0.5), Inches(1.5), Inches(12), Inches(5)).table
     for col_idx, col_name in enumerate(columns_to_show):
@@ -1383,7 +1685,7 @@ def create_od_ppt_slide(slide, df, title):
         is_total_row = row_idx == len(df) - 1
         for col_idx, col_name in enumerate(columns_to_show):
             cell = table.cell(row_idx + 1, col_idx)
-            value = df.iloc[row_idx]['Area'] if col_name == 'Area' else df.iloc[row_idx]['TARGET']
+            value = df.iloc[row_idx]['Area'] if col_name == 'Area' else df.iloc[row_idx]['TARGET/L']
             cell.text = str(value) if col_name == 'Area' else f"{float(value):.2f}"
             cell.text_frame.paragraphs[0].font.size = Pt(12)
             cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
@@ -1707,7 +2009,7 @@ def tab_billed_customers():
                             if od_target_df is not None:
                                 start_str = start_date.strftime('%b %Y') if start_date else 'All Periods'
                                 end_str = end_date.strftime('%b %Y') if end_date else 'All Periods'                                
-                                od_title = f"OD Target-{end_str}(Value in Lakhs)"
+                                od_title = f"OD Target-{end_str}"
                                 st.subheader(od_title)
                                 st.dataframe(od_target_df)                                
                                 img_buffer = create_od_table_image(od_target_df, od_title)
@@ -1888,9 +2190,17 @@ def create_dynamic_regional_summary(final_df, region_branch_mapping):
     # Append total row
     regional_summary = pd.concat([regional_summary, pd.DataFrame([total_row])], ignore_index=True)
     
-    # Reorder columns
-    regional_summary = regional_summary[["Region", "Due Target", "Collection Achieved", "Overall % Achieved",
-                                        "For the month Overdue", "For the month Collection", "% Achieved (Selected Month)"]]
+    # Rename columns to include /L units for display
+    regional_summary = regional_summary.rename(columns={
+        "Due Target": "Due Target/L",
+        "Collection Achieved": "Collection Achieved/L", 
+        "For the month Overdue": "For the month Overdue/L",
+        "For the month Collection": "For the month Collection/L"
+    })
+    
+    # Reorder columns with updated column names
+    regional_summary = regional_summary[["Region", "Due Target/L", "Collection Achieved/L", "Overall % Achieved",
+                                        "For the month Overdue/L", "For the month Collection/L", "% Achieved (Selected Month)"]]
     
     return regional_summary
 def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_str,
@@ -2065,6 +2375,7 @@ def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_
    final.sort_values("Branch", inplace=True)
 
    # Calculate regional summary BEFORE adding total row
+   # Note: The create_dynamic_regional_summary function may need to be updated to handle the new column names with /L units
    regional_summary = create_dynamic_regional_summary(final, region_branch_mapping)
 
    # *** FIXED: Add total row using exact formula like regional summary ***
@@ -2084,6 +2395,14 @@ def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_
            total_row[col] = round(final[col].sum(), 2)
    
    final = pd.concat([final, pd.DataFrame([total_row])], ignore_index=True)
+   
+   # Rename columns to include /L units at the very end for PowerPoint display
+   final = final.rename(columns={
+       "Due Target": "Due Target/L",
+       "Collection Achieved": "Collection Achieved/L", 
+       "For the month Overdue": "For the month Overdue/L",
+       "For the month Collection": "For the month Collection/L"
+   })
    
    return final, regional_summary, region_branch_mapping
 def create_od_ppt_updated(df, regional_df, title, logo_file=None):
@@ -2316,13 +2635,13 @@ def tab_od_target():
                     else:
                         st.write("No region mapping was created or used.")
                 dfs_info = [
-                    {'df': final, 'title': f"OD TARGET VS COLLECTION (Branch-wise) - {selected_month_str} (Value in Lakhs)", 'percent_cols': [3, 6]}
+                    {'df': final, 'title': f"OD TARGET VS COLLECTION (Branch-wise) - {selected_month_str}", 'percent_cols': [3, 6]}
                 ]
                 
                 if regional_summary is not None and not regional_summary.empty:
                     dfs_info.append({
                         'df': regional_summary, 
-                        'title': f"OD TARGET VS COLLECTION (Regional Summary) - {selected_month_str} (Value in Lakhs)", 
+                        'title': f"OD TARGET VS COLLECTION (Regional Summary) - {selected_month_str}", 
                         'percent_cols': [3, 6]
                     })
                 st.session_state.od_results = dfs_info
@@ -2395,7 +2714,6 @@ def standardize_name(name):
     if any(variant in name.lower() for variant in general_variants):
         return 'General'
     return name
-
 def log_non_numeric_values(df, col):
     """Log non-numeric values in a column before conversion."""
     if col in df.columns:
@@ -2582,8 +2900,8 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
             return None
 
         # Define helper functions for calculations
-        def calc_achievement_percentage(cy_value, ly_value):
-            """Calculate achievement percentage correctly"""
+        def calc_growth_percentage(cy_value, ly_value):
+            """Calculate growth percentage correctly"""
             if pd.isna(ly_value) or ly_value == 0:
                 return 0.00 if cy_value == 0 else 100.00
             return round(((cy_value - ly_value) / ly_value) * 100, 2)
@@ -2630,12 +2948,12 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
             # Aggregate data
             st.write(f"Aggregating data for group {group}...")
             try:
-                ly_qty = ly_group_df.groupby(ly_product_col)[ly_qty_col].sum().reset_index().rename(columns={ly_product_col: 'PRODUCT NAME', ly_qty_col: 'LY_QTY'})
-                cy_qty = cy_group_df.groupby(cy_product_col)[cy_qty_col].sum().reset_index().rename(columns={cy_product_col: 'PRODUCT NAME', cy_qty_col: 'CY_QTY'})
-                ly_value = ly_group_df.groupby(ly_product_col)[ly_value_col].sum().reset_index().rename(columns={ly_product_col: 'PRODUCT NAME', ly_value_col: 'LY_VALUE'})
-                cy_value = cy_group_df.groupby(cy_product_col)[cy_value_col].sum().reset_index().rename(columns={cy_product_col: 'PRODUCT NAME', cy_value_col: 'CY_VALUE'})
-                budget_qty = budget_group_df.groupby(budget_product_group_col)[budget_qty_col].sum().reset_index().rename(columns={budget_product_group_col: 'PRODUCT NAME', budget_qty_col: 'BUDGET_QTY'})
-                budget_value = budget_group_df.groupby(budget_product_group_col)[budget_value_col].sum().reset_index().rename(columns={budget_product_group_col: 'PRODUCT NAME', budget_value_col: 'BUDGET_VALUE'})
+                ly_qty = ly_group_df.groupby(ly_product_col)[ly_qty_col].sum().reset_index().rename(columns={ly_product_col: 'PRODUCT NAME', ly_qty_col: 'LAST_YEAR_QTY/MT'})
+                cy_qty = cy_group_df.groupby(cy_product_col)[cy_qty_col].sum().reset_index().rename(columns={cy_product_col: 'PRODUCT NAME', cy_qty_col: 'CURRENT_YEAR_QTY/MT'})
+                ly_value = ly_group_df.groupby(ly_product_col)[ly_value_col].sum().reset_index().rename(columns={ly_product_col: 'PRODUCT NAME', ly_value_col: 'LAST_YEAR_VALUE/L'})
+                cy_value = cy_group_df.groupby(cy_product_col)[cy_value_col].sum().reset_index().rename(columns={cy_product_col: 'PRODUCT NAME', cy_value_col: 'CURRENT_YEAR_VALUE/L'})
+                budget_qty = budget_group_df.groupby(budget_product_group_col)[budget_qty_col].sum().reset_index().rename(columns={budget_product_group_col: 'PRODUCT NAME', budget_qty_col: 'BUDGET_QTY/MT'})
+                budget_value = budget_group_df.groupby(budget_product_group_col)[budget_value_col].sum().reset_index().rename(columns={budget_product_group_col: 'PRODUCT NAME', budget_value_col: 'BUDGET_VALUE/L'})
             except Exception as e:
                 st.error(f"Error aggregating data for group {group}: {e}")
                 continue
@@ -2654,13 +2972,13 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
                                      .merge(budget_value, on='PRODUCT NAME', how='left')\
                                      .fillna(0)
 
-            # Calculate achievement percentages for each product
-            qty_df['ACHIEVEMENT %'] = qty_df.apply(lambda row: calc_achievement_percentage(row['CY_QTY'], row['LY_QTY']), axis=1)
-            value_df['ACHIEVEMENT %'] = value_df.apply(lambda row: calc_achievement_percentage(row['CY_VALUE'], row['LY_VALUE']), axis=1)
+            # Calculate growth percentages for each product
+            qty_df['GROWTH %'] = qty_df.apply(lambda row: calc_growth_percentage(row['CURRENT_YEAR_QTY/MT'], row['LAST_YEAR_QTY/MT']), axis=1)
+            value_df['GROWTH %'] = value_df.apply(lambda row: calc_growth_percentage(row['CURRENT_YEAR_VALUE/L'], row['LAST_YEAR_VALUE/L']), axis=1)
 
             # Round all numeric columns to 2 decimal places
-            numeric_cols_qty = ['LY_QTY', 'BUDGET_QTY', 'CY_QTY']
-            numeric_cols_value = ['LY_VALUE', 'BUDGET_VALUE', 'CY_VALUE']
+            numeric_cols_qty = ['LAST_YEAR_QTY/MT', 'BUDGET_QTY/MT', 'CURRENT_YEAR_QTY/MT']
+            numeric_cols_value = ['LAST_YEAR_VALUE/L', 'BUDGET_VALUE/L', 'CURRENT_YEAR_VALUE/L']
             
             for col in numeric_cols_qty:
                 qty_df[col] = qty_df[col].round(2)
@@ -2669,34 +2987,34 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
                 value_df[col] = value_df[col].round(2)
             
             # Reorder columns
-            qty_df = qty_df[['PRODUCT NAME', 'LY_QTY', 'BUDGET_QTY', 'CY_QTY', 'ACHIEVEMENT %']]
-            value_df = value_df[['PRODUCT NAME', 'LY_VALUE', 'BUDGET_VALUE', 'CY_VALUE', 'ACHIEVEMENT %']]
+            qty_df = qty_df[['PRODUCT NAME', 'LAST_YEAR_QTY/MT', 'BUDGET_QTY/MT', 'CURRENT_YEAR_QTY/MT', 'GROWTH %']]
+            value_df = value_df[['PRODUCT NAME', 'LAST_YEAR_VALUE/L', 'BUDGET_VALUE/L', 'CURRENT_YEAR_VALUE/L', 'GROWTH %']]
 
             # Calculate totals correctly
-            total_ly_qty = qty_df['LY_QTY'].sum()
-            total_cy_qty = qty_df['CY_QTY'].sum()
-            total_budget_qty = qty_df['BUDGET_QTY'].sum()
+            total_ly_qty = qty_df['LAST_YEAR_QTY/MT'].sum()
+            total_cy_qty = qty_df['CURRENT_YEAR_QTY/MT'].sum()
+            total_budget_qty = qty_df['BUDGET_QTY/MT'].sum()
             
-            total_ly_value = value_df['LY_VALUE'].sum()
-            total_cy_value = value_df['CY_VALUE'].sum()
-            total_budget_value = value_df['BUDGET_VALUE'].sum()
+            total_ly_value = value_df['LAST_YEAR_VALUE/L'].sum()
+            total_cy_value = value_df['CURRENT_YEAR_VALUE/L'].sum()
+            total_budget_value = value_df['BUDGET_VALUE/L'].sum()
 
             # Add totals with correct growth calculation
             qty_totals = pd.DataFrame({
                 'PRODUCT NAME': ['TOTAL'],
-                'LY_QTY': [round(total_ly_qty, 2)],
-                'BUDGET_QTY': [round(total_budget_qty, 2)],
-                'CY_QTY': [round(total_cy_qty, 2)],
-                'ACHIEVEMENT %': [calc_total_growth_percentage(total_cy_qty, total_ly_qty)]
+                'LAST_YEAR_QTY/MT': [round(total_ly_qty, 2)],
+                'BUDGET_QTY/MT': [round(total_budget_qty, 2)],
+                'CURRENT_YEAR_QTY/MT': [round(total_cy_qty, 2)],
+                'GROWTH %': [calc_total_growth_percentage(total_cy_qty, total_ly_qty)]
             })
             qty_df = pd.concat([qty_df, qty_totals], ignore_index=True)
 
             value_totals = pd.DataFrame({
                 'PRODUCT NAME': ['TOTAL'],
-                'LY_VALUE': [round(total_ly_value, 2)],
-                'BUDGET_VALUE': [round(total_budget_value, 2)],
-                'CY_VALUE': [round(total_cy_value, 2)],
-                'ACHIEVEMENT %': [calc_total_growth_percentage(total_cy_value, total_ly_value)]
+                'LAST_YEAR_VALUE/L': [round(total_ly_value, 2)],
+                'BUDGET_VALUE/L': [round(total_budget_value, 2)],
+                'CURRENT_YEAR_VALUE/L': [round(total_cy_value, 2)],
+                'GROWTH %': [calc_total_growth_percentage(total_cy_value, total_ly_value)]
             })
             value_df = pd.concat([value_df, value_totals], ignore_index=True)
 
@@ -2733,8 +3051,8 @@ def create_product_growth_ppt(group_results, month_title, logo_file=None):
             qty_df = data['qty_df']
             value_df = data['value_df']
             
-            add_table_slide(prs, qty_df, f"{group} - Quantity Growth (Qty in Mt)", percent_cols=[4])
-            add_table_slide(prs, value_df, f"{group} - Value Growth (Value in Lakhs)", percent_cols=[4])
+            add_table_slide(prs, qty_df, f"{group} - Quantity Growth ", percent_cols=[4])
+            add_table_slide(prs, value_df, f"{group} - Value Growth", percent_cols=[4])
         
         # Save to buffer
         ppt_buffer = BytesIO()
@@ -2941,15 +3259,15 @@ def tab_product_growth():
                     dfs_info = []
                     
                     for group, data in group_results.items():
-                        st.write(f"**{group} - Quantity Growth (Qty in Mt)**")
+                        st.write(f"**{group} - Quantity Growth**")
                         st.dataframe(data['qty_df'])
                         
-                        st.write(f"**{group} - Value Growth (Value in Lakhs)**")
+                        st.write(f"**{group} - Value Growth**")
                         st.dataframe(data['value_df'])
                         
                         # Add to dfs_info for consolidated PPT
-                        dfs_info.append({'df': data['qty_df'], 'title': f"{group} - Quantity Growth (Qty in Mt)", 'percent_cols': [4]})
-                        dfs_info.append({'df': data['value_df'], 'title': f"{group} - Value Growth (Value in Lakhs)", 'percent_cols': [4]})
+                        dfs_info.append({'df': data['qty_df'], 'title': f"{group} - Quantity Growth", 'percent_cols': [4]})
+                        dfs_info.append({'df': data['value_df'], 'title': f"{group} - Value Growth", 'percent_cols': [4]})
                     
                     # Store results in session state
                     st.session_state.product_results = dfs_info
