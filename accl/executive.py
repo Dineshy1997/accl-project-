@@ -87,8 +87,51 @@ def create_title_slide(prs, title, logo_file=None):
 def add_table_slide(prs, df, title, percent_cols=None):
     if percent_cols is None:
         percent_cols = []
+    
+    if df is None or df.empty:
+        logger.warning(f"Skipping slide for {title}: DataFrame is None or empty")
+        return
+    
+    # Constants
+    MAX_EXECUTIVES_PER_SLIDE = 15  # Strict limit of 15 executives per slide
+    
+    # Remove any rows with 'ACCLP' if present
+    df = df[df.iloc[:, 0] != "ACCLP"].copy()
+    
+    # Separate regular executives from TOTAL row if present
+    total_row = None
+    if 'TOTAL' in df.iloc[:, 0].values:
+        total_row = df[df.iloc[:, 0] == 'TOTAL']
+        df = df[df.iloc[:, 0] != 'TOTAL']
+    
+    num_executives = len(df)
+    num_slides = math.ceil(num_executives / MAX_EXECUTIVES_PER_SLIDE)
+    
+    # Process each slide
+    for slide_num in range(num_slides):
+        start_idx = slide_num * MAX_EXECUTIVES_PER_SLIDE
+        end_idx = start_idx + MAX_EXECUTIVES_PER_SLIDE
+        slide_df = df.iloc[start_idx:end_idx].copy()
+        
+        # On last slide, try to include TOTAL row if there's space
+        if slide_num == num_slides - 1 and total_row is not None:
+            if len(slide_df) + 1 <= MAX_EXECUTIVES_PER_SLIDE:  # +1 for TOTAL row
+                slide_df = pd.concat([slide_df, total_row], ignore_index=True)
+                total_row = None  # Mark as added
+        
+        slide_title = title if num_slides == 1 else f"{title} (Slide {slide_num+1})"
+        _create_single_table_slide(prs, slide_df, slide_title, percent_cols)
+    
+    # Add final slide with TOTAL row if it wasn't included earlier
+    if total_row is not None and not total_row.empty:
+        _create_single_table_slide(prs, total_row, f"{title} - Grand Total", percent_cols)
+
+def _create_single_table_slide(prs, df, title, percent_cols):
+    """Helper function to create a single slide with a table"""
     slide_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(slide_layout)
+    
+    # Add title
     title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(12.33), Inches(0.8))
     title_frame = title_shape.text_frame
     title_frame.text = title
@@ -97,17 +140,33 @@ def add_table_slide(prs, df, title, percent_cols=None):
     p.font.bold = True
     p.font.color.rgb = RGBColor(0, 112, 192)
     p.alignment = PP_ALIGN.CENTER
+    
+    # Prepare table data
     columns = df.columns.tolist()
-    num_rows = len(df) + 1
+    num_rows = len(df) + 1  # +1 for header row
     num_cols = len(columns)
-    table = slide.shapes.add_table(num_rows, num_cols, Inches(0.5), Inches(1.5), Inches(12), Inches(0.3 * len(df) + 0.3)).table
+    
+    # Calculate table height - fixed row height of 0.3 inches
+    row_height = Inches(0.3)
+    table_height = row_height * num_rows
+    
+    # Add table (fixed width of 12 inches)
+    table = slide.shapes.add_table(
+        num_rows, num_cols, 
+        Inches(0.5), Inches(1.5),  # Left, Top position
+        Inches(12), table_height    # Width, Height
+    ).table
+    
+    # Set column widths
     if num_cols > 0:
-        table.columns[0].width = Inches(3.0)
+        table.columns[0].width = Inches(3.0)  # First column (Executive) wider
     remaining_width = 12.0 - 3.0
     if num_cols > 1:
         col_width = remaining_width / (num_cols - 1)
         for i in range(1, num_cols):
             table.columns[i].width = Inches(col_width)
+    
+    # Add header row
     for i, col_name in enumerate(columns):
         cell = table.cell(0, i)
         cell.text = str(col_name)
@@ -117,18 +176,24 @@ def add_table_slide(prs, df, title, percent_cols=None):
         cell.text_frame.paragraphs[0].font.bold = True
         cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
         cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+    
+    # Add data rows
     for row_idx, (_, row) in enumerate(df.iterrows(), start=1):
         is_total_row = 'TOTAL' in str(row.iloc[0])
         for col_idx, col_name in enumerate(columns):
             cell = table.cell(row_idx, col_idx)
             value = row[col_name]
+            
+            # Format percentage columns
             if col_idx in percent_cols and isinstance(value, (int, float)) and not pd.isna(value):
                 cell.text = f"{value}%"
             else:
                 cell.text = str(value)
+            
             cell.text_frame.paragraphs[0].font.size = Pt(12)
             cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
             cell.fill.solid()
+            
             if is_total_row:
                 cell.fill.fore_color.rgb = RGBColor(211, 211, 211)
                 cell.text_frame.paragraphs[0].font.bold = True
@@ -535,10 +600,10 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
             sales_qty_col: 'sum',
             sales_value_col: 'sum'
         }).reset_index()
-        overall_sales_data.columns = ['Executive', 'Overall_Sales_Qty', 'Overall_Sales_Value']
+        overall_sales_data.columns = ['EXECUTIVE', 'Overall_Sales_Qty', 'Overall_Sales_Value']
 
-        overall_sales_qty_df = pd.DataFrame({'Executive': executives_to_display})
-        overall_sales_value_df = pd.DataFrame({'Executive': executives_to_display})
+        overall_sales_qty_df = pd.DataFrame({'EXECUTIVE': executives_to_display})
+        overall_sales_value_df = pd.DataFrame({'EXECUTIVE': executives_to_display})
 
         # Merge budget totals if available
         if not budget_filtered.empty:
@@ -549,39 +614,39 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
                 budget_qty_col: 'sum',
                 budget_value_col: 'sum'
             }).reset_index()
-            budget_totals.columns = ['Executive', 'Budget_Qty', 'Budget_Value']
+            budget_totals.columns = ['EXECUTIVE', 'Budget_Qty', 'Budget_Value']
         else:
-            budget_totals = pd.DataFrame({'Executive': executives_to_display, 'Budget_Qty': [0] * len(executives_to_display), 
+            budget_totals = pd.DataFrame({'EXECUTIVE': executives_to_display, 'Budget_Qty': [0] * len(executives_to_display), 
                                         'Budget_Value': [0] * len(executives_to_display)})
 
         overall_sales_qty_df = pd.merge(
             overall_sales_qty_df,
-            budget_totals[['Executive', 'Budget_Qty']].rename(columns={'Budget_Qty': 'Budget Qty'}),
-            on='Executive',
+            budget_totals[['EXECUTIVE', 'Budget_Qty']].rename(columns={'Budget_Qty': 'BUDGET QTY/MT'}),
+            on='EXECUTIVE',
             how='left'
-        ).fillna({'Budget Qty': 0})
+        ).fillna({'BUDGET QTY/MT': 0})
 
         overall_sales_value_df = pd.merge(
             overall_sales_value_df,
-            budget_totals[['Executive', 'Budget_Value']].rename(columns={'Budget_Value': 'Budget Value'}),
-            on='Executive',
+            budget_totals[['EXECUTIVE', 'Budget_Value']].rename(columns={'Budget_Value': 'BUDGET VALUE/L'}),
+            on='EXECUTIVE',
             how='left'
-        ).fillna({'Budget Value': 0})
+        ).fillna({'BUDGET VALUE/L': 0})
 
         # Merge sales data
         overall_sales_qty_df = pd.merge(
             overall_sales_qty_df,
-            overall_sales_data[['Executive', 'Overall_Sales_Qty']].rename(columns={'Overall_Sales_Qty': 'Billed Qty'}),
-            on='Executive',
+            overall_sales_data[['EXECUTIVE', 'Overall_Sales_Qty']].rename(columns={'Overall_Sales_Qty': 'BILLED QTY/MT'}),
+            on='EXECUTIVE',
             how='left'
-        ).fillna({'Billed Qty': 0})
+        ).fillna({'BILLED QTY/MT': 0})
 
         overall_sales_value_df = pd.merge(
             overall_sales_value_df,
-            overall_sales_data[['Executive', 'Overall_Sales_Value']].rename(columns={'Overall_Sales_Value': 'Billed Value'}),
-            on='Executive',
+            overall_sales_data[['EXECUTIVE', 'Overall_Sales_Value']].rename(columns={'Overall_Sales_Value': 'BILLED VALUE/L'}),
+            on='EXECUTIVE',
             how='left'
-        ).fillna({'Billed Value': 0})
+        ).fillna({'BILLED VALUE/L': 0})
 
         # Initialize budget vs. billed DataFrames
         budget_vs_billed_qty_df = None
@@ -638,7 +703,7 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
                     final_value = min(budget_value, sales_value_total) if pd.notna(budget_value) and pd.notna(sales_value_total) else 0
                     
                     final_results.append({
-                        'Executive': executive,
+                        'EXECUTIVE': executive,
                         'SL_Code': sl_code,
                         'Product': product,
                         'Budget_Qty': budget_qty,
@@ -652,30 +717,30 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
                 results_df = pd.DataFrame(final_results)
                 
                 # Aggregate by Executive
-                exec_qty_summary = results_df.groupby('Executive').agg({
+                exec_qty_summary = results_df.groupby('EXECUTIVE').agg({
                     'Budget_Qty': 'sum',
                     'Final_Qty': 'sum'
                 }).reset_index()
-                exec_qty_summary.columns = ['Executive', 'Budget Qty', 'Billed Qty']
+                exec_qty_summary.columns = ['EXECUTIVE', 'BUDGET QTY/MT', 'BILLED QTY/MT']
                 
-                exec_value_summary = results_df.groupby('Executive').agg({
+                exec_value_summary = results_df.groupby('EXECUTIVE').agg({
                     'Budget_Value': 'sum',
                     'Final_Value': 'sum'
                 }).reset_index()
-                exec_value_summary.columns = ['Executive', 'Budget Value', 'Billed Value']
+                exec_value_summary.columns = ['EXECUTIVE', 'BUDGET VALUE/L', 'BILLED VALUE/L']
                 
                 # Build QUANTITY DataFrame
                 qty_data = []
                 for exec_name in executives_to_display:
-                    exec_qty_row = exec_qty_summary[exec_qty_summary['Executive'] == exec_name]
-                    budget_val = round(float(exec_qty_row['Budget Qty'].iloc[0]), 2) if not exec_qty_row.empty else 0.0
-                    billed_val = round(float(exec_qty_row['Billed Qty'].iloc[0]), 2) if not exec_qty_row.empty else 0.0
+                    exec_qty_row = exec_qty_summary[exec_qty_summary['EXECUTIVE'] == exec_name]
+                    budget_val = round(float(exec_qty_row['BUDGET QTY/MT'].iloc[0]), 2) if not exec_qty_row.empty else 0.0
+                    billed_val = round(float(exec_qty_row['BILLED QTY/MT'].iloc[0]), 2) if not exec_qty_row.empty else 0.0
                     percentage = round((billed_val / budget_val * 100), 2) if budget_val > 0 else 0.0
                     
                     qty_data.append({
-                        'Executive': exec_name,
-                        'Budget Qty': budget_val,
-                        'Billed Qty': billed_val,
+                        'EXECUTIVE': exec_name,
+                        'BUDGET QTY/MT': budget_val,
+                        'BILLED QTY/MT': billed_val,
                         '%': percentage
                     })
                 
@@ -684,49 +749,49 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
                 # Build VALUE DataFrame
                 value_data = []
                 for exec_name in executives_to_display:
-                    exec_value_row = exec_value_summary[exec_value_summary['Executive'] == exec_name]
-                    budget_val = round(float(exec_value_row['Budget Value'].iloc[0]), 2) if not exec_value_row.empty else 0.0
-                    billed_val = round(float(exec_value_row['Billed Value'].iloc[0]), 2) if not exec_value_row.empty else 0.0
+                    exec_value_row = exec_value_summary[exec_value_summary['EXECUTIVE'] == exec_name]
+                    budget_val = round(float(exec_value_row['BUDGET VALUE/L'].iloc[0]), 2) if not exec_value_row.empty else 0.0
+                    billed_val = round(float(exec_value_row['BILLED VALUE/L'].iloc[0]), 2) if not exec_value_row.empty else 0.0
                     percentage = round((billed_val / budget_val * 100), 2) if budget_val > 0 else 0.0
                     
                     value_data.append({
-                        'Executive': exec_name,
-                        'Budget Value': budget_val,
-                        'Billed Value': billed_val,
+                        'EXECUTIVE': exec_name,
+                        'BUDGET VALUE/L': budget_val,
+                        'BILLED VALUE/L': billed_val,
                         '%': percentage
                     })
                 
                 budget_vs_billed_value_df = pd.DataFrame(value_data)
                 
                 # Add total rows
-                total_budget_qty = round(budget_vs_billed_qty_df['Budget Qty'].sum(), 2)
-                total_billed_qty = round(budget_vs_billed_qty_df['Billed Qty'].sum(), 2)
+                total_budget_qty = round(budget_vs_billed_qty_df['BUDGET QTY/MT'].sum(), 2)
+                total_billed_qty = round(budget_vs_billed_qty_df['BILLED QTY/MT'].sum(), 2)
                 total_percentage_qty = round((total_billed_qty / total_budget_qty * 100), 2) if total_budget_qty > 0 else 0.0
                 
                 total_row_qty = pd.DataFrame({
-                    'Executive': ['TOTAL'],
-                    'Budget Qty': [total_budget_qty],
-                    'Billed Qty': [total_billed_qty],
+                    'EXECUTIVE': ['TOTAL'],
+                    'BUDGET QTY/MT': [total_budget_qty],
+                    'BILLED QTY/MT': [total_billed_qty],
                     '%': [total_percentage_qty]
                 })
                 budget_vs_billed_qty_df = pd.concat([budget_vs_billed_qty_df, total_row_qty], ignore_index=True)
                 
-                total_budget_value = round(budget_vs_billed_value_df['Budget Value'].sum(), 2)
-                total_billed_value = round(budget_vs_billed_value_df['Billed Value'].sum(), 2)
+                total_budget_value = round(budget_vs_billed_value_df['BUDGET VALUE/L'].sum(), 2)
+                total_billed_value = round(budget_vs_billed_value_df['BILLED VALUE/L'].sum(), 2)
                 total_percentage_value = round((total_billed_value / total_budget_value * 100), 2) if total_budget_value > 0 else 0.0
                 
                 total_row_value = pd.DataFrame({
-                    'Executive': ['TOTAL'],
-                    'Budget Value': [total_budget_value],
-                    'Billed Value': [total_billed_value],
+                    'EXECUTIVE': ['TOTAL'],
+                    'BUDGET VALUE/L': [total_budget_value],
+                    'BILLED VALUE/L': [total_billed_value],
                     '%': [total_percentage_value]
                 })
                 budget_vs_billed_value_df = pd.concat([budget_vs_billed_value_df, total_row_value], ignore_index=True)
                 
                 # Anomaly checks
                 for df, df_name, budget_col, billed_col in [
-                    (budget_vs_billed_qty_df, "QTY", 'Budget Qty', 'Billed Qty'),
-                    (budget_vs_billed_value_df, "VALUE", 'Budget Value', 'Billed Value')
+                    (budget_vs_billed_qty_df, "QTY", 'BUDGET QTY/MT', 'BILLED QTY/MT'),
+                    (budget_vs_billed_value_df, "VALUE", 'BUDGET VALUE/L', 'BILLED VALUE/L')
                 ]:
                     anomaly_mask = (
                         (df[budget_col] == 0) & 
@@ -739,16 +804,16 @@ def calculate_budget_values(sales_df, budget_df, selected_month, sales_executive
 
         # Add total rows for overall sales
         total_row_overall_qty = pd.DataFrame({
-            'Executive': ['TOTAL'],
-            'Budget Qty': [round(overall_sales_qty_df['Budget Qty'].sum(), 2)],
-            'Billed Qty': [round(overall_sales_qty_df['Billed Qty'].sum(), 2)]
+            'EXECUTIVE': ['TOTAL'],
+            'BUDGET QTY/MT': [round(overall_sales_qty_df['BUDGET QTY/MT'].sum(), 2)],
+            'BILLED QTY/MT': [round(overall_sales_qty_df['BILLED QTY/MT'].sum(), 2)]
         })
         overall_sales_qty_df = pd.concat([overall_sales_qty_df, total_row_overall_qty], ignore_index=True)
 
         total_row_overall_value = pd.DataFrame({
-            'Executive': ['TOTAL'],
-            'Budget Value': [round(overall_sales_value_df['Budget Value'].sum(), 2)],
-            'Billed Value': [round(overall_sales_value_df['Billed Value'].sum(), 2)]
+            'EXECUTIVE': ['TOTAL'],
+            'BUDGET VALUE/L': [round(overall_sales_value_df['BUDGET VALUE/L'].sum(), 2)],
+            'BILLED VALUE/L': [round(overall_sales_value_df['BILLED VALUE/L'].sum(), 2)]
         })
         overall_sales_value_df = pd.concat([overall_sales_value_df, total_row_overall_value], ignore_index=True)
 
@@ -786,54 +851,59 @@ def create_budget_ppt(budget_vs_billed_value_df, budget_vs_billed_qty_df, overal
                st.warning(f"Cannot generate slide for {title_base}: No data available")
                return
            
-           df = df[df['Executive'] != "ACCLP"].copy()
-           num_executives = df[df['Executive'] != 'TOTAL'].shape[0]
-           split_threshold = 20
+           df = df[df['EXECUTIVE'] != "ACCLP"].copy()
+           num_executives = df[df['EXECUTIVE'] != 'TOTAL'].shape[0]
+           
+           # Increased split threshold from 12 to 15 to utilize bottom space
+           split_threshold = 15
            
            if num_executives <= split_threshold:
                add_table_slide(prs, df, title_base, percent_cols=percent_cols)
                return
            
-           data_rows = df[df['Executive'] != 'TOTAL'].copy()
-           total_row = df[df['Executive'] == 'TOTAL'].copy()
-           split_point = math.ceil(num_executives / 2)
-           part1 = data_rows.iloc[:split_point].copy()
-           part2 = data_rows.iloc[split_point:].copy()
+           # Split logic for tables with more than 15 data rows
+           data_rows = df[df['EXECUTIVE'] != 'TOTAL'].copy()
+           total_row = df[df['EXECUTIVE'] == 'TOTAL'].copy()
            
-           for i, part in enumerate([part1, part2], 1):
-               part_total = {}
-               for col in df.columns:
-                   if col == 'Executive':
-                       part_total[col] = f'PART {i} TOTAL'
-                   elif col == '%':
-                       budget_col = 'Budget Value' if 'Budget Value' in df.columns else 'Budget Qty'
-                       billed_col = 'Billed Value' if 'Billed Value' in df.columns else 'Billed Qty'
-                       budget_sum = part[budget_col].sum()
-                       billed_sum = part[billed_col].sum()
-                       part_total[col] = round((billed_sum / budget_sum * 100), 2) if budget_sum != 0 else 0.0
-                   else:
-                       raw_sum = part[col].sum()
-                       part_total[col] = round(round(raw_sum, 4), 2)
-               
-               part_with_total = pd.concat([part, pd.DataFrame([part_total])], ignore_index=True)
-               numeric_cols = part_with_total.select_dtypes(include=[np.number]).columns
+           # Split into chunks of 15 rows each (no part totals)
+           chunks = []
+           for i in range(0, len(data_rows), split_threshold):
+               chunks.append(data_rows.iloc[i:i+split_threshold].copy())
+           
+           # Process each chunk - add total row only to the last part
+           for i, chunk in enumerate(chunks, 1):
+               # Round numeric columns
+               numeric_cols = chunk.select_dtypes(include=[np.number]).columns
                for col in numeric_cols:
-                   part_with_total[col] = part_with_total[col].apply(lambda x: round(float(x), 2))
+                   chunk[col] = chunk[col].apply(lambda x: round(float(x), 2))
                
-               add_table_slide(prs, part_with_total, f"{title_base} - Part {i}", percent_cols=percent_cols)
-           
-           numeric_cols = total_row.select_dtypes(include=[np.number]).columns
-           for col in numeric_cols:
-               total_row[col] = total_row[col].apply(lambda x: round(float(x), 2))
-           
-           add_table_slide(prs, total_row, f"{title_base} - Grand Total", percent_cols=percent_cols)
+               # If this is the last chunk, add the total row at the bottom
+               if i == len(chunks):
+                   # Round total row numeric columns
+                   total_numeric_cols = total_row.select_dtypes(include=[np.number]).columns
+                   for col in total_numeric_cols:
+                       total_row[col] = total_row[col].apply(lambda x: round(float(x), 2))
+                   
+                   # Combine last chunk with total row
+                   chunk_with_total = pd.concat([chunk, total_row], ignore_index=True)
+                   final_data = chunk_with_total
+               else:
+                   final_data = chunk
+               
+               # Create slide title based on number of parts
+               if len(chunks) == 1:
+                   slide_title = title_base
+               else:
+                   slide_title = f"{title_base} - Part {i}"
+               
+               add_table_slide(prs, final_data, slide_title, percent_cols=percent_cols)
        
-       # Process each DataFrame, skipping if None or empty
+       # Process each DataFrame with clean titles and appropriate data types
        dfs_to_process = [
-           (budget_vs_billed_qty_df, "BUDGET AGAINST BILLED (Qty in Mt)", [3]),
-           (budget_vs_billed_value_df, "BUDGET AGAINST BILLED (Value in Lakhs)", [3]),
-           (overall_sales_qty_df, "OVERALL SALES (Qty in Mt)", []),
-           (overall_sales_value_df, "OVERALL SALES (Value in Lakhs)", [])
+           (budget_vs_billed_qty_df, "BUDGET AGAINST BILLED QUANTITY", [3]),
+           (budget_vs_billed_value_df, "BUDGET AGAINST BILLED VALUE", [3]), 
+           (overall_sales_qty_df, "OVERALL SALES QUANTITY", []),
+           (overall_sales_value_df, "OVERALL SALES VALUE", [])
        ]
        
        for df, title, percent_cols in dfs_to_process:
@@ -951,7 +1021,7 @@ def create_customer_table(sales_df, date_col, branch_col, customer_id_col, execu
        # Standardize branch and executive names
        try:
            fy_df['Branch'] = fy_df[branch_col].astype(str).str.strip().str.upper()
-           fy_df['Executive_Upper'] = fy_df[executive_col].astype(str).str.strip().str.upper()
+           fy_df['EXECUTIVE'] = fy_df[executive_col].astype(str).str.strip().str.upper()
        except Exception as e:
            st.error(f"Error processing columns: {e}")
            continue
@@ -966,7 +1036,7 @@ def create_customer_table(sales_df, date_col, branch_col, customer_id_col, execu
        if selected_branches:
            # If branches are selected, get executives associated with those branches
            branch_df = fy_df[fy_df['Branch'].isin([b.upper() for b in selected_branches])]
-           branch_executives = sorted(branch_df['Executive_Upper'].dropna().unique())
+           branch_executives = sorted(branch_df['EXECUTIVE'].dropna().unique())
            
            # If specific executives are also selected, use intersection
            if selected_executives:
@@ -976,11 +1046,11 @@ def create_customer_table(sales_df, date_col, branch_col, customer_id_col, execu
                executives_to_display = branch_executives
        else:
            # Use provided selected_executives or all executives in filtered data
-           executives_to_display = [str(e).upper() for e in selected_executives] if selected_executives else sorted(fy_df['Executive_Upper'].dropna().unique())
+           executives_to_display = [str(e).upper() for e in selected_executives] if selected_executives else sorted(fy_df['EXECUTIVE'].dropna().unique())
        
        # Apply executive filter
        if executives_to_display:
-           fy_df = fy_df[fy_df['Executive_Upper'].isin(executives_to_display)]
+           fy_df = fy_df[fy_df['EXECUTIVE'].isin(executives_to_display)]
            if fy_df.empty:
                continue
        
@@ -988,42 +1058,42 @@ def create_customer_table(sales_df, date_col, branch_col, customer_id_col, execu
            continue
        
        # Group by executive and month to count unique customer codes
-       grouped_df = fy_df.groupby(['Executive_Upper', 'Month_Year'])[customer_id_col].nunique().reset_index(name='Customer_Count')
+       grouped_df = fy_df.groupby(['EXECUTIVE', 'Month_Year'])[customer_id_col].nunique().reset_index(name='Customer_Count')
        
        # Pivot to create table with months as columns
        pivot_df = grouped_df.pivot_table(
            values='Customer_Count',
-           index='Executive_Upper',
+           index='EXECUTIVE',
            columns='Month_Year',
            aggfunc='sum',
            fill_value=0
        ).reset_index()
        
-       # Rename index column
-       pivot_df = pivot_df.rename(columns={'Executive_Upper': 'Executive Name'})
+       # Rename index column to uppercase
+       pivot_df = pivot_df.rename(columns={'EXECUTIVE': 'EXECUTIVE NAME'})
        
        # Create result dataframe with all executives to display
-       result_df = pd.DataFrame({'Executive Name': executives_to_display})
+       result_df = pd.DataFrame({'EXECUTIVE NAME': executives_to_display})
        result_df = pd.merge(
            result_df,
            pivot_df,
-           on='Executive Name',
+           on='EXECUTIVE NAME',
            how='left'
        ).fillna(0)
        
        # Keep only selected months
-       columns_to_keep = ['Executive Name'] + month_names
+       columns_to_keep = ['EXECUTIVE NAME'] + month_names
        result_df = result_df[[col for col in columns_to_keep if col in result_df.columns]]
        
        # Convert counts to integers
        for col in result_df.columns[1:]:
            result_df[col] = result_df[col].astype(int)
        
-       # Add S.No column
-       result_df.insert(0, 'S.No', [str(i) for i in range(1, len(result_df) + 1)])
+       # Add S.NO column (uppercase)
+       result_df.insert(0, 'S.NO', [str(i) for i in range(1, len(result_df) + 1)])
        
        # Add total row
-       total_row = {'S.No': '0', 'Executive Name': 'GRAND TOTAL'}
+       total_row = {'S.NO': '0', 'EXECUTIVE NAME': 'GRAND TOTAL'}
        for col in month_names:
            if col in result_df.columns:
                total_row[col] = result_df[col].sum()
@@ -1038,10 +1108,10 @@ def create_customer_table_image(df, title, sorted_months, financial_year):
    fig, ax = plt.subplots(figsize=(14, len(df) * 0.6))
    ax.axis('off')
    columns = list(df.columns)
-   expected_columns = {'S.No', 'Executive Name'}.union(set(sorted_months))
+   expected_columns = {'S.NO', 'EXECUTIVE NAME'}.union(set(sorted_months))
    actual_columns = set(columns)
-   if not {'S.No', 'Executive Name'}.issubset(actual_columns):
-       st.warning(f"Missing essential columns in customer DataFrame for image: S.No or Executive Name")
+   if not {'S.NO', 'EXECUTIVE NAME'}.issubset(actual_columns):
+       st.warning(f"Missing essential columns in customer DataFrame for image: S.NO or EXECUTIVE NAME")
        return BytesIO()
    rows = len(df)
    ncols = len(columns)
@@ -1075,62 +1145,177 @@ def create_customer_table_image(df, title, sorted_months, financial_year):
    return img_buffer
 
 def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=False):
-   if df.empty or len(df.columns) < 2:
-       st.warning(f"Skipping customer slide: DataFrame is empty or has insufficient columns {df.columns.tolist()}")
-       return
-   title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(12.33), Inches(0.8))
-   title_frame = title_shape.text_frame
-   title_frame.text = title
-   p = title_frame.paragraphs[0]
-   p.font.size = Pt(24)
-   p.font.bold = True
-   p.font.color.rgb = RGBColor(0, 112, 192)
-   p.alignment = PP_ALIGN.CENTER
-   columns = list(df.columns)
-   if 'S.No' not in columns or 'Executive Name' not in columns:
-       st.warning(f"Missing essential columns in customer DataFrame: S.No or Executive Name")
-       return
-   num_rows = len(df) + 1
-   num_cols = len(columns)
-   table_width = Inches(12.0)
-   table_height = Inches(0.3 * len(df) + 0.3)
-   left = Inches(0.65)
-   top = Inches(1.2)
-   table = slide.shapes.add_table(num_rows, num_cols, left, top, table_width, table_height).table
-   col_widths = [Inches(0.5), Inches(3.0)] + [Inches(0.75)] * (len(columns) - 2)
-   for col_idx in range(num_cols):
-       table.columns[col_idx].width = col_widths[col_idx]
-   for col_idx, col_name in enumerate(columns):
-       cell = table.cell(0, col_idx)
-       cell.text = col_name
-       cell.fill.solid()
-       cell.fill.fore_color.rgb = RGBColor(0, 112, 192)
-       cell.text_frame.paragraphs[0].font.size = Pt(12)
-       cell.text_frame.paragraphs[0].font.bold = True
-       cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
-       cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
-   for row_idx, (index, row) in enumerate(df.iterrows(), start=1):
-       is_total_row = index == len(df) - 1
-       for col_idx, col_name in enumerate(columns):
-           cell = table.cell(row_idx, col_idx)
-           try:
-               value = row[col_name]
-               cell.text = str(value)
-           except (KeyError, ValueError) as e:
-               cell.text = ""
-               st.warning(f"Error accessing {col_name} at row {index} in customer slide: {e}")
-           cell.text_frame.paragraphs[0].font.size = Pt(12)
-           cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
-           cell.fill.solid()
-           if is_total_row:
-               cell.fill.fore_color.rgb = RGBColor(211, 211, 211)
-               cell.text_frame.paragraphs[0].font.bold = True
-           else:
-               if (row_idx - 1) % 2 == 0:
-                   cell.fill.fore_color.rgb = RGBColor(221, 235, 247)
-               else:
-                   cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
+    if df.empty or len(df.columns) < 2:
+        st.warning(f"Skipping customer slide: DataFrame is empty or has insufficient columns {df.columns.tolist()}")
+        return
+    
+    # Create title with consistent formatting
+    title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(12.33), Inches(0.8))
+    title_frame = title_shape.text_frame
+    title_frame.text = title
+    p = title_frame.paragraphs[0]
+    p.font.size = Pt(18)  # Slightly smaller title for more space
+    p.font.bold = True
+    p.font.color.rgb = RGBColor(0, 112, 192)
+    p.alignment = PP_ALIGN.CENTER
+    
+    columns = list(df.columns)
+    if 'S.NO' not in columns or 'EXECUTIVE NAME' not in columns:
+        st.warning(f"Missing essential columns in customer DataFrame: S.NO or EXECUTIVE NAME")
+        return
+    
+    # Calculate table dimensions to use full slide space
+    num_rows = len(df) + 1  # +1 for header
+    num_cols = len(columns)
+    
+    # Use more of the slide space
+    table_width = Inches(12.0)   # Wider table
+    table_height = Inches(5.8)   # Taller table
+    left = Inches(0.67)          # Center horizontally
+    top = Inches(1.2)            # Position below title
+    
+    # Calculate row height based on available space - FIX: Convert to int
+    row_height = int(table_height / num_rows)
+    
+    table = slide.shapes.add_table(num_rows, num_cols, left, top, table_width, table_height).table
+    
+    # Calculate column widths to fill the entire table width
+    if num_cols == 3:  # S.NO, EXECUTIVE NAME, and one month column
+        sno_width = Inches(0.8)
+        exec_width = Inches(4.0)
+        month_width = Inches(7.2)  # Fill remaining space
+    elif num_cols > 3:  # Multiple month columns
+        sno_width = Inches(0.8)
+        exec_width = Inches(3.5)
+        remaining_width = table_width - sno_width - exec_width
+        month_width = remaining_width / (num_cols - 2)
+    else:  # Only 2 columns
+        sno_width = Inches(0.8)
+        exec_width = Inches(11.2)
+        month_width = Inches(1.0)  # Default
+    
+    # Set column widths
+    table.columns[0].width = int(sno_width)
+    table.columns[1].width = int(exec_width)
+    for col_idx in range(2, num_cols):
+        table.columns[col_idx].width = int(month_width)
+    
+    # Set row heights to fill the table - FIX: Use int values
+    for row_idx in range(num_rows):
+        table.rows[row_idx].height = row_height
+    
+    # Format header row consistently
+    for col_idx, col_name in enumerate(columns):
+        cell = table.cell(0, col_idx)
+        cell.text = col_name
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = RGBColor(0, 112, 192)  # Blue header
+        cell.text_frame.paragraphs[0].font.size = Pt(12)  # Larger font for headers
+        cell.text_frame.paragraphs[0].font.bold = True
+        cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
+        cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+        # Add some padding
+        cell.margin_left = Inches(0.05)
+        cell.margin_right = Inches(0.05)
+        cell.margin_top = Inches(0.05)
+        cell.margin_bottom = Inches(0.05)
+    
+    # Format data rows consistently
+    for row_idx, (index, row) in enumerate(df.iterrows(), start=1):
+        # Check if this is a total row based on executive name content
+        executive_name = str(row.get('EXECUTIVE NAME', '')).upper()
+        is_total_row = ('TOTAL' in executive_name) or ('GRAND TOTAL' in executive_name)
+        
+        for col_idx, col_name in enumerate(columns):
+            cell = table.cell(row_idx, col_idx)
+            try:
+                value = row[col_name]
+                cell.text = str(value)
+            except (KeyError, ValueError) as e:
+                cell.text = ""
+                st.warning(f"Error accessing {col_name} at row {index} in customer slide: {e}")
+            
+            # Font formatting based on row type
+            if is_total_row:
+                cell.text_frame.paragraphs[0].font.size = Pt(12)  # Larger font for total
+                cell.text_frame.paragraphs[0].font.bold = True
+                cell.fill.solid()
+                cell.fill.fore_color.rgb = RGBColor(211, 211, 211)  # Gray for total
+            else:
+                cell.text_frame.paragraphs[0].font.size = Pt(11)  # Regular font for data
+                cell.fill.solid()
+                # Alternating row colors
+                if (row_idx - 1) % 2 == 0:
+                    cell.fill.fore_color.rgb = RGBColor(221, 235, 247)  # Light blue
+                else:
+                    cell.fill.fore_color.rgb = RGBColor(255, 255, 255)  # White
+            
+            cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+            # Add padding to cells
+            cell.margin_left = Inches(0.05)
+            cell.margin_right = Inches(0.05)
+            cell.margin_top = Inches(0.05)
+            cell.margin_bottom = Inches(0.05)
 
+def create_customer_ppt_with_splitting(df, title_base, sorted_months, financial_year):
+   """
+   Create multiple PowerPoint slides with table splitting for better readability
+   """
+   slides_data = []
+   
+   if df.empty:
+       return slides_data
+   
+   # Remove GRAND TOTAL row temporarily for splitting
+   total_row = None
+   if not df.empty and df.iloc[-1].get('EXECUTIVE NAME') == 'GRAND TOTAL':
+       total_row = df.iloc[-1:].copy()
+       data_rows = df.iloc[:-1].copy()
+   else:
+       data_rows = df.copy()
+   
+   # Split threshold
+   max_rows_per_slide = 15
+   
+   # If data fits in one slide
+   if len(data_rows) <= max_rows_per_slide:
+       # Add total row back if it exists
+       if total_row is not None:
+           final_df = pd.concat([data_rows, total_row], ignore_index=True)
+       else:
+           final_df = data_rows
+       
+       slides_data.append({
+           'df': final_df,
+           'title': title_base,
+           'is_last': True
+       })
+   else:
+       # Split into multiple slides
+       num_parts = (len(data_rows) + max_rows_per_slide - 1) // max_rows_per_slide
+       
+       for i in range(num_parts):
+           start_idx = i * max_rows_per_slide
+           end_idx = min((i + 1) * max_rows_per_slide, len(data_rows))
+           chunk = data_rows.iloc[start_idx:end_idx].copy()
+           
+           # Add total row only to the last slide
+           if i == num_parts - 1 and total_row is not None:
+               chunk = pd.concat([chunk, total_row], ignore_index=True)
+           
+           # Create slide title
+           if num_parts == 1:
+               slide_title = title_base
+           else:
+               slide_title = f"{title_base} - Part {i + 1}"
+           
+           slides_data.append({
+               'df': chunk,
+               'title': slide_title,
+               'is_last': (i == num_parts - 1)
+           })
+   
+   return slides_data
 def extract_area_name(area):
    if pd.isna(area) or not str(area).strip():
        return None
@@ -1247,29 +1432,29 @@ def filter_os_qty(os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
        st.error("No positive net values found in the filtered data.")
        return None, None, None
    
-   # Group and aggregate data
+   # Group and aggregate data - Updated column name with /L unit
    os_grouped_qty = (os_df.groupby(os_exec_col)
                     .agg({os_qty_col: 'sum'})
                     .reset_index()
-                    .rename(columns={os_exec_col: 'Executive', os_qty_col: 'TARGET'}))
+                    .rename(columns={os_exec_col: 'EXECUTIVE', os_qty_col: 'TARGET/L'}))
 
    # Ensure all executives_to_display are included
-   result_df = pd.DataFrame({'Executive': executives_to_display})
-   result_df = pd.merge(result_df, os_grouped_qty, on='Executive', how='left').fillna({'TARGET': 0})
+   result_df = pd.DataFrame({'EXECUTIVE': executives_to_display})
+   result_df = pd.merge(result_df, os_grouped_qty, on='EXECUTIVE', how='left').fillna({'TARGET/L': 0})
    
    # Add total row
-   total_row = pd.DataFrame([{'Executive': 'TOTAL', 'TARGET': result_df['TARGET'].sum()}])
+   total_row = pd.DataFrame([{'EXECUTIVE': 'TOTAL', 'TARGET/L': result_df['TARGET/L'].sum()}])
    result_df = pd.concat([result_df, total_row], ignore_index=True)
-   result_df['TARGET'] = result_df['TARGET'].round(2)
+   result_df['TARGET/L'] = result_df['TARGET/L'].round(2)
    
    return result_df, start_date, end_date
 
 def create_od_table_image(df, title, columns_to_show=None):
    if columns_to_show is None:
-       if 'Executive' in df.columns:
-           columns_to_show = ['Executive', 'TARGET']  # Changed from 'TARGET (Lakhs)'
+       if 'EXECUTIVE' in df.columns:
+           columns_to_show = ['EXECUTIVE', 'TARGET/L']
        else:
-           columns_to_show = ['Area', 'TARGET']  # Changed from 'TARGET (Lakhs)'
+           columns_to_show = ['Area', 'TARGET/L']
    fig, ax = plt.subplots(figsize=(10, len(df) * 0.5))
    ax.axis('off')
    nrows, ncols = len(df), len(columns_to_show)
@@ -1278,17 +1463,17 @@ def create_od_table_image(df, title, columns_to_show=None):
        table.add_cell(0, col_idx, 1.0/ncols, 1.0/nrows, text=col_name, loc='center', facecolor='#F2F2F2')
        table[0, col_idx].set_text_props(weight='bold', color='black', fontsize=12)
    column_mapping = {
-       'Executive': 'Executive',
+       'EXECUTIVE': 'EXECUTIVE',
        'Area': 'Area',
-       'TARGET': 'TARGET'  # Changed from 'TARGET (Lakhs)'
+       'TARGET/L': 'TARGET/L'
    }
-   key_column = 'Executive' if 'Executive' in df.columns else 'Area'
+   key_column = 'EXECUTIVE' if 'EXECUTIVE' in df.columns else 'Area'
    for row_idx in range(len(df)):
        for col_idx, display_col_name in enumerate(columns_to_show):
            actual_col_name = column_mapping.get(display_col_name, display_col_name)
            if actual_col_name not in df.columns:
-               if display_col_name == 'TARGET' and 'TARGET' in df.columns:
-                   actual_col_name = 'TARGET'
+               if display_col_name == 'TARGET/L' and 'TARGET/L' in df.columns:
+                   actual_col_name = 'TARGET/L'
                else:
                    st.error(f"Column '{actual_col_name}' not found in DataFrame")
                    continue
@@ -1308,66 +1493,165 @@ def create_od_table_image(df, title, columns_to_show=None):
    table.auto_set_font_size(False)
    table.set_fontsize(10)
    ax.add_table(table)
-   # Update title to remove "(Value in Lakhs)"
-   plt.suptitle(title.replace(" (Value in Lakhs)", ""), fontsize=16, weight='bold', color='black', y=1.05)
+   # Remove "(Value in Lakhs)" from title
+   clean_title = title.replace(" (Value in Lakhs)", "").replace(" (Values in Lakhs)", "")
+   plt.suptitle(clean_title, fontsize=16, weight='bold', color='black', y=1.05)
    img_buffer = BytesIO()
    plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150)
    plt.close()
    return img_buffer
 
-def create_od_ppt_slide(slide, df, title):
-   try:
-       title_shape = slide.shapes.add_textbox(
-           Inches(0.5), Inches(0.5), 
-           Inches(12), Inches(0.8)
-       )
-       title_frame = title_shape.text_frame
-       title_para = title_frame.add_paragraph()
-       title_para.text = title
-       title_para.font.size = Pt(24)
-       title_para.font.bold = True
-       title_para.alignment = PP_ALIGN.CENTER
-       key_column = 'Executive' if 'Executive' in df.columns else 'Area'
-       rows, cols = len(df) + 1, 2
-       table_width = Inches(8)
-       table_height = Inches(len(df) * 0.4 + 0.5)
-       left = Inches(2.0)
-       top = Inches(1.5)
-       table = slide.shapes.add_table(
-           rows, cols, 
-           left, top, 
-           table_width, table_height
-       ).table
-       for i in range(2):
-           header_cell = table.cell(0, i)
-           header_cell.text = key_column if i == 0 else "TARGET"
-           header_cell.text_frame.paragraphs[0].font.bold = True
-           header_cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
-           header_cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
-           header_cell.fill.solid()
-           header_cell.fill.fore_color.rgb = RGBColor(0, 114, 188)
-       for i in range(len(df)):
-           table.cell(i + 1, 0).text = str(df.iloc[i][key_column])
-           table.cell(i + 1, 0).text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
-           value_text = f"{df.iloc[i]['TARGET']:.2f}"
-           table.cell(i + 1, 1).text = value_text
-           table.cell(i + 1, 1).text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
-           row_color = RGBColor(221, 235, 247) if i % 2 == 0 else RGBColor(255, 255, 255)
-           if df.iloc[i][key_column] == 'TOTAL':
-               row_color = RGBColor(211, 211, 211)
-           for j in range(2):
-               cell = table.cell(i + 1, j)
-               cell.fill.solid()
-               cell.fill.fore_color.rgb = row_color
-           if df.iloc[i][key_column] == 'TOTAL':
-               table.cell(i + 1, 0).text_frame.paragraphs[0].font.bold = True
-               table.cell(i + 1, 1).text_frame.paragraphs[0].font.bold = True
-       table.columns[0].width = Inches(4)
-       table.columns[1].width = Inches(4)
-   except Exception as e:
-       st.error(f"Error creating PPT slide: {e}")
-       st.error(traceback.format_exc())
+def create_od_ppt_slides(presentation, df, base_title):
+    """Create multiple OD slides, splitting data if more than 15 rows per slide"""
+    if df.empty or len(df.columns) < 2:
+        st.warning(f"Skipping OD slides: DataFrame is empty or has insufficient columns {df.columns.tolist()}")
+        return
+    
+    # Configuration
+    max_rows_per_slide = 15
+    total_rows = len(df)
+    
+    # Calculate number of slides needed
+    num_slides = (total_rows + max_rows_per_slide - 1) // max_rows_per_slide
+    
+    for slide_num in range(num_slides):
+        # Calculate row range for this slide
+        start_idx = slide_num * max_rows_per_slide
+        end_idx = min(start_idx + max_rows_per_slide, total_rows)
+        
+        # Get subset of data for this slide
+        slide_df = df.iloc[start_idx:end_idx].copy()
+        
+        # Create slide title with part number if multiple slides
+        if num_slides > 1:
+            slide_title = f"{base_title} - Part {slide_num + 1}"
+        else:
+            slide_title = base_title
+        
+        # Add new slide
+        slide_layout = presentation.slide_layouts[5]  # Blank layout
+        slide = presentation.slides.add_slide(slide_layout)
+        
+        # Create the slide content
+        create_single_od_slide(slide, slide_df, slide_title)
 
+def create_single_od_slide(slide, df, title):
+    """Create a single OD slide with the given data"""
+    if df.empty or len(df.columns) < 2:
+        st.warning(f"Skipping OD slide: DataFrame is empty or has insufficient columns {df.columns.tolist()}")
+        return
+    
+    try:
+        # Create title with consistent formatting (same as customer slide)
+        title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(12.33), Inches(0.8))
+        title_frame = title_shape.text_frame
+        # Remove "(Value in Lakhs)" from title
+        clean_title = title.replace(" (Value in Lakhs)", "").replace(" (Values in Lakhs)", "")
+        title_frame.text = clean_title
+        p = title_frame.paragraphs[0]
+        p.font.size = Pt(18)  # Consistent with customer slide
+        p.font.bold = True
+        p.font.color.rgb = RGBColor(0, 112, 192)
+        p.alignment = PP_ALIGN.CENTER
+        
+        # Determine key column
+        key_column = 'EXECUTIVE' if 'EXECUTIVE' in df.columns else 'Area'
+        
+        # Calculate table dimensions (similar to customer slide)
+        num_rows = len(df) + 1  # +1 for header
+        num_cols = 2  # EXECUTIVE and TARGET/L columns
+        
+        # Use similar positioning as customer slide
+        table_width = Inches(12.0)   # Full width like customer slide
+        table_height = Inches(5.8)   # Full height like customer slide
+        left = Inches(0.67)          # Center horizontally (same as customer slide)
+        top = Inches(1.2)            # Position below title (same as customer slide)
+        
+        # Calculate row height and convert to int
+        row_height = int(table_height / num_rows)
+        
+        # Create table
+        table = slide.shapes.add_table(num_rows, num_cols, left, top, table_width, table_height).table
+        
+        # Set column widths to fill entire table width
+        executive_width = Inches(6.0)  # Half the table width
+        target_width = Inches(6.0)     # Other half
+        
+        table.columns[0].width = int(executive_width)
+        table.columns[1].width = int(target_width)
+        
+        # Set row heights to fill the table
+        for row_idx in range(num_rows):
+            table.rows[row_idx].height = row_height
+        
+        # Format header row (consistent with customer slide)
+        headers = [key_column, "TARGET/L"]
+        for col_idx, header_text in enumerate(headers):
+            cell = table.cell(0, col_idx)
+            cell.text = header_text
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = RGBColor(0, 112, 192)  # Blue header (same as customer slide)
+            cell.text_frame.paragraphs[0].font.size = Pt(12)  # Larger font for headers
+            cell.text_frame.paragraphs[0].font.bold = True
+            cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
+            cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+            # Add padding (same as customer slide)
+            cell.margin_left = Inches(0.05)
+            cell.margin_right = Inches(0.05)
+            cell.margin_top = Inches(0.05)
+            cell.margin_bottom = Inches(0.05)
+        
+        # Format data rows (consistent with customer slide logic)
+        for row_idx in range(len(df)):
+            # Check if this is a total row based on executive name content
+            executive_name = str(df.iloc[row_idx][key_column]).upper()
+            is_total_row = ('TOTAL' in executive_name) or ('GRAND TOTAL' in executive_name)
+            
+            # Fill executive name
+            exec_cell = table.cell(row_idx + 1, 0)
+            exec_cell.text = str(df.iloc[row_idx][key_column])
+            exec_cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+            
+            # Fill target value
+            target_cell = table.cell(row_idx + 1, 1)
+            value_text = f"{df.iloc[row_idx]['TARGET/L']:.2f}"
+            target_cell.text = value_text
+            target_cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+            
+            # Apply formatting based on row type (same logic as customer slide)
+            for col_idx in range(2):
+                cell = table.cell(row_idx + 1, col_idx)
+                
+                if is_total_row:
+                    # Format for total row
+                    cell.text_frame.paragraphs[0].font.size = Pt(12)
+                    cell.text_frame.paragraphs[0].font.bold = True
+                    cell.fill.solid()
+                    cell.fill.fore_color.rgb = RGBColor(211, 211, 211)  # Gray for total
+                else:
+                    # Format for regular data row
+                    cell.text_frame.paragraphs[0].font.size = Pt(11)
+                    cell.fill.solid()
+                    # Alternating row colors (same as customer slide)
+                    if row_idx % 2 == 0:
+                        cell.fill.fore_color.rgb = RGBColor(221, 235, 247)  # Light blue
+                    else:
+                        cell.fill.fore_color.rgb = RGBColor(255, 255, 255)  # White
+                
+                # Add padding to cells (same as customer slide)
+                cell.margin_left = Inches(0.05)
+                cell.margin_right = Inches(0.05)
+                cell.margin_top = Inches(0.05)
+                cell.margin_bottom = Inches(0.05)
+                
+    except Exception as e:
+        st.error(f"Error creating OD PPT slide: {e}")
+        st.error(traceback.format_exc())
+
+# Legacy function for backward compatibility
+def create_od_ppt_slide(slide, df, title):
+    """Legacy function - use create_od_ppt_slides for automatic splitting"""
+    create_single_od_slide(slide, df, title)
 def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
                        os_jan_due_date_col, os_jan_ref_date_col, os_jan_net_value_col, os_jan_exec_col, os_jan_sl_code_col, os_jan_area_col,
                        os_feb_due_date_col, os_feb_ref_date_col, os_feb_net_value_col, os_feb_exec_col, os_feb_sl_code_col, os_feb_area_col,
@@ -1411,26 +1695,26 @@ def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
    os_jan[os_jan_due_date_col] = pd.to_datetime(os_jan[os_jan_due_date_col], errors='coerce')
    os_jan[os_jan_ref_date_col] = pd.to_datetime(os_jan.get(os_jan_ref_date_col), errors='coerce')
    os_jan["SL Code"] = os_jan[os_jan_sl_code_col].astype(str)
-   os_jan["Executive"] = os_jan[os_jan_exec_col].astype(str).str.strip().str.upper()
+   os_jan["EXECUTIVE"] = os_jan[os_jan_exec_col].astype(str).str.strip().str.upper()
 
    os_feb[os_feb_due_date_col] = pd.to_datetime(os_feb[os_feb_due_date_col], errors='coerce')
    os_feb[os_feb_ref_date_col] = pd.to_datetime(os_feb.get(os_feb_ref_date_col), errors='coerce')
    os_feb["SL Code"] = os_feb[os_feb_sl_code_col].astype(str)
-   os_feb["Executive"] = os_feb[os_feb_exec_col].astype(str).str.strip().str.upper()
+   os_feb["EXECUTIVE"] = os_feb[os_feb_exec_col].astype(str).str.strip().str.upper()
 
    total_sale[sale_bill_date_col] = pd.to_datetime(total_sale[sale_bill_date_col], errors='coerce')
    total_sale[sale_due_date_col] = pd.to_datetime(total_sale[sale_due_date_col], errors='coerce')
    total_sale["SL Code"] = total_sale[sale_sl_code_col].astype(str)
-   total_sale["Executive"] = total_sale[sale_exec_col].astype(str).str.strip().str.upper()
+   total_sale["EXECUTIVE"] = total_sale[sale_exec_col].astype(str).str.strip().str.upper()
 
    # Exec filter
    if selected_branches:
        branch_os_jan = os_jan[os_jan[os_jan_area_col].isin([b.upper() for b in selected_branches])]
        branch_os_feb = os_feb[os_feb[os_feb_area_col].isin([b.upper() for b in selected_branches])]
        branch_sale = total_sale[total_sale[sale_area_col].isin([b.upper() for b in selected_branches])]
-       branch_execs = sorted(set(branch_os_jan["Executive"].dropna().unique()) |
-                             set(branch_os_feb["Executive"].dropna().unique()) |
-                             set(branch_sale["Executive"].dropna().unique()))
+       branch_execs = sorted(set(branch_os_jan["EXECUTIVE"].dropna().unique()) |
+                             set(branch_os_feb["EXECUTIVE"].dropna().unique()) |
+                             set(branch_sale["EXECUTIVE"].dropna().unique()))
        if selected_executives:
            sel_execs_upper = [str(e).strip().upper() for e in selected_executives]
            executives_to_display = [e for e in branch_execs if e in sel_execs_upper]
@@ -1438,13 +1722,13 @@ def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
            executives_to_display = branch_execs
    else:
        executives_to_display = [str(e).strip().upper() for e in selected_executives] if selected_executives else \
-                               sorted(set(os_jan["Executive"].dropna().unique()) |
-                                      set(os_feb["Executive"].dropna().unique()) |
-                                      set(total_sale["Executive"].dropna().unique()))
+                               sorted(set(os_jan["EXECUTIVE"].dropna().unique()) |
+                                      set(os_feb["EXECUTIVE"].dropna().unique()) |
+                                      set(total_sale["EXECUTIVE"].dropna().unique()))
 
-   os_jan = os_jan[os_jan["Executive"].isin(executives_to_display)]
-   os_feb = os_feb[os_feb["Executive"].isin(executives_to_display)]
-   total_sale = total_sale[total_sale["Executive"].isin(executives_to_display)]
+   os_jan = os_jan[os_jan["EXECUTIVE"].isin(executives_to_display)]
+   os_feb = os_feb[os_feb["EXECUTIVE"].isin(executives_to_display)]
+   total_sale = total_sale[total_sale["EXECUTIVE"].isin(executives_to_display)]
    if os_jan.empty or os_feb.empty or total_sale.empty:
        st.error("No data after filtering.")
        return None
@@ -1452,79 +1736,83 @@ def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
    specified_date = pd.to_datetime("01-" + selected_month_str, format="%d-%b-%y")
    specified_month_end = specified_date + pd.offsets.MonthEnd(0)
 
-   # Due Target
+   # Due Target - Updated column name
    due_target_sum = os_jan[os_jan[os_jan_due_date_col] <= specified_month_end] \
-       .groupby("Executive")[os_jan_net_value_col].sum().reset_index()
-   due_target_sum.columns = ["Executive", "Due Target"]
+       .groupby("EXECUTIVE")[os_jan_net_value_col].sum().reset_index()
+   due_target_sum.columns = ["EXECUTIVE", "DUE TARGET/L"]
 
    # OS Jan Coll
    os_jan_coll_sum = os_jan[os_jan[os_jan_due_date_col] <= specified_month_end] \
-       .groupby("Executive")[os_jan_net_value_col].sum().reset_index()
-   os_jan_coll_sum.columns = ["Executive", "OS Jan Coll"]
+       .groupby("EXECUTIVE")[os_jan_net_value_col].sum().reset_index()
+   os_jan_coll_sum.columns = ["EXECUTIVE", "OS Jan Coll"]
 
    # OS Feb Coll
    os_feb_coll_sum = os_feb[(os_feb[os_feb_ref_date_col] < specified_date) &
                             (os_feb[os_feb_due_date_col] <= specified_month_end)] \
-       .groupby("Executive")[os_feb_net_value_col].sum().reset_index()
-   os_feb_coll_sum.columns = ["Executive", "OS Feb Coll"]
+       .groupby("EXECUTIVE")[os_feb_net_value_col].sum().reset_index()
+   os_feb_coll_sum.columns = ["EXECUTIVE", "OS Feb Coll"]
 
-   # Collection + early Overall %
-   collection = os_jan_coll_sum.merge(os_feb_coll_sum, on="Executive", how="outer").fillna(0)
-   collection["Collection Achieved"] = collection["OS Jan Coll"] - collection["OS Feb Coll"]
-   collection = collection.merge(due_target_sum, on="Executive", how="outer").fillna(0)
-   collection["Overall % Achieved"] = np.where(
-       collection["Due Target"] > 0,
-       (collection["Collection Achieved"] / collection["Due Target"]) * 100,
+   # Collection + early Overall % - Ensuring exact same calculation logic
+   collection = os_jan_coll_sum.merge(os_feb_coll_sum, on="EXECUTIVE", how="outer").fillna(0)
+   collection["COLLECTION ACHIEVED/L"] = collection["OS Jan Coll"] - collection["OS Feb Coll"]
+   collection = collection.merge(due_target_sum, on="EXECUTIVE", how="outer").fillna(0)
+   collection["OVERALL % ACHIEVED"] = np.where(
+       collection["DUE TARGET/L"] > 0,
+       (collection["COLLECTION ACHIEVED/L"] / collection["DUE TARGET/L"]) * 100,
        0
    )
 
-   # Overdue
+   # Overdue - Updated column name
    overdue_sum = total_sale[
        total_sale[sale_bill_date_col].between(specified_date, specified_month_end) &
        total_sale[sale_due_date_col].between(specified_date, specified_month_end)
-   ].groupby("Executive")[sale_value_col].sum().reset_index()
-   overdue_sum.columns = ["Executive", "For the month Overdue"]
+   ].groupby("EXECUTIVE")[sale_value_col].sum().reset_index()
+   overdue_sum.columns = ["EXECUTIVE", "FOR THE MONTH OVERDUE/L"]
 
-   # Month collection + early Selected Month %
-   sale_value_sum = overdue_sum.rename(columns={"For the month Overdue": "Sale Value"})
+   # Month collection + early Selected Month % - Ensuring exact same calculation logic
+   sale_value_sum = overdue_sum.rename(columns={"FOR THE MONTH OVERDUE/L": "Sale Value"})
    os_feb_month_sum = os_feb[
        os_feb[os_feb_ref_date_col].between(specified_date, specified_month_end) &
        os_feb[os_feb_due_date_col].between(specified_date, specified_month_end)
-   ].groupby("Executive")[os_feb_net_value_col].sum().reset_index()
-   os_feb_month_sum.columns = ["Executive", "OS Month Collection"]
+   ].groupby("EXECUTIVE")[os_feb_net_value_col].sum().reset_index()
+   os_feb_month_sum.columns = ["EXECUTIVE", "OS Month Collection"]
 
-   month_collection = sale_value_sum.merge(os_feb_month_sum, on="Executive", how="outer").fillna(0)
-   month_collection["For the month Collection"] = month_collection["Sale Value"] - month_collection["OS Month Collection"]
-   month_collection["% Achieved (Selected Month)"] = np.where(
+   month_collection = sale_value_sum.merge(os_feb_month_sum, on="EXECUTIVE", how="outer").fillna(0)
+   month_collection["FOR THE MONTH COLLECTION/L"] = month_collection["Sale Value"] - month_collection["OS Month Collection"]
+   month_collection["% ACHIEVED (SELECTED MONTH)"] = np.where(
        month_collection["Sale Value"] > 0,
-       (month_collection["For the month Collection"] / month_collection["Sale Value"]) * 100,
+       (month_collection["FOR THE MONTH COLLECTION/L"] / month_collection["Sale Value"]) * 100,
        0
    )
 
-   # Merge all
+   # Merge all - Following original order and logic exactly
    final = collection.drop(columns=["OS Jan Coll", "OS Feb Coll"]) \
-       .merge(overdue_sum, on="Executive", how="outer") \
-       .merge(month_collection[["Executive", "For the month Collection", "% Achieved (Selected Month)"]],
-              on="Executive", how="outer").fillna(0)
+       .merge(overdue_sum, on="EXECUTIVE", how="outer") \
+       .merge(month_collection[["EXECUTIVE", "FOR THE MONTH COLLECTION/L", "% ACHIEVED (SELECTED MONTH)"]],
+              on="EXECUTIVE", how="outer").fillna(0)
+
+   # Reorder columns to match original function's exact order
+   final = final[["EXECUTIVE", "DUE TARGET/L", "COLLECTION ACHIEVED/L", "OVERALL % ACHIEVED", 
+                  "FOR THE MONTH OVERDUE/L", "FOR THE MONTH COLLECTION/L", "% ACHIEVED (SELECTED MONTH)"]]
 
    # Preserve exec list
-   final = pd.DataFrame({'Executive': executives_to_display}).merge(final, on='Executive', how='left').fillna(0)
+   final = pd.DataFrame({'EXECUTIVE': executives_to_display}).merge(final, on='EXECUTIVE', how='left').fillna(0)
 
    # Remove HO/HEAD OFFICE
-   final = final[~final["Executive"].str.upper().isin(["HO", "HEAD OFFICE"])]
+   final = final[~final["EXECUTIVE"].str.upper().isin(["HO", "HEAD OFFICE"])]
 
-   # Scale + rounding only after percentages done
-   val_cols = ["Due Target", "Collection Achieved", "For the month Overdue", "For the month Collection"]
+   # Scale + rounding only after percentages done - Updated column names
+   val_cols = ["DUE TARGET/L", "COLLECTION ACHIEVED/L", "FOR THE MONTH OVERDUE/L", "FOR THE MONTH COLLECTION/L"]
    final[val_cols] = final[val_cols].div(100000).round(2)
-   final[["Overall % Achieved", "% Achieved (Selected Month)"]] = final[["Overall % Achieved", "% Achieved (Selected Month)"]].round(2)
+   final[["OVERALL % ACHIEVED", "% ACHIEVED (SELECTED MONTH)"]] = final[["OVERALL % ACHIEVED", "% ACHIEVED (SELECTED MONTH)"]].round(2)
 
    # Sort + TOTAL
-   final.sort_values("Executive", inplace=True)
-   total_row = {'Executive': 'TOTAL'}
+   final.sort_values("EXECUTIVE", inplace=True)
+   total_row = {'EXECUTIVE': 'TOTAL'}
    for col in final.columns[1:]:
-       if col in ["Overall % Achieved", "% Achieved (Selected Month)"]:
+       if col in ["OVERALL % ACHIEVED", "% ACHIEVED (SELECTED MONTH)"]:
            total_row[col] = round(
-               np.average(final[col], weights=final["Due Target"] if col == "Overall % Achieved" else final["For the month Overdue"]),
+               np.average(final[col], weights=final["DUE TARGET/L"] if col == "OVERALL % ACHIEVED" else final["FOR THE MONTH OVERDUE/L"]),
                2
            )
        else:
@@ -1532,7 +1820,6 @@ def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
    final = pd.concat([final, pd.DataFrame([total_row])], ignore_index=True)
 
    return final
-
 def get_available_months(os_jan, os_feb, total_sale,
                         os_jan_due_date_col, os_jan_ref_date_col,
                         os_feb_due_date_col, os_feb_ref_date_col,
@@ -1710,8 +1997,9 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_month, cy_month, ly_dat
        return None
    result = {}
    for company in company_groups:
-       qty_df = pd.DataFrame(columns=['PRODUCT GROUP', 'LY_QTY', 'BUDGET_QTY', 'CY_QTY', 'ACHIEVEMENT %'])
-       value_df = pd.DataFrame(columns=['PRODUCT GROUP', 'LY_VALUE', 'BUDGET_VALUE', 'CY_VALUE', 'ACHIEVEMENT %'])
+       # Updated column names with QTY and VALUE in labels - ALL UPPERCASE
+       qty_df = pd.DataFrame(columns=['PRODUCT GROUP', 'LAST YEAR QTY/MT', 'BUDGET QTY/MT', 'CURRENT YEAR QTY/MT', 'GROWTH %'])
+       value_df = pd.DataFrame(columns=['PRODUCT GROUP', 'LAST YEAR VALUE/L', 'BUDGET VALUE/L', 'CURRENT YEAR VALUE/L', 'GROWTH %'])
        ly_company_df = ly_filtered_df[ly_filtered_df[ly_company_group_col] == company]
        cy_company_df = cy_filtered_df[cy_filtered_df[cy_company_group_col] == company]
        budget_company_df = budget_df[budget_df[budget_company_group_col] == company]
@@ -1729,48 +2017,58 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_month, cy_month, ly_dat
            if not company_product_groups:
                continue
        ly_qty = ly_company_df.groupby([ly_company_group_col, ly_product_group_col])[ly_qty_col].sum().reset_index()
-       ly_qty = ly_qty.rename(columns={ly_product_group_col: 'PRODUCT GROUP', ly_qty_col: 'LY_QTY'})
+       ly_qty = ly_qty.rename(columns={ly_product_group_col: 'PRODUCT GROUP', ly_qty_col: 'LAST YEAR QTY/MT'})
        cy_qty = cy_company_df.groupby([cy_company_group_col, cy_product_group_col])[cy_qty_col].sum().reset_index()
-       cy_qty = cy_qty.rename(columns={cy_product_group_col: 'PRODUCT GROUP', cy_qty_col: 'CY_QTY'})
+       cy_qty = cy_qty.rename(columns={cy_product_group_col: 'PRODUCT GROUP', cy_qty_col: 'CURRENT YEAR QTY/MT'})
        budget_qty = budget_company_df.groupby([budget_company_group_col, budget_product_group_col])[budget_qty_col].sum().reset_index()
-       budget_qty = budget_qty.rename(columns={budget_product_group_col: 'PRODUCT GROUP', budget_qty_col: 'BUDGET_QTY'})
+       budget_qty = budget_qty.rename(columns={budget_product_group_col: 'PRODUCT GROUP', budget_qty_col: 'BUDGET QTY/MT'})
        ly_value = ly_company_df.groupby([ly_company_group_col, ly_product_group_col])[ly_value_col].sum().reset_index()
-       ly_value = ly_value.rename(columns={ly_product_group_col: 'PRODUCT GROUP', ly_value_col: 'LY_VALUE'})
+       ly_value = ly_value.rename(columns={ly_product_group_col: 'PRODUCT GROUP', ly_value_col: 'LAST YEAR VALUE/L'})
        cy_value = cy_company_df.groupby([cy_company_group_col, cy_product_group_col])[cy_value_col].sum().reset_index()
-       cy_value = cy_value.rename(columns={cy_product_group_col: 'PRODUCT GROUP', cy_value_col: 'CY_VALUE'})
+       cy_value = cy_value.rename(columns={cy_product_group_col: 'PRODUCT GROUP', cy_value_col: 'CURRENT YEAR VALUE/L'})
        budget_value = budget_company_df.groupby([budget_company_group_col, budget_product_group_col])[budget_value_col].sum().reset_index()
-       budget_value = budget_value.rename(columns={budget_product_group_col: 'PRODUCT GROUP', budget_value_col: 'BUDGET_VALUE'})
+       budget_value = budget_value.rename(columns={budget_product_group_col: 'PRODUCT GROUP', budget_value_col: 'BUDGET VALUE/L'})
        product_qty_df = pd.DataFrame({'PRODUCT GROUP': company_product_groups})
        product_value_df = pd.DataFrame({'PRODUCT GROUP': company_product_groups})
-       qty_df = product_qty_df.merge(ly_qty[['PRODUCT GROUP', 'LY_QTY']], on='PRODUCT GROUP', how='left')\
-                              .merge(budget_qty[['PRODUCT GROUP', 'BUDGET_QTY']], on='PRODUCT GROUP', how='left')\
-                              .merge(cy_qty[['PRODUCT GROUP', 'CY_QTY']], on='PRODUCT GROUP', how='left').fillna(0)
-       value_df = product_value_df.merge(ly_value[['PRODUCT GROUP', 'LY_VALUE']], on='PRODUCT GROUP', how='left')\
-                                  .merge(budget_value[['PRODUCT GROUP', 'BUDGET_VALUE']], on='PRODUCT GROUP', how='left')\
-                                  .merge(cy_value[['PRODUCT GROUP', 'CY_VALUE']], on='PRODUCT GROUP', how='left').fillna(0)
-       def calc_achievement(row, cy_col, ly_col):
+       qty_df = product_qty_df.merge(ly_qty[['PRODUCT GROUP', 'LAST YEAR QTY/MT']], on='PRODUCT GROUP', how='left')\
+                              .merge(budget_qty[['PRODUCT GROUP', 'BUDGET QTY/MT']], on='PRODUCT GROUP', how='left')\
+                              .merge(cy_qty[['PRODUCT GROUP', 'CURRENT YEAR QTY/MT']], on='PRODUCT GROUP', how='left').fillna(0)
+       value_df = product_value_df.merge(ly_value[['PRODUCT GROUP', 'LAST YEAR VALUE/L']], on='PRODUCT GROUP', how='left')\
+                                  .merge(budget_value[['PRODUCT GROUP', 'BUDGET VALUE/L']], on='PRODUCT GROUP', how='left')\
+                                  .merge(cy_value[['PRODUCT GROUP', 'CURRENT YEAR VALUE/L']], on='PRODUCT GROUP', how='left').fillna(0)
+       def calc_growth(row, cy_col, ly_col):
            if pd.isna(row[ly_col]) or row[ly_col] == 0:
                return 0.00 if row[cy_col] == 0 else 100.00
            return round(((row[cy_col] - row[ly_col]) / row[ly_col]) * 100, 2)
 
-       qty_df['ACHIEVEMENT %'] = qty_df.apply(lambda row: calc_achievement(row, 'CY_QTY', 'LY_QTY'), axis=1)
-       value_df['ACHIEVEMENT %'] = value_df.apply(lambda row: calc_achievement(row, 'CY_VALUE', 'LY_VALUE'), axis=1)
-       qty_df = qty_df[['PRODUCT GROUP', 'LY_QTY', 'BUDGET_QTY', 'CY_QTY', 'ACHIEVEMENT %']]
-       value_df = value_df[['PRODUCT GROUP', 'LY_VALUE', 'BUDGET_VALUE', 'CY_VALUE', 'ACHIEVEMENT %']]
+       qty_df['GROWTH %'] = qty_df.apply(lambda row: calc_growth(row, 'CURRENT YEAR QTY/MT', 'LAST YEAR QTY/MT'), axis=1)
+       value_df['GROWTH %'] = value_df.apply(lambda row: calc_growth(row, 'CURRENT YEAR VALUE/L', 'LAST YEAR VALUE/L'), axis=1)
+       
+       # Round all numeric columns to 2 decimal places
+       numeric_cols_qty = ['LAST YEAR QTY/MT', 'BUDGET QTY/MT', 'CURRENT YEAR QTY/MT', 'GROWTH %']
+       numeric_cols_value = ['LAST YEAR VALUE/L', 'BUDGET VALUE/L', 'CURRENT YEAR VALUE/L', 'GROWTH %']
+       
+       for col in numeric_cols_qty:
+           qty_df[col] = qty_df[col].round(2)
+       for col in numeric_cols_value:
+           value_df[col] = value_df[col].round(2)
+       
+       qty_df = qty_df[['PRODUCT GROUP', 'LAST YEAR QTY/MT', 'BUDGET QTY/MT', 'CURRENT YEAR QTY/MT', 'GROWTH %']]
+       value_df = value_df[['PRODUCT GROUP', 'LAST YEAR VALUE/L', 'BUDGET VALUE/L', 'CURRENT YEAR VALUE/L', 'GROWTH %']]
        qty_totals = pd.DataFrame({
            'PRODUCT GROUP': ['TOTAL'],
-           'LY_QTY': [qty_df['LY_QTY'].sum()],
-           'BUDGET_QTY': [qty_df['BUDGET_QTY'].sum()],
-           'CY_QTY': [qty_df['CY_QTY'].sum()],
-           'ACHIEVEMENT %': [calc_achievement({'CY_QTY': qty_df['CY_QTY'].sum(), 'LY_QTY': qty_df['LY_QTY'].sum()}, 'CY_QTY', 'LY_QTY')]
+           'LAST YEAR QTY/MT': [round(qty_df['LAST YEAR QTY/MT'].sum(), 2)],
+           'BUDGET QTY/MT': [round(qty_df['BUDGET QTY/MT'].sum(), 2)],
+           'CURRENT YEAR QTY/MT': [round(qty_df['CURRENT YEAR QTY/MT'].sum(), 2)],
+           'GROWTH %': [calc_growth({'CURRENT YEAR QTY/MT': qty_df['CURRENT YEAR QTY/MT'].sum(), 'LAST YEAR QTY/MT': qty_df['LAST YEAR QTY/MT'].sum()}, 'CURRENT YEAR QTY/MT', 'LAST YEAR QTY/MT')]
        })
        qty_df = pd.concat([qty_df, qty_totals], ignore_index=True)
        value_totals = pd.DataFrame({
            'PRODUCT GROUP': ['TOTAL'],
-           'LY_VALUE': [value_df['LY_VALUE'].sum()],
-           'BUDGET_VALUE': [value_df['BUDGET_VALUE'].sum()],
-           'CY_VALUE': [value_df['CY_VALUE'].sum()],
-           'ACHIEVEMENT %': [calc_achievement({'CY_VALUE': value_df['CY_VALUE'].sum(), 'LY_VALUE': value_df['LY_VALUE'].sum()}, 'CY_VALUE', 'LY_VALUE')]
+           'LAST YEAR VALUE/L': [round(value_df['LAST YEAR VALUE/L'].sum(), 2)],
+           'BUDGET VALUE/L': [round(value_df['BUDGET VALUE/L'].sum(), 2)],
+           'CURRENT YEAR VALUE/L': [round(value_df['CURRENT YEAR VALUE/L'].sum(), 2)],
+           'GROWTH %': [calc_growth({'CURRENT YEAR VALUE/L': value_df['CURRENT YEAR VALUE/L'].sum(), 'LAST YEAR VALUE/L': value_df['LAST YEAR VALUE/L'].sum()}, 'CURRENT YEAR VALUE/L', 'LAST YEAR VALUE/L')]
        })
        value_df = pd.concat([value_df, value_totals], ignore_index=True)
        result[company] = {'qty_df': qty_df, 'value_df': value_df}
@@ -1868,291 +2166,290 @@ def main():
     ])
 
     with tabs[0]:
-       st.header("Budget vs Billed")
-       if not st.session_state.sales_file or not st.session_state.budget_file:
-           st.warning("⚠️ Please upload Sales and Budget files to use this tab")
-       else:
-           try:
-               # Initialize session state for results if not exists
-               if 'budget_results' not in st.session_state:
-                   st.session_state.budget_results = []
-                   logger.info("Initialized st.session_state.budget_results")
+        st.header("Budget vs Billed")
+        if not st.session_state.sales_file or not st.session_state.budget_file:
+            st.warning("⚠️ Please upload Sales and Budget files to use this tab")
+        else:
+            try:
+                # Initialize session state for results if not exists
+                if 'budget_results' not in st.session_state:
+                    st.session_state.budget_results = []
+                    logger.info("Initialized st.session_state.budget_results")
 
-               # Define find_column function within the tab's scope
-               def find_column(columns, target_names, default_index=0):
-                   for target in target_names:
-                       for col in columns:
-                           if col.lower() == target.lower():
-                               return col
-                   return columns[default_index] if columns else None
+                # Define find_column function within the tab's scope
+                def find_column(columns, target_names, default_index=0):
+                    for target in target_names:
+                        for col in columns:
+                            if col.lower() == target.lower():
+                                return col
+                    return columns[default_index] if columns else None
 
-               sales_sheets = get_excel_sheets(st.session_state.sales_file)
-               budget_sheets = get_excel_sheets(st.session_state.budget_file)
-               st.subheader("Configure Files")
-               col1, col2 = st.columns(2)
-               with col1:
-                   st.write("**Sales File**")
-                   sales_sheet = st.selectbox("Sales Sheet", sales_sheets, key='sales_sheet')
-                   sales_header_row = st.number_input("Sales Header Row (1-based)", min_value=1, max_value=10, value=1, key='sales_header_row') - 1
-               with col2:
-                   st.write("**Budget File**")
-                   budget_sheet = st.selectbox("Budget Sheet", budget_sheets, key='budget_sheet')
-                   budget_header_row = st.number_input("Budget Header Row (1-based)", min_value=1, max_value=10, value=1, key='budget_header_row') - 1
+                sales_sheets = get_excel_sheets(st.session_state.sales_file)
+                budget_sheets = get_excel_sheets(st.session_state.budget_file)
+                st.subheader("Configure Files")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("**Sales File**")
+                    sales_sheet = st.selectbox("Sales Sheet", sales_sheets, key='sales_sheet')
+                    sales_header_row = st.number_input("Sales Header Row (1-based)", min_value=1, max_value=10, value=1, key='sales_header_row') - 1
+                with col2:
+                    st.write("**Budget File**")
+                    budget_sheet = st.selectbox("Budget Sheet", budget_sheets, key='budget_sheet')
+                    budget_header_row = st.number_input("Budget Header Row (1-based)", min_value=1, max_value=10, value=1, key='budget_header_row') - 1
 
-               # Load DataFrames
-               sales_df = pd.read_excel(st.session_state.sales_file, sheet_name=sales_sheet, header=sales_header_row)
-               budget_df = pd.read_excel(st.session_state.budget_file, sheet_name=budget_sheet, header=budget_header_row)
-               logger.info(f"Sales DataFrame shape: {sales_df.shape}, Budget DataFrame shape: {budget_df.shape}")
+                # Load DataFrames
+                sales_df = pd.read_excel(st.session_state.sales_file, sheet_name=sales_sheet, header=sales_header_row)
+                budget_df = pd.read_excel(st.session_state.budget_file, sheet_name=budget_sheet, header=budget_header_row)
+                logger.info(f"Sales DataFrame shape: {sales_df.shape}, Budget DataFrame shape: {budget_df.shape}")
 
-               # Column mappings
-               column_mappings = {
-                   'sales_date': ['Date'],
-                   'sales_value': ['Value', 'Invoice Value'],
-                   'sales_qty': ['Actual Quantity', 'Quantity'],
-                   'sales_product_group': ['Type (Make)', 'Product Group'],
-                   'sales_sl_code': ['Customer Code', 'SL Code'],
-                   'sales_area': ['Branch', 'Area'],
-                   'sales_exec': ['Executive Name', 'Executive'],
-                   'budget_value': ['Budget Value', 'Value'],
-                   'budget_qty': ['Budget Quantity', 'Quantity'],
-                   'budget_product_group': ['Product Group', 'Type (Make)'],
-                   'budget_sl_code': ['SL Code', 'Customer Code'],
-                   'budget_area': ['Branch', 'Area'],
-                   'budget_exec': ['Executive Name', 'Executive'],
-                   'budget_exec_code': ['Executive Code', 'Exec Code']
-               }
-               default_columns = {}
-               for key, targets in column_mappings.items():
-                   if key.startswith('sales'):
-                       default_columns[key] = find_column(sales_df.columns.tolist(), targets)
-                   else:
-                       default_columns[key] = find_column(budget_df.columns.tolist(), targets)
+                # Column mappings
+                column_mappings = {
+                    'sales_date': ['Date'],
+                    'sales_value': ['Value', 'Invoice Value'],
+                    'sales_qty': ['Actual Quantity', 'Quantity'],
+                    'sales_product_group': ['Type (Make)', 'Product Group'],
+                    'sales_sl_code': ['Customer Code', 'SL Code'],
+                    'sales_area': ['Branch', 'Area'],
+                    'sales_exec': ['Executive Name', 'Executive'],
+                    'budget_value': ['Budget Value', 'Value'],
+                    'budget_qty': ['Budget Quantity', 'Quantity'],
+                    'budget_product_group': ['Product Group', 'Type (Make)'],
+                    'budget_sl_code': ['SL Code', 'Customer Code'],
+                    'budget_area': ['Branch', 'Area'],
+                    'budget_exec': ['Executive Name', 'Executive'],
+                    'budget_exec_code': ['Executive Code', 'Exec Code']
+                }
+                default_columns = {}
+                for key, targets in column_mappings.items():
+                    if key.startswith('sales'):
+                        default_columns[key] = find_column(sales_df.columns.tolist(), targets)
+                    else:
+                        default_columns[key] = find_column(budget_df.columns.tolist(), targets)
 
-               with st.expander("Column Mappings"):
-                   col1, col2 = st.columns(2)
-                   with col1:
-                       st.subheader("Sales Columns")
-                       sales_date_col = st.selectbox("Date Column", sales_df.columns.tolist(), index=sales_df.columns.tolist().index(default_columns['sales_date']) if default_columns['sales_date'] in sales_df.columns else 0, key='sales_date')
-                       sales_value_col = st.selectbox("Value Column", sales_df.columns.tolist(), index=sales_df.columns.tolist().index(default_columns['sales_value']) if default_columns['sales_value'] in sales_df.columns else 0, key='sales_value')
-                       sales_qty_col = st.selectbox("Quantity Column", sales_df.columns.tolist(), index=sales_df.columns.tolist().index(default_columns['sales_qty']) if default_columns['sales_qty'] in sales_df.columns else 0, key='sales_qty')
-                       sales_area_col = st.selectbox("Branch Column", sales_df.columns.tolist(), index=sales_df.columns.tolist().index(default_columns['sales_area']) if default_columns['sales_area'] in sales_df.columns else 0, key='sales_area')
-                   with col2:
-                       st.subheader("Budget Columns")
-                       budget_value_col = st.selectbox("Budget Value Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_columns['budget_value']) if default_columns['budget_value'] in budget_df.columns else 0, key='budget_value')
-                       budget_qty_col = st.selectbox("Budget Quantity Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_columns['budget_qty']) if default_columns['budget_qty'] in budget_df.columns else 0, key='budget_qty')
-                       budget_area_col = st.selectbox("Branch Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_columns['budget_area']) if default_columns['budget_area'] in budget_df.columns else 0, key='budget_area')
-                       # NEW: Executive Code column
-                       budget_exec_code_col = st.selectbox("Executive Code Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_columns['budget_exec_code']) if default_columns['budget_exec_code'] in budget_df.columns else 0, key='budget_exec_code')
-                   col3, col4 = st.columns(2)
-                   with col3:
-                       sales_product_group_col = st.selectbox("Product Group Column", sales_df.columns.tolist(), index=sales_df.columns.tolist().index(default_columns['sales_product_group']) if default_columns['sales_product_group'] in sales_df.columns else 0, key='sales_product_group')
-                       sales_sl_code_col = st.selectbox("SL Code Column", sales_df.columns.tolist(), index=sales_df.columns.tolist().index(default_columns['sales_sl_code']) if default_columns['sales_sl_code'] in sales_df.columns else 0, key='sales_sl_code')
-                   with col4:
-                       budget_product_group_col = st.selectbox("Budget Product Group Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_columns['budget_product_group']) if default_columns['budget_product_group'] in budget_df.columns else 0, key='budget_product_group')
-                       budget_sl_code_col = st.selectbox("Budget SL Code Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_columns['budget_sl_code']) if default_columns['budget_sl_code'] in budget_df.columns else 0, key='budget_sl_code')
-                   sales_exec_col = st.selectbox("Sales Executive Column", sales_df.columns.tolist(), index=sales_df.columns.tolist().index(default_columns['sales_exec']) if default_columns['sales_exec'] in sales_df.columns else 0, key='sales_exec')
-                   budget_exec_col = st.selectbox("Budget Executive Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_columns['budget_exec']) if default_columns['budget_exec'] in budget_df.columns else 0, key='budget_exec')
+                with st.expander("Column Mappings"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.subheader("Sales Columns")
+                        sales_date_col = st.selectbox("Date Column", sales_df.columns.tolist(), index=sales_df.columns.tolist().index(default_columns['sales_date']) if default_columns['sales_date'] in sales_df.columns else 0, key='sales_date')
+                        sales_value_col = st.selectbox("Value Column", sales_df.columns.tolist(), index=sales_df.columns.tolist().index(default_columns['sales_value']) if default_columns['sales_value'] in sales_df.columns else 0, key='sales_value')
+                        sales_qty_col = st.selectbox("Quantity Column", sales_df.columns.tolist(), index=sales_df.columns.tolist().index(default_columns['sales_qty']) if default_columns['sales_qty'] in sales_df.columns else 0, key='sales_qty')
+                        sales_area_col = st.selectbox("Branch Column", sales_df.columns.tolist(), index=sales_df.columns.tolist().index(default_columns['sales_area']) if default_columns['sales_area'] in sales_df.columns else 0, key='sales_area')
+                    with col2:
+                        st.subheader("Budget Columns")
+                        budget_value_col = st.selectbox("Budget Value Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_columns['budget_value']) if default_columns['budget_value'] in budget_df.columns else 0, key='budget_value')
+                        budget_qty_col = st.selectbox("Budget Quantity Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_columns['budget_qty']) if default_columns['budget_qty'] in budget_df.columns else 0, key='budget_qty')
+                        budget_area_col = st.selectbox("Branch Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_columns['budget_area']) if default_columns['budget_area'] in budget_df.columns else 0, key='budget_area')
+                        # NEW: Executive Code column
+                        budget_exec_code_col = st.selectbox("Executive Code Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_columns['budget_exec_code']) if default_columns['budget_exec_code'] in budget_df.columns else 0, key='budget_exec_code')
+                    col3, col4 = st.columns(2)
+                    with col3:
+                        sales_product_group_col = st.selectbox("Product Group Column", sales_df.columns.tolist(), index=sales_df.columns.tolist().index(default_columns['sales_product_group']) if default_columns['sales_product_group'] in sales_df.columns else 0, key='sales_product_group')
+                        sales_sl_code_col = st.selectbox("SL Code Column", sales_df.columns.tolist(), index=sales_df.columns.tolist().index(default_columns['sales_sl_code']) if default_columns['sales_sl_code'] in sales_df.columns else 0, key='sales_sl_code')
+                    with col4:
+                        budget_product_group_col = st.selectbox("Budget Product Group Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_columns['budget_product_group']) if default_columns['budget_product_group'] in budget_df.columns else 0, key='budget_product_group')
+                        budget_sl_code_col = st.selectbox("Budget SL Code Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_columns['budget_sl_code']) if default_columns['budget_sl_code'] in budget_df.columns else 0, key='budget_sl_code')
+                    sales_exec_col = st.selectbox("Sales Executive Column", sales_df.columns.tolist(), index=sales_df.columns.tolist().index(default_columns['sales_exec']) if default_columns['sales_exec'] in sales_df.columns else 0, key='sales_exec')
+                    budget_exec_col = st.selectbox("Budget Executive Column", budget_df.columns.tolist(), index=budget_df.columns.tolist().index(default_columns['budget_exec']) if default_columns['budget_exec'] in budget_df.columns else 0, key='budget_exec')
 
-               # Get available months
-               try:
-                   sales_df[sales_date_col] = pd.to_datetime(sales_df[sales_date_col], dayfirst=True, errors='coerce')
-                   available_months = sorted(sales_df[sales_date_col].dt.strftime('%b %y').dropna().unique().tolist())
-                   logger.info(f"Available months: {available_months}")
-               except Exception as e:
-                   st.error(f"Error processing date column: {e}")
-                   logger.error(f"Error processing date column: {e}", exc_info=True)
-                   available_months = []
+                # Get available months
+                try:
+                    sales_df[sales_date_col] = pd.to_datetime(sales_df[sales_date_col], dayfirst=True, errors='coerce')
+                    available_months = sorted(sales_df[sales_date_col].dt.strftime('%b %y').dropna().unique().tolist())
+                    logger.info(f"Available months: {available_months}")
+                except Exception as e:
+                    st.error(f"Error processing date column: {e}")
+                    logger.error(f"Error processing date column: {e}", exc_info=True)
+                    available_months = []
 
-               if not available_months:
-                   st.error("No valid months found in sales date column")
-               else:
-                   st.subheader("Select Sales Month")
-                   selected_month = st.selectbox("Month", available_months, key='sales_month')
+                if not available_months:
+                    st.error("No valid months found in sales date column")
+                else:
+                    st.subheader("Select Sales Month")
+                    selected_month = st.selectbox("Month", available_months, key='sales_month')
 
-                   st.subheader("Filter Options")
-                   filter_tab1, filter_tab2 = st.tabs(["Branches", "Executives"])
-                   with filter_tab1:
-                       raw_branches = set(sales_df[sales_area_col].dropna().astype(str).str.strip().str.upper().unique().tolist()) | \
-                                   set(budget_df[budget_area_col].dropna().astype(str).str.strip().str.upper().unique().tolist())
-                       all_branches = sorted(raw_branches)
-                       branch_select_all = st.checkbox("Select All Branches", value=True, key='budget_branch_all')
-                       selected_branches = []
-                       if branch_select_all:
-                           selected_branches = all_branches
-                       else:
-                           num_cols = 3
-                           branch_cols = st.columns(num_cols)
-                           for i, branch in enumerate(all_branches):
-                               col_idx = i % num_cols
-                               with branch_cols[col_idx]:
-                                   if st.checkbox(branch, key=f'budget_branch_{branch}'):
-                                       selected_branches.append(branch)
-                   with filter_tab2:
-                       all_executives = set(sales_df[sales_exec_col].dropna().astype(str).unique().tolist()) | set(budget_df[budget_exec_col].dropna().astype(str).unique().tolist())
-                       all_executives = sorted(all_executives)
-                       exec_select_all = st.checkbox("Select All Executives", value=True, key='exec_all')
-                       selected_executives = []
-                       if exec_select_all:
-                           selected_executives = all_executives
-                       else:
-                           num_cols = 3
-                           exec_cols = st.columns(num_cols)
-                           for i, exec_name in enumerate(all_executives):
-                               col_idx = i % num_cols
-                               with exec_cols[col_idx]:
-                                   if st.checkbox(exec_name, key=f'exec_{exec_name}'):
-                                       selected_executives.append(exec_name)
+                    st.subheader("Filter Options")
+                    filter_tab1, filter_tab2 = st.tabs(["Branches", "Executives"])
+                    with filter_tab1:
+                        raw_branches = set(sales_df[sales_area_col].dropna().astype(str).str.strip().str.upper().unique().tolist()) | \
+                                    set(budget_df[budget_area_col].dropna().astype(str).str.strip().str.upper().unique().tolist())
+                        all_branches = sorted(raw_branches)
+                        branch_select_all = st.checkbox("Select All Branches", value=True, key='budget_branch_all')
+                        selected_branches = []
+                        if branch_select_all:
+                            selected_branches = all_branches
+                        else:
+                            num_cols = 3
+                            branch_cols = st.columns(num_cols)
+                            for i, branch in enumerate(all_branches):
+                                col_idx = i % num_cols
+                                with branch_cols[col_idx]:
+                                    if st.checkbox(branch, key=f'budget_branch_{branch}'):
+                                        selected_branches.append(branch)
+                    with filter_tab2:
+                        all_executives = set(sales_df[sales_exec_col].dropna().astype(str).unique().tolist()) | set(budget_df[budget_exec_col].dropna().astype(str).unique().tolist())
+                        all_executives = sorted(all_executives)
+                        exec_select_all = st.checkbox("Select All Executives", value=True, key='exec_all')
+                        selected_executives = []
+                        if exec_select_all:
+                            selected_executives = all_executives
+                        else:
+                            num_cols = 3
+                            exec_cols = st.columns(num_cols)
+                            for i, exec_name in enumerate(all_executives):
+                                col_idx = i % num_cols
+                                with exec_cols[col_idx]:
+                                    if st.checkbox(exec_name, key=f'exec_{exec_name}'):
+                                        selected_executives.append(exec_name)
 
-                   if st.button("Generate Report", key='generate_report'):
-                       if not selected_executives:
-                           st.error("Please select at least one executive")
-                       else:
-                           with st.spinner("Generating report..."):
-                               logger.info(f"Calling calculate_budget_values with selected_month: {selected_month}, "
-                                           f"selected_branches: {selected_branches}, selected_executives: {selected_executives}")
-                               budget_vs_billed_value_df, budget_vs_billed_qty_df, overall_sales_qty_df, overall_sales_value_df = calculate_budget_values(
-                                   sales_df, budget_df, selected_month, selected_executives,
-                                   sales_date_col, sales_area_col, sales_value_col, sales_qty_col,
-                                   sales_product_group_col, sales_sl_code_col, sales_exec_col,
-                                   budget_area_col, budget_value_col, budget_qty_col,
-                                   budget_product_group_col, budget_sl_code_col, budget_exec_col,
-                                   selected_branches=selected_branches
-                               )
-                               logger.info(f"calculate_budget_values returned: "
-                                           f"budget_vs_billed_value_df: {budget_vs_billed_value_df is not None}, "
-                                           f"budget_vs_billed_qty_df: {budget_vs_billed_qty_df is not None}, "
-                                           f"overall_sales_qty_df: {overall_sales_qty_df is not None}, "
-                                           f"overall_sales_value_df: {overall_sales_value_df is not None}")
+                    if st.button("Generate Report", key='generate_report'):
+                        if not selected_executives:
+                            st.error("Please select at least one executive")
+                        else:
+                            with st.spinner("Generating report..."):
+                                logger.info(f"Calling calculate_budget_values with selected_month: {selected_month}, "
+                                            f"selected_branches: {selected_branches}, selected_executives: {selected_executives}")
+                                budget_vs_billed_value_df, budget_vs_billed_qty_df, overall_sales_qty_df, overall_sales_value_df = calculate_budget_values(
+                                    sales_df, budget_df, selected_month, selected_executives,
+                                    sales_date_col, sales_area_col, sales_value_col, sales_qty_col,
+                                    sales_product_group_col, sales_sl_code_col, sales_exec_col,
+                                    budget_area_col, budget_value_col, budget_qty_col,
+                                    budget_product_group_col, budget_sl_code_col, budget_exec_col,
+                                    selected_branches=selected_branches
+                                )
+                                logger.info(f"calculate_budget_values returned: "
+                                            f"budget_vs_billed_value_df: {budget_vs_billed_value_df is not None}, "
+                                            f"budget_vs_billed_qty_df: {budget_vs_billed_qty_df is not None}, "
+                                            f"overall_sales_qty_df: {overall_sales_qty_df is not None}, "
+                                            f"overall_sales_value_df: {overall_sales_value_df is not None}")
 
-                               # Store all non-None DataFrames
-                               dfs_info = []
-                               if budget_vs_billed_qty_df is not None:
-                                   dfs_info.append({
-                                       'df': budget_vs_billed_qty_df,
-                                       'title': f"BUDGET AGAINST BILLED (Qty in Mt) - {selected_month}",
-                                       'percent_cols': [3]
-                                   })
-                               if budget_vs_billed_value_df is not None:
-                                   dfs_info.append({
-                                       'df': budget_vs_billed_value_df,
-                                       'title': f"BUDGET AGAINST BILLED (Value in Lakhs) - {selected_month}",
-                                       'percent_cols': [3]
-                                   })
-                               if overall_sales_qty_df is not None:
-                                   dfs_info.append({
-                                       'df': overall_sales_qty_df,
-                                       'title': f"OVERALL SALES (Qty In Mt) - {selected_month}",
-                                       'percent_cols': [3]
-                                   })
-                               if overall_sales_value_df is not None:
-                                   dfs_info.append({
-                                       'df': overall_sales_value_df,
-                                       'title': f"OVERALL SALES (Value in Lakhs) - {selected_month}",
-                                       'percent_cols': [3]
-                                   })
+                                # Store all non-None DataFrames
+                                dfs_info = []
+                                if budget_vs_billed_qty_df is not None:
+                                    dfs_info.append({
+                                        'df': budget_vs_billed_qty_df,
+                                        'title': f"BUDGET AGAINST BILLED - {selected_month}",
+                                        'percent_cols': [3]
+                                    })
+                                if budget_vs_billed_value_df is not None:
+                                    dfs_info.append({
+                                        'df': budget_vs_billed_value_df,
+                                        'title': f"BUDGET AGAINST BILLED - {selected_month}",
+                                        'percent_cols': [3]
+                                    })
+                                if overall_sales_qty_df is not None:
+                                    dfs_info.append({
+                                        'df': overall_sales_qty_df,
+                                        'title': f"OVERALL SALES - {selected_month}",
+                                        'percent_cols': [3]
+                                    })
+                                if overall_sales_value_df is not None:
+                                    dfs_info.append({
+                                        'df': overall_sales_value_df,
+                                        'title': f"OVERALL SALES - {selected_month}",
+                                        'percent_cols': [3]
+                                    })
 
-                               if dfs_info:
-                                   st.success("Success!")
-                                   if budget_vs_billed_qty_df is not None:
-                                       st.subheader("Budget vs Billed Quantity")
-                                       st.dataframe(budget_vs_billed_qty_df, use_container_width=True)
-                                       qty_image = create_table_image(budget_vs_billed_qty_df, f"BUDGET AGAINST BILLED (Qty in Mt) - {selected_month}", percent_cols=[3])
-                                       if qty_image:
-                                           st.image(qty_image, use_column_width=True)
-                                   if budget_vs_billed_value_df is not None:
-                                       st.subheader("Budget vs Billed Value")
-                                       st.dataframe(budget_vs_billed_value_df, use_container_width=True)
-                                       value_image = create_table_image(budget_vs_billed_value_df, f"BUDGET AGAINST BILLED (Value in Lakhs) - {selected_month}", percent_cols=[3])
-                                       if value_image:
-                                           st.image(value_image, use_column_width=True)
-                                   if overall_sales_qty_df is not None:
-                                       st.subheader("Overall Sales Quantity")
-                                       st.dataframe(overall_sales_qty_df, use_container_width=True)
-                                       overall_qty_image = create_table_image(overall_sales_qty_df, f"OVERALL SALES (Qty In Mt) - {selected_month}", percent_cols=[3])
-                                       if overall_qty_image:
-                                           st.image(overall_qty_image, use_column_width=True)
-                                   if overall_sales_value_df is not None:
-                                       st.subheader("Overall Sales Value")
-                                       st.dataframe(overall_sales_value_df, use_container_width=True)
-                                       overall_value_image = create_table_image(overall_sales_value_df, f"OVERALL SALES (Value in Lakhs) - {selected_month}", percent_cols=[3])
-                                       if overall_value_image:
-                                           st.image(overall_value_image, use_column_width=True)
+                                if dfs_info:
+                                    st.success("Success!")
+                                    if budget_vs_billed_qty_df is not None:
+                                        st.subheader("Budget vs Billed Quantity")
+                                        st.dataframe(budget_vs_billed_qty_df, use_container_width=True)
+                                        qty_image = create_table_image(budget_vs_billed_qty_df, f"BUDGET AGAINST BILLED - {selected_month}", percent_cols=[3])
+                                        if qty_image:
+                                            st.image(qty_image, use_column_width=True)
+                                    if budget_vs_billed_value_df is not None:
+                                        st.subheader("Budget vs Billed Value")
+                                        st.dataframe(budget_vs_billed_value_df, use_container_width=True)
+                                        value_image = create_table_image(budget_vs_billed_value_df, f"BUDGET AGAINST BILLED - {selected_month}", percent_cols=[3])
+                                        if value_image:
+                                            st.image(value_image, use_column_width=True)
+                                    if overall_sales_qty_df is not None:
+                                        st.subheader("Overall Sales Quantity")
+                                        st.dataframe(overall_sales_qty_df, use_container_width=True)
+                                        overall_qty_image = create_table_image(overall_sales_qty_df, f"OVERALL SALES - {selected_month}", percent_cols=[3])
+                                        if overall_qty_image:
+                                            st.image(overall_qty_image, use_column_width=True)
+                                    if overall_sales_value_df is not None:
+                                        st.subheader("Overall Sales Value")
+                                        st.dataframe(overall_sales_value_df, use_container_width=True)
+                                        overall_value_image = create_table_image(overall_sales_value_df, f"OVERALL SALES - {selected_month}", percent_cols=[3])
+                                        if overall_value_image:
+                                            st.image(overall_value_image, use_column_width=True)
 
-                                   # Store results in session state regardless of PPT success
-                                   st.session_state.budget_results = dfs_info
-                                   logger.info(f"Stored {len(dfs_info)} DataFrames in st.session_state.budget_results")
+                                    # Store results in session state regardless of PPT success
+                                    st.session_state.budget_results = dfs_info
+                                    logger.info(f"Stored {len(dfs_info)} DataFrames in st.session_state.budget_results")
 
-                                   # Generate PPT if at least one DataFrame is not None
-                                   try:
-                                       ppt_buffer = None
-                                       if any(x is not None for x in [budget_vs_billed_value_df, budget_vs_billed_qty_df, overall_sales_qty_df, overall_sales_value_df]):
-                                           logger.info("Attempting to create PPT with available DataFrames")
-                                           ppt_buffer = create_budget_ppt(
-                                               budget_vs_billed_value_df, budget_vs_billed_qty_df,
-                                               overall_sales_qty_df, overall_sales_value_df,
-                                               selected_month,
-                                               st.session_state.logo_file
-                                           )
-                                       else:
-                                           logger.warning("No valid DataFrames for PPT generation")
-                                           st.warning("Cannot generate PPT: No valid DataFrames available. Check your data and selections.")
+                                    # Generate PPT if at least one DataFrame is not None
+                                    try:
+                                        ppt_buffer = None
+                                        if any(x is not None for x in [budget_vs_billed_value_df, budget_vs_billed_qty_df, overall_sales_qty_df, overall_sales_value_df]):
+                                            logger.info("Attempting to create PPT with available DataFrames")
+                                            ppt_buffer = create_budget_ppt(
+                                                budget_vs_billed_value_df, budget_vs_billed_qty_df,
+                                                overall_sales_qty_df, overall_sales_value_df,
+                                                selected_month,
+                                                st.session_state.logo_file
+                                            )
+                                        else:
+                                            logger.warning("No valid DataFrames for PPT generation")
+                                            st.warning("Cannot generate PPT: No valid DataFrames available. Check your data and selections.")
 
-                                       if ppt_buffer:
-                                           col1, col2 = st.columns(2)
-                                           with col1:
-                                               unique_id = str(uuid.uuid4())[:8]
-                                               st.download_button(
-                                                   label="📊 Download Budget vs Billed PPT",
-                                                   data=ppt_buffer,
-                                                   file_name=f"Budget_vs_Billed_{selected_month}_{unique_id}.pptx",
-                                                   mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                                                   key=f'budget_download_{unique_id}'
-                                               )
-                                           with col2:
-                                               # NEW: Generate proof of calculation Excel
-                                               try:
-                                                   proof_excel = create_proof_of_calculation_excel(
-                                                       budget_df, sales_df, selected_month,
-                                                       budget_exec_col, budget_exec_code_col, budget_area_col,
-                                                       budget_sl_code_col, budget_product_group_col,
-                                                       budget_qty_col, budget_value_col,
-                                                       sales_exec_col, sales_date_col, sales_area_col,
-                                                       sales_sl_code_col, sales_product_group_col,
-                                                       sales_qty_col, sales_value_col,
-                                                       selected_executives, selected_branches
-                                                   )
-                                                   
-                                                   if proof_excel:
-                                                       unique_id_excel = str(uuid.uuid4())[:8]
-                                                       st.download_button(
-                                                           label="📋 Download Proof of Calculation (Excel)",
-                                                           data=proof_excel,
-                                                           file_name=f"Budget_vs_Billed_Proof_{selected_month}_{unique_id_excel}.xlsx",
-                                                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                                           key=f'proof_download_{unique_id_excel}'
-                                                       )
-                                                   else:
-                                                       st.warning("Could not generate proof of calculation file.")
-                                               except Exception as e:
-                                                   st.error(f"Error generating proof file: {e}")
-                                       else:
-                                           logger.warning("PPT buffer is None, skipping download button")
-                                           st.warning("Failed to generate PPT. Check your data and selections.")
-                                   except Exception as e:
-                                       error_msg = f"Error creating Budget PPT: {str(e)}"
-                                       st.error(error_msg)
-                                       logger.error(error_msg, exc_info=True)
-                                       st.error(traceback.format_exc())
-                               else:
-                                   st.error("No valid DataFrames generated. Check data and selections.")
-                                   logger.error("No valid DataFrames generated by calculate_budget_values")
+                                        if ppt_buffer:
+                                            col1, col2 = st.columns(2)
+                                            with col1:
+                                                unique_id = str(uuid.uuid4())[:8]
+                                                st.download_button(
+                                                    label="📊 Download Budget vs Billed PPT",
+                                                    data=ppt_buffer,
+                                                    file_name=f"Budget_vs_Billed_{selected_month}_{unique_id}.pptx",
+                                                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                                    key=f'budget_download_{unique_id}'
+                                                )
+                                            with col2:
+                                                # NEW: Generate proof of calculation Excel
+                                                try:
+                                                    proof_excel = create_proof_of_calculation_excel(
+                                                        budget_df, sales_df, selected_month,
+                                                        budget_exec_col, budget_exec_code_col, budget_area_col,
+                                                        budget_sl_code_col, budget_product_group_col,
+                                                        budget_qty_col, budget_value_col,
+                                                        sales_exec_col, sales_date_col, sales_area_col,
+                                                        sales_sl_code_col, sales_product_group_col,
+                                                        sales_qty_col, sales_value_col,
+                                                        selected_executives, selected_branches
+                                                    )
+                                                    
+                                                    if proof_excel:
+                                                        unique_id_excel = str(uuid.uuid4())[:8]
+                                                        st.download_button(
+                                                            label="📋 Download Proof of Calculation (Excel)",
+                                                            data=proof_excel,
+                                                            file_name=f"Budget_vs_Billed_Proof_{selected_month}_{unique_id_excel}.xlsx",
+                                                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                                            key=f'proof_download_{unique_id_excel}'
+                                                        )
+                                                    else:
+                                                        st.warning("Could not generate proof of calculation file.")
+                                                except Exception as e:
+                                                    st.error(f"Error generating proof file: {e}")
+                                        else:
+                                            logger.warning("PPT buffer is None, skipping download button")
+                                            st.warning("Failed to generate PPT. Check your data and selections.")
+                                    except Exception as e:
+                                        error_msg = f"Error creating Budget PPT: {str(e)}"
+                                        st.error(error_msg)
+                                        logger.error(error_msg, exc_info=True)
+                                        st.error(traceback.format_exc())
+                                else:
+                                    st.error("No valid DataFrames generated. Check data and selections.")
+                                    logger.error("No valid DataFrames generated by calculate_budget_values")
 
-           except Exception as e:
-               error_msg = f"Error in Budget vs Billed tab: {str(e)}"
-               st.error(error_msg)
-               logger.error(error_msg, exc_info=True)
-               st.error(traceback.format_exc())
-
+            except Exception as e:
+                error_msg = f"Error in Budget vs Billed tab: {str(e)}"
+                st.error(error_msg)
+                logger.error(error_msg, exc_info=True)
+                st.error(traceback.format_exc())
     with tabs[1]:
         st.header("OD Target vs Collection Report")
         if not st.session_state.os_jan_file or not st.session_state.os_feb_file or not st.session_state.sales_file:
@@ -2423,7 +2720,7 @@ def main():
                                         st.success("Success!")
                                         st.subheader("OD Target vs Collection Results")
                                         st.dataframe(final_df)
-                                        img_buffer = create_table_image(final_df, f"OD TARGET vs VALUE - {selected_month_str} (Value in Lakhs)", percent_cols=[3, 6])
+                                        img_buffer = create_table_image(final_df, f"OD TARGET vs VALUE - {selected_month_str}", percent_cols=[3, 6])
                                         if img_buffer:
                                             st.image(img_buffer, use_column_width=True)
                                         prs = Presentation()
@@ -2669,20 +2966,20 @@ def main():
                         dfs_info = []
                         for company, data in group_results.items():
                             st.subheader(f"Company: {company}")
-                            numeric_cols_qty = ['LY_QTY', 'BUDGET_QTY', 'CY_QTY', 'ACHIEVEMENT %']
+                            numeric_cols_qty = ['LAST_YEAR_QTY/MT', 'BUDGET_QTY', 'CURRENT_YEAR_QTY/MT', 'GROWTH%']
                             for col in numeric_cols_qty:
                                 if col in data['qty_df'].columns:
                                     data['qty_df'][col] = data['qty_df'][col].round(2)
-                            numeric_cols_value = ['LY_VALUE', 'BUDGET_VALUE', 'CY_VALUE', 'ACHIEVEMENT %']
+                            numeric_cols_value = ['LAST_YEAR_VALUE/L', 'BUDGET_VALUE', 'CURRENT_YEAR_VALUE/L', 'GROWTH %']
                             for col in numeric_cols_value:
                                 if col in data['value_df'].columns:
                                     data['value_df'][col] = data['value_df'][col].round(2)
-                            st.write(f"**{company} - Quantity Growth (Qty in Mt)**")
+                            st.write(f"**{company} - Quantity Growth**")
                             st.dataframe(data['qty_df'])
-                            st.write(f"**{company} - Value Growth (Value in Lakhs)**")
+                            st.write(f"**{company} - Value Growth**")
                             st.dataframe(data['value_df'])
-                            dfs_info.append({'df': data['qty_df'], 'title': f"{company} - Quantity Growth (Qty in Mt)", 'percent_cols': [4]})
-                            dfs_info.append({'df': data['value_df'], 'title': f"{company} - Value Growth (Value in Lakhs)", 'percent_cols': [4]})
+                            dfs_info.append({'df': data['qty_df'], 'title': f"{company} - Quantity Growth", 'percent_cols': [4]})
+                            dfs_info.append({'df': data['value_df'], 'title': f"{company} - Value Growth", 'percent_cols': [4]})
                         st.session_state.product_results = dfs_info
                         ppt_buffer = create_product_growth_ppt(
                             group_results,
@@ -2832,13 +3129,21 @@ def main():
                                         img_buffer = create_customer_table_image(result_df, title, sorted_months, fy)
                                         if img_buffer:
                                             st.image(img_buffer, use_column_width=True)
+                                        
+                                        # Initialize PowerPoint presentation
                                         prs = Presentation()
                                         prs.slide_width = Inches(13.33)
                                         prs.slide_height = Inches(7.5)
                                         create_title_slide(prs, title, st.session_state.logo_file)
-                                        slide_layout = prs.slide_layouts[6]
-                                        slide = prs.slides.add_slide(slide_layout)
-                                        create_customer_ppt_slide(slide, result_df, title, sorted_months)
+                                        
+                                        # Use the new splitting function to create multiple slides if needed
+                                        slides_data = create_customer_ppt_with_splitting(result_df, title, sorted_months, fy)
+                                        
+                                        for slide_info in slides_data:
+                                            slide_layout = prs.slide_layouts[6]
+                                            slide = prs.slides.add_slide(slide_layout)
+                                            create_customer_ppt_slide(slide, slide_info['df'], slide_info['title'], sorted_months, slide_info['is_last'])
+                                        
                                         ppt_buffer = BytesIO()
                                         prs.save(ppt_buffer)
                                         ppt_buffer.seek(0)
@@ -2858,159 +3163,163 @@ def main():
                     st.error(f"Error in tab: {e}")
                     st.error(traceback.format_exc())
         with od_tab:
-         os_file_choice = st.radio(
-            "Choose OS file for OD Target calculation",
-            ["OS-Previous Month", "OS-Current Month"],
-            key="od_file_choice"
-         )
-         chosen_os_file = st.session_state.os_jan_file if os_file_choice == "OS-Previous Month" else st.session_state.os_feb_file
-         if not chosen_os_file:
-            st.warning("⚠️ No OS file selected.")
-         else:
-            try:
-                os_sheets = get_excel_sheets(chosen_os_file)
-                st.subheader("Select Sheet")
-                os_sheet = st.selectbox("Select OS Sheet", os_sheets, key='od_sheet')
-                header_row = st.number_input("Header Row (1-based)", min_value=1, max_value=10, value=1, step=1, key='od_header_row') - 1
-                os_df = pd.read_excel(chosen_os_file, sheet_name=os_sheet, header=header_row)
-                if st.checkbox("Preview Raw OS Data"):
-                    st.write("Raw OS Data (first 20):")
-                    st.dataframe(os_df.head(20))
-                columns = os_df.columns.tolist()
-                st.subheader("OS Column Mapping")
-                col1, col2 = st.columns(2)
-                with col1:
-                    os_area_col = st.selectbox(
-                        "Select Area",
-                        columns,
-                        index=columns.index('Branch') if 'Branch' in columns else 0,
-                        help="Contains branch names",
-                        key='os_area_col'
-                    )
-                    os_qty_col = st.selectbox(
-                        "Select Net Value",
-                        columns,
-                        index=columns.index('Net Value') if 'Net Value' in columns else 0,
-                        help="Contains net values",
-                        key='os_qty_col'
-                    )
-                with col2:
-                    os_due_date_col = st.selectbox(
-                        "Select Due Date",
-                        columns,
-                        index=columns.index('Due Date') if 'Due Date' in columns else 0,
-                        help="Contains due dates",
-                        key='os_due_date_col'
-                    )
-                    os_exec_col = st.selectbox(
-                        "Select Executive Column",
-                        columns,
-                        index=columns.index('Executive Name') if 'Executive Name' in columns else 0,
-                        key='os_exec'
-                    )
-                st.subheader("Due Date Filter")
+            os_file_choice = st.radio(
+                "Choose OS file for OD Target calculation",
+                ["OS-Previous Month", "OS-Current Month"],
+                key="od_file_choice"
+            )
+            chosen_os_file = st.session_state.os_jan_file if os_file_choice == "OS-Previous Month" else st.session_state.os_feb_file
+            if not chosen_os_file:
+                st.warning("⚠️ No OS file selected.")
+            else:
                 try:
-                    os_df[os_due_date_col] = pd.to_datetime(os_df[os_due_date_col], errors='coerce')
-                    years = sorted(os_df[os_due_date_col].dt.year.dropna().astype(int).unique().tolist())
-                except Exception as e:
-                    st.error(f"Error processing due dates: {e}. Ensure valid date format.")
-                    years = []
-                if not years:
-                    st.warning("No valid due dates found in the dataset.")
-                else:
-                    selected_years = st.multiselect(
-                        "Select years for filtering",
-                        options=[str(year) for year in years],
-                        default=[str(year) for year in years],
-                        key='year_multiselect'
-                    )
-                    if not selected_years:
-                        st.error("Please select at least one year.")
+                    os_sheets = get_excel_sheets(chosen_os_file)
+                    st.subheader("Select Sheet")
+                    os_sheet = st.selectbox("Select OS Sheet", os_sheets, key='od_sheet')
+                    header_row = st.number_input("Header Row (1-based)", min_value=1, max_value=10, value=1, step=1, key='od_header_row') - 1
+                    os_df = pd.read_excel(chosen_os_file, sheet_name=os_sheet, header=header_row)
+                    if st.checkbox("Preview Raw OS Data"):
+                        st.write("Raw OS Data (first 20):")
+                        st.dataframe(os_df.head(20))
+                    columns = os_df.columns.tolist()
+                    st.subheader("OS Column Mapping")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        os_area_col = st.selectbox(
+                            "Select Area",
+                            columns,
+                            index=columns.index('Branch') if 'Branch' in columns else 0,
+                            help="Contains branch names",
+                            key='os_area_col'
+                        )
+                        os_qty_col = st.selectbox(
+                            "Select Net Value",
+                            columns,
+                            index=columns.index('Net Value') if 'Net Value' in columns else 0,
+                            help="Contains net values",
+                            key='os_qty_col'
+                        )
+                    with col2:
+                        os_due_date_col = st.selectbox(
+                            "Select Due Date",
+                            columns,
+                            index=columns.index('Due Date') if 'Due Date' in columns else 0,
+                            help="Contains due dates",
+                            key='os_due_date_col'
+                        )
+                        os_exec_col = st.selectbox(
+                            "Select Executive Column",
+                            columns,
+                            index=columns.index('Executive Name') if 'Executive Name' in columns else 0,
+                            key='os_exec'
+                        )
+                    st.subheader("Due Date Filter")
+                    try:
+                        os_df[os_due_date_col] = pd.to_datetime(os_df[os_due_date_col], errors='coerce')
+                        years = sorted(os_df[os_due_date_col].dt.year.dropna().astype(int).unique().tolist())
+                    except Exception as e:
+                        st.error(f"Error processing due dates: {e}. Ensure valid date format.")
+                        years = []
+                    if not years:
+                        st.warning("No valid due dates found in the dataset.")
                     else:
-                        month_options = ['January', 'February', 'March', 'April', 'May', 'June',
-                                        'July', 'August', 'September', 'October', 'November', 'December']
-                        till_month = st.selectbox("Select Month", month_options, key='till_month')
+                        selected_years = st.multiselect(
+                            "Select years for filtering",
+                            options=[str(year) for year in years],
+                            default=[str(year) for year in years],
+                            key='year_multiselect'
+                        )
+                        if not selected_years:
+                            st.error("Please select at least one year.")
+                        else:
+                            month_options = ['January', 'February', 'March', 'April', 'May', 'June',
+                                            'July', 'August', 'September', 'October', 'November', 'December']
+                            till_month = st.selectbox("Select Month", month_options, key='till_month')
 
-                st.subheader("Filter Options")
-                filter_tabs = st.tabs(["Branches", "Executives"])
-                with filter_tabs[0]:
-                    os_branches = sorted(set([b for b in os_df[os_area_col].apply(extract_area_name).dropna().unique() if b]))
-                    if not os_branches:
-                        st.error("No valid branches found in OS data.")
-                    else:
-                        os_branch_select_all = st.checkbox("Select All OS Branches", value=True, key='od_branch_all')
-                        selected_os_branches = []
-                        if os_branch_select_all:
-                            selected_os_branches = os_branches
+                    st.subheader("Filter Options")
+                    filter_tabs = st.tabs(["Branches", "Executives"])
+                    with filter_tabs[0]:
+                        os_branches = sorted(set([b for b in os_df[os_area_col].apply(extract_area_name).dropna().unique() if b]))
+                        if not os_branches:
+                            st.error("No valid branches found in OS data.")
+                        else:
+                            os_branch_select_all = st.checkbox("Select All OS Branches", value=True, key='od_branch_all')
+                            selected_os_branches = []
+                            if os_branch_select_all:
+                                selected_os_branches = os_branches
+                            else:
+                                num_cols = 3
+                                branch_cols = st.columns(num_cols)
+                                for i, branch in enumerate(os_branches):
+                                    col_idx = i % num_cols
+                                    with branch_cols[col_idx]:
+                                        if st.checkbox(branch, key=f'od_branch_{branch}'):
+                                            selected_os_branches.append(branch)
+                    with filter_tabs[1]:
+                        os_executives = sorted(os_df[os_exec_col].dropna().astype(str).unique().tolist())
+                        os_exec_select_all = st.checkbox("Select All Executives", value=True, key='od_exec_all')
+                        selected_os_executives = []
+                        if os_exec_select_all:
+                            selected_os_executives = os_executives
                         else:
                             num_cols = 3
-                            branch_cols = st.columns(num_cols)
-                            for i, branch in enumerate(os_branches):
+                            exec_cols = st.columns(num_cols)
+                            for i, exec_name in enumerate(os_executives):
                                 col_idx = i % num_cols
-                                with branch_cols[col_idx]:
-                                    if st.checkbox(branch, key=f'od_branch_{branch}'):
-                                        selected_os_branches.append(branch)
-                with filter_tabs[1]:
-                    os_executives = sorted(os_df[os_exec_col].dropna().astype(str).unique().tolist())
-                    os_exec_select_all = st.checkbox("Select All Executives", value=True, key='od_exec_all')
-                    selected_os_executives = []
-                    if os_exec_select_all:
-                        selected_os_executives = os_executives
-                    else:
-                        num_cols = 3
-                        exec_cols = st.columns(num_cols)
-                        for i, exec_name in enumerate(os_executives):
-                            col_idx = i % num_cols
-                            with exec_cols[col_idx]:
-                                if st.checkbox(exec_name, key=f'od_exec_{exec_name}'):
-                                    selected_os_executives.append(exec_name)
-                if st.button("Generate Report", key='od_generate'):
-                    if not selected_years or not till_month:
-                        st.error("Please select at least one year and one month.")
-                    else:
-                        with st.spinner("Generating report..."):
-                            od_target_df, start_date, end_date = filter_os_qty(
-                                os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
-                                selected_branches=selected_os_branches,
-                                selected_years=selected_years,
-                                till_month=till_month,
-                                selected_executives=selected_os_executives
-                            )
-                            if od_target_df is not None:
-                                start_str = start_date.strftime('%b %Y') if start_date else 'All Periods'
-                                end_str = end_date.strftime('%b %Y') if end_date else 'All Periods'
-                                od_title = f"OD Target - {end_str} (Value in Lakhs)"
-                                st.subheader(od_title)
-                                st.dataframe(od_target_df)
-                                img_buffer = create_od_table_image(od_target_df, od_title)
-                                if img_buffer:
-                                    st.image(img_buffer, use_column_width=True)
-                                prs = Presentation()
-                                prs.slide_width = Inches(13.33)
-                                prs.slide_height = Inches(7.5)
-                                create_title_slide(prs, od_title, st.session_state.logo_file)
-                                slide_layout = prs.slide_layouts[6]
-                                slide = prs.slides.add_slide(slide_layout)
-                                create_od_ppt_slide(slide, od_target_df, od_title)
-                                ppt_buffer = BytesIO()
-                                prs.save(ppt_buffer)
-                                ppt_buffer.seek(0)
-                                st.download_button(
-                                    label="Download OD Target PPT",
-                                    data=ppt_buffer,
-                                    file_name=f"OD_target_by_executive_{end_str}.pptx",
-                                    mime="application",
-                                    key='od_target_download'
+                                with exec_cols[col_idx]:
+                                    if st.checkbox(exec_name, key=f'od_exec_{exec_name}'):
+                                        selected_os_executives.append(exec_name)
+                    if st.button("Generate Report", key='od_generate'):
+                        if not selected_years or not till_month:
+                            st.error("Please select at least one year and one month.")
+                        else:
+                            with st.spinner("Generating report..."):
+                                od_target_df, start_date, end_date = filter_os_qty(
+                                    os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
+                                    selected_branches=selected_os_branches,
+                                    selected_years=selected_years,
+                                    till_month=till_month,
+                                    selected_executives=selected_os_executives
                                 )
-                                if 'od_results' not in st.session_state:
-                                    st.session_state['od_results'] = []
-                                st.session_state.od_results.append({'df': od_target_df, 'title': od_title})
-                            else:
-                                st.error("Failed to generate report. Please check your data and selections.")
-            except Exception as e:
-                st.error(f"Error in tab: {e}")
-                st.error(traceback.format_exc())
-
+                                if od_target_df is not None:
+                                    start_str = start_date.strftime('%b %Y') if start_date else 'All Periods'
+                                    end_str = end_date.strftime('%b %Y') if end_date else 'All Periods'
+                                    od_title = f"OD Target - {end_str}"
+                                    st.subheader(od_title)
+                                    st.dataframe(od_target_df)
+                                    img_buffer = create_od_table_image(od_target_df, od_title)
+                                    if img_buffer:
+                                        st.image(img_buffer, use_column_width=True)
+                                    
+                                    # ✅ UPDATED POWERPOINT CREATION SECTION
+                                    prs = Presentation()
+                                    prs.slide_width = Inches(13.33)
+                                    prs.slide_height = Inches(7.5)
+                                    create_title_slide(prs, od_title, st.session_state.logo_file)
+                                    
+                                    # 🔄 NEW: Use the splitting function instead of single slide
+                                    create_od_ppt_slides(prs, od_target_df, od_title)
+                                    
+                                    # Continue with the rest of PowerPoint processing
+                                    ppt_buffer = BytesIO()
+                                    prs.save(ppt_buffer)
+                                    ppt_buffer.seek(0)
+                                    st.download_button(
+                                        label="Download OD Target PPT",
+                                        data=ppt_buffer,
+                                        file_name=f"OD_target_by_executive_{end_str}.pptx",
+                                        mime="application",
+                                        key='od_target_download'
+                                    )
+                                    if 'od_results' not in st.session_state:
+                                        st.session_state['od_results'] = []
+                                    st.session_state.od_results.append({'df': od_target_df, 'title': od_title})
+                                else:
+                                    st.error("Failed to generate report. Please check your data and selections.")
+                except Exception as e:
+                    st.error(f"Error in tab: {e}")
+                    st.error(traceback.format_exc())
+   # Summary Report Generator
     st.divider()
     st.header("Summary Report Generator")
     all_dfs_info = []
@@ -3053,7 +3362,7 @@ def main():
                 else:
                     st.error("Failed to create consolidated PowerPoint. Please check the reports data.")
     else:
-        st.info("No reports generated yet.")
+       st.info("No reports generated yet.")
 
 if __name__ == "__main__":
-    main()
+   main()
