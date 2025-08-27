@@ -1182,6 +1182,7 @@ column_aliases = {
 
 }
 
+
 with tab3:
     
     # Header for Region Month-wise Analysis
@@ -1208,30 +1209,6 @@ with tab3:
     north_regions = ['BGLR', 'CHENNAI', 'PONDY']
     west_regions = ['COVAI', 'ERODE', 'MADURAI', 'POULTRY', 'KARUR', 'SALEM', 'TIRUPUR']
     group_companies = ['GROUP', 'Group', 'GROUP COMPANIES']  # Special handling for these
-
-    # Helper function to normalize branch names
-    def normalize_branch_name(branch_name):
-        """Normalize branch names for consistent matching"""
-        if pd.isna(branch_name) or branch_name is None:
-            return ''
-        
-        # Convert to string and strip whitespace
-        branch_str = str(branch_name).strip().upper()
-        
-        # Handle common variations
-        branch_mapping = {
-            'CHENNAI': 'CHENNAI',
-            'CHEN': 'CHENNAI',
-            'COVAI': 'COVAI',
-            'COIMBATORE': 'COVAI',
-            'PONDY': 'PONDY',
-            'PONDICHERRY': 'PONDY',
-            'POULTRY': 'POULTRY',
-            'GROUP': 'GROUP',
-            'GROUP COMPANIES': 'GROUP',
-        }
-        
-        return branch_mapping.get(branch_str, branch_str)
 
     # Helper function to clean region data
     def clean_region_data(df, data_type='MT'):
@@ -1306,13 +1283,14 @@ with tab3:
             df_clean = pd.concat([df_clean, pd.DataFrame([group_total_row])], ignore_index=True)
 
         # Calculate GRAND TOTAL
-        individual_regions = df_clean[df_clean[id_col].isin(['NORTH TOTAL', 'WEST SALES', 'GROUP COMPANIES'])]
+        individual_regions = df_clean[~df_clean[id_col].isin(['NORTH TOTAL', 'WEST SALES', 'GROUP COMPANIES'])]
         if not individual_regions.empty:
             grand_total_row = {id_col: 'GRAND TOTAL'}
-            numeric_cols = summary_regions.select_dtypes(include=[np.number]).columns
+            numeric_cols = individual_regions.select_dtypes(include=[np.number]).columns
             for col in numeric_cols:
-                grand_total_row[col] = summary_regions[col].sum().round(2)
+                grand_total_row[col] = individual_regions[col].sum().round(2)
             df_clean = pd.concat([df_clean, pd.DataFrame([grand_total_row])], ignore_index=True)
+
         # Custom ordering
         north_regions_rows = df_clean[df_clean[id_col].str.upper().isin([r.upper() for r in north_regions])].sort_values(by=id_col)
         north_total_rows = df_clean[df_clean[id_col] == 'NORTH TOTAL']
@@ -1443,8 +1421,7 @@ with tab3:
                             if f'{month_col}_MT' in budget_data.columns:
                                 result_mt[f'LY-{orig_month}'] = budget_data[f'{month_col}_MT']
                         
-                        # IMPROVED: Normalize region names in budget data
-                        result_mt['REGIONS'] = result_mt['REGIONS'].apply(normalize_branch_name)
+                        result_mt['REGIONS'] = result_mt['REGIONS'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper())
 
                         actual_mt_data = {}
                         selected_sheet_last_year = st.session_state.get('last_year_sheet')
@@ -1471,10 +1448,7 @@ with tab3:
                                         df_sales.columns = ['Branch', 'Month Format', 'Actual Quantity']
                                         
                                         df_sales['Actual Quantity'] = pd.to_numeric(df_sales['Actual Quantity'], errors='coerce').fillna(0)
-                                        
-                                        # IMPROVED: Normalize branch names and filter out empty ones
-                                        df_sales['Branch'] = df_sales['Branch'].apply(normalize_branch_name)
-                                        df_sales = df_sales[df_sales['Branch'] != '']  # Filter out empty branch names
+                                        df_sales['Branch'] = df_sales['Branch'].replace([pd.NA, np.nan, None], '')
                                         
                                         if pd.api.types.is_datetime64_any_dtype(df_sales['Month Format']):
                                             df_sales['Month'] = pd.to_datetime(df_sales['Month Format']).dt.strftime('%b')
@@ -1500,8 +1474,6 @@ with tab3:
                                             
                                             year = str(fiscal_year_start)[-2:] if month in months[:9] else str(fiscal_year_end)[-2:]
                                             col_name = f'Act-{month}-{year}'
-                                            
-                                
                                             
                                             if branch not in actual_mt_data:
                                                 actual_mt_data[branch] = {}
@@ -1535,10 +1507,7 @@ with tab3:
                                     df_last_year.columns = ['Branch', 'Month Format', 'Actual Quantity']
                                     
                                     df_last_year['Actual Quantity'] = pd.to_numeric(df_last_year['Actual Quantity'], errors='coerce').fillna(0)
-                                    
-                                    # IMPROVED: Normalize branch names and filter out empty ones
-                                    df_last_year['Branch'] = df_last_year['Branch'].apply(normalize_branch_name)
-                                    df_last_year = df_last_year[df_last_year['Branch'] != '']  # Filter out empty branch names
+                                    df_last_year['Branch'] = df_last_year['Branch'].replace([pd.NA, np.nan, None], '')
                                     
                                     if pd.api.types.is_datetime64_any_dtype(df_last_year['Month Format']):
                                         df_last_year['Month'] = pd.to_datetime(df_last_year['Month Format']).dt.strftime('%b')
@@ -1581,11 +1550,9 @@ with tab3:
                                 st.warning(f"Error processing last year data: {str(e)}")
                         else:
                             st.info("ℹ️ No last year file uploaded. Last year comparison data will not be available.")
-                    
                         
-                        # Merge actual data with budget data using normalized names
+                        # Merge actual data with budget data
                         for branch, data in actual_mt_data.items():
-                            # Find matching rows by normalized branch name
                             matching_rows = result_mt[result_mt['REGIONS'] == branch]
                             if not matching_rows.empty:
                                 idx = matching_rows.index[0]
@@ -1597,8 +1564,6 @@ with tab3:
                                         result_mt.loc[idx, col] = existing_value + value
                                     else:
                                         result_mt.loc[idx, col] = value
-                            else:
-                                st.warning(f"⚠️ Branch '{branch}' from sales data not found in budget data")
                         
                         # Handle duplicates
                         if result_mt['REGIONS'].duplicated().any():
@@ -1703,8 +1668,7 @@ with tab3:
                             if f'{month_col}_Value' in budget_data.columns:
                                 result_value[f'LY-{orig_month}'] = budget_data[f'{month_col}_Value']
                         
-                        # IMPROVED: Normalize region names in budget data
-                        result_value['REGIONS'] = result_value['REGIONS'].apply(normalize_branch_name)
+                        result_value['REGIONS'] = result_value['REGIONS'].replace([pd.NA, np.nan, None], '').apply(lambda x: str(x).strip().upper())
 
                         actual_value_data = {}
                         
@@ -1730,10 +1694,7 @@ with tab3:
                                         df_sales.columns = ['Branch', 'Month Format', 'Value']
                                         
                                         df_sales['Value'] = pd.to_numeric(df_sales['Value'], errors='coerce').fillna(0)
-                                        
-                                        # IMPROVED: Normalize branch names and filter out empty ones
-                                        df_sales['Branch'] = df_sales['Branch'].apply(normalize_branch_name)
-                                        df_sales = df_sales[df_sales['Branch'] != '']  # Filter out empty branch names
+                                        df_sales['Branch'] = df_sales['Branch'].replace([pd.NA, np.nan, None], '')
                                         
                                         if pd.api.types.is_datetime64_any_dtype(df_sales['Month Format']):
                                             df_sales['Month'] = pd.to_datetime(df_sales['Month Format']).dt.strftime('%b')
@@ -1792,10 +1753,7 @@ with tab3:
                                     df_last_year.columns = ['Branch', 'Month Format', 'Amount']
                                     
                                     df_last_year['Amount'] = pd.to_numeric(df_last_year['Amount'], errors='coerce').fillna(0)
-                                    
-                                    # IMPROVED: Normalize branch names and filter out empty ones
-                                    df_last_year['Branch'] = df_last_year['Branch'].apply(normalize_branch_name)
-                                    df_last_year = df_last_year[df_last_year['Branch'] != '']  # Filter out empty branch names
+                                    df_last_year['Branch'] = df_last_year['Branch'].replace([pd.NA, np.nan, None], '')
                                     
                                     if pd.api.types.is_datetime64_any_dtype(df_last_year['Month Format']):
                                         df_last_year['Month'] = pd.to_datetime(df_last_year['Month Format']).dt.strftime('%b')
@@ -1839,9 +1797,8 @@ with tab3:
                         else:
                             st.info("ℹ️ No last year file uploaded. Last year comparison data will not be available.")
                         
-                        # Merge and process value data using normalized names
+                        # Merge and process value data
                         for branch, data in actual_value_data.items():
-                        # Find matching rows by normalized branch name
                             matching_rows = result_value[result_value['REGIONS'] == branch]
                             if not matching_rows.empty:
                                 idx = matching_rows.index[0]
@@ -1853,8 +1810,6 @@ with tab3:
                                         result_value.loc[idx, col] = existing_value + value
                                     else:
                                         result_value.loc[idx, col] = value
-                            else:
-                                st.warning(f"⚠️ Branch '{branch}' from sales data not found in budget data")
                         
                         if result_value['REGIONS'].duplicated().any():
                             numeric_cols_result = result_value.select_dtypes(include=[np.number]).columns
@@ -1937,7 +1892,7 @@ with tab3:
                     else:
                         st.warning("No budget value columns found.")
 
-                # Merge tab with auditor data (rest of the code remains the same)
+                # Merge tab with auditor data
                 with tab_merge:
                     duplicate_info = []
                     if 'region_analysis_data' in st.session_state and not st.session_state.region_analysis_data.empty:
@@ -2042,9 +1997,6 @@ with tab3:
                                 if 'SALES in MT' in generated_mt.columns:
                                     generated_mt = generated_mt.rename(columns={'SALES in MT': 'REGIONS'})
                                 generated_mt['REGIONS'] = generated_mt['REGIONS'].replace([pd.NA, np.nan, None], '')
-                                
-                                # IMPROVED: Normalize auditor region names too
-                                auditor_mt['SALES in MT'] = auditor_mt['SALES in MT'].apply(normalize_branch_name)
                                 
                                 auditor_regions = set(auditor_mt['SALES in MT'].str.strip().str.upper())
                                 generated_regions = set(generated_mt['REGIONS'].str.strip().str.upper())
@@ -2162,9 +2114,6 @@ with tab3:
                                 if 'SALES in Value' in generated_value.columns:
                                     generated_value = generated_value.rename(columns={'SALES in Value': 'REGIONS'})
                                 generated_value['REGIONS'] = generated_value['REGIONS'].replace([pd.NA, np.nan, None], '')
-                                
-                                # IMPROVED: Normalize auditor region names too
-                                auditor_value['SALES in Value'] = auditor_value['SALES in Value'].apply(normalize_branch_name)
                                 
                                 auditor_regions = set(auditor_value['SALES in Value'].str.strip().str.upper())
                                 generated_regions = set(generated_value['REGIONS'].str.strip().str.upper())
