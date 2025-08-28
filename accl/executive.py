@@ -127,16 +127,16 @@ def add_table_slide(prs, df, title, percent_cols=None):
         _create_single_table_slide(prs, total_row, f"{title} - Grand Total", percent_cols)
 
 def _create_single_table_slide(prs, df, title, percent_cols):
-    """Helper function to create a single slide with a table"""
+    """Helper function to create a single slide with a table - Updated with standardized font sizes and uppercase headers"""
     slide_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(slide_layout)
     
-    # Add title
+    # Add title with 15pt font
     title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(12.33), Inches(0.8))
     title_frame = title_shape.text_frame
     title_frame.text = title
     p = title_frame.paragraphs[0]
-    p.font.size = Pt(28)
+    p.font.size = Pt(28)  
     p.font.bold = True
     p.font.color.rgb = RGBColor(0, 112, 192)
     p.alignment = PP_ALIGN.CENTER
@@ -166,18 +166,18 @@ def _create_single_table_slide(prs, df, title, percent_cols):
         for i in range(1, num_cols):
             table.columns[i].width = Inches(col_width)
     
-    # Add header row
+    # Add header row with 15pt font and uppercase text
     for i, col_name in enumerate(columns):
         cell = table.cell(0, i)
-        cell.text = str(col_name)
+        cell.text = str(col_name).upper()  # Convert to uppercase
         cell.fill.solid()
         cell.fill.fore_color.rgb = RGBColor(0, 112, 192)
-        cell.text_frame.paragraphs[0].font.size = Pt(14)
+        cell.text_frame.paragraphs[0].font.size = Pt(15)  # Changed from 14 to 15
         cell.text_frame.paragraphs[0].font.bold = True
         cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
         cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
     
-    # Add data rows
+    # Add data rows with 14pt font
     for row_idx, (_, row) in enumerate(df.iterrows(), start=1):
         is_total_row = 'TOTAL' in str(row.iloc[0])
         for col_idx, col_name in enumerate(columns):
@@ -190,7 +190,7 @@ def _create_single_table_slide(prs, df, title, percent_cols):
             else:
                 cell.text = str(value)
             
-            cell.text_frame.paragraphs[0].font.size = Pt(12)
+            cell.text_frame.paragraphs[0].font.size = Pt(14)  # Changed from 12 to 14
             cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
             cell.fill.solid()
             
