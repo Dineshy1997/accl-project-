@@ -288,31 +288,38 @@ def create_title_slide(prs, title, logo_file=None):
     p.font.color.rgb = RGBColor(0, 112, 192)    
     return title_slide
 def add_table_slide(prs, df, title, percent_cols=None):
-    """Add a slide with a table to a PPT presentation."""
+    """Add a slide with a table to a PPT presentation - Updated with standardized font sizes and uppercase headers."""
     if df is None or df.empty:
         return None
     slide_layout = prs.slide_layouts[6]  # Blank layout
     slide = prs.slides.add_slide(slide_layout)
+    
+    # Title with 15pt font
     title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.5), Inches(12.33), Inches(0.75))
     title_frame = title_shape.text_frame
     title_frame.text = title
     p = title_frame.paragraphs[0]
     p.alignment = PP_ALIGN.CENTER
-    p.font.size = Pt(24)
+    p.font.size = Pt(24)  # Changed from 24 to 15
     p.font.bold = True
     p.font.color.rgb = RGBColor(0, 112, 192)
+    
     rows, cols = df.shape
     table = slide.shapes.add_table(rows + 1, cols, Inches(0.5), Inches(1.5), Inches(12.33), Inches(5.5)).table
+    
+    # Header row with 15pt font and uppercase text
     for col_idx, col_name in enumerate(df.columns):
         cell = table.cell(0, col_idx)
-        cell.text = str(col_name)
-        cell.text_frame.paragraphs[0].font.size = Pt(12)
+        cell.text = str(col_name).upper()  # Convert to uppercase
+        cell.text_frame.paragraphs[0].font.size = Pt(15)  # Changed from 12 to 15
         cell.text_frame.paragraphs[0].font.bold = True
         cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
         cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
         cell.fill.solid()
         cell.fill.fore_color.rgb = RGBColor(0, 112, 192)
         cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
+    
+    # Data rows with 14pt font
     for row_idx in range(df.shape[0]):
         is_total_row = row_idx == rows - 1 and str(df.iloc[row_idx, 0]).upper() in ['TOTAL', 'GRAND TOTAL']
         for col_idx in range(cols):
@@ -322,7 +329,7 @@ def add_table_slide(prs, df, title, percent_cols=None):
                 cell.text = f"{value}%"
             else:
                 cell.text = str(value)
-            cell.text_frame.paragraphs[0].font.size = Pt(11)
+            cell.text_frame.paragraphs[0].font.size = Pt(14)  # Changed from 11 to 14
             cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
             cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
             if row_idx % 2 == 0 and not is_total_row:
@@ -331,8 +338,9 @@ def add_table_slide(prs, df, title, percent_cols=None):
             if is_total_row:
                 cell.text_frame.paragraphs[0].font.bold = True
                 cell.fill.solid()
-                cell.fill.fore_color.rgb = RGBColor(211, 211, 211)    
+                cell.fill.fore_color.rgb = RGBColor(211, 211, 211)
     return slide
+
 def create_consolidated_ppt(all_dfs_with_titles, logo_file=None, title="ACCLLP Consolidated Report"):
     """Create a consolidated PPT with all report data."""
     try:
@@ -781,7 +789,7 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
         
         # STEP 3: Aggregate by Branch for Budget vs Billed reports - NUCLEAR FIX APPROACH
         
-        # FIXED: Build QUANTITY DataFrame from scratch with proper percentage calculation and units
+        # FIXED: Build QUANTITY DataFrame from scratch with proper percentage calculation and UPPERCASE headers
         qty_data = []
         for area in default_branches:
             # Find matching data in results
@@ -801,16 +809,16 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
                 percentage = 0.0
             
             qty_data.append({
-                'Area': area,
-                'Budget Qty/MT': budget_val,
-                'Billed Qty/MT': billed_val,
+                'AREA': area,
+                'BUDGET QTY/MT': budget_val,
+                'BILLED QTY/MT': billed_val,
                 '%': percentage
             })
         
         # Create fresh DataFrame
         budget_vs_billed_qty_df = pd.DataFrame(qty_data)
         
-        # FIXED: Build VALUE DataFrame from scratch with proper percentage calculation and units
+        # FIXED: Build VALUE DataFrame from scratch with proper percentage calculation and UPPERCASE headers
         value_data = []
         for area in default_branches:
             # Find matching data in results
@@ -830,9 +838,9 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
                 percentage = 0.0
             
             value_data.append({
-                'Area': area,
-                'Budget Value/L': budget_val,
-                'Billed Value/L': billed_val,
+                'AREA': area,
+                'BUDGET VALUE/L': budget_val,
+                'BILLED VALUE/L': billed_val,
                 '%': percentage
             })
         
@@ -855,97 +863,97 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
         }).reset_index()
         budget_totals.columns = ['Area', 'Budget_Qty', 'Budget_Value']
         
-        # Overall Sales Quantity DataFrame with units
-        overall_sales_qty_df = pd.DataFrame({'Area': default_branches})
+        # Overall Sales Quantity DataFrame with UPPERCASE headers
+        overall_sales_qty_df = pd.DataFrame({'AREA': default_branches})
         overall_sales_qty_df = pd.merge(
             overall_sales_qty_df,
-            budget_totals[['Area', 'Budget_Qty']].rename(columns={'Budget_Qty': 'Budget Qty/MT'}),
-            on='Area',
+            budget_totals[['Area', 'Budget_Qty']].rename(columns={'Area': 'AREA', 'Budget_Qty': 'BUDGET QTY/MT'}),
+            on='AREA',
             how='left'
-        ).fillna({'Budget Qty/MT': 0})
+        ).fillna({'BUDGET QTY/MT': 0})
         
         overall_sales_qty_df = pd.merge(
             overall_sales_qty_df,
-            overall_sales_data[['Area', 'Overall_Sales_Qty']].rename(columns={'Overall_Sales_Qty': 'Billed Qty/MT'}),
-            on='Area',
+            overall_sales_data[['Area', 'Overall_Sales_Qty']].rename(columns={'Area': 'AREA', 'Overall_Sales_Qty': 'BILLED QTY/MT'}),
+            on='AREA',
             how='left'
-        ).fillna({'Billed Qty/MT': 0})
+        ).fillna({'BILLED QTY/MT': 0})
         
-        # Overall Sales Value DataFrame with units
-        overall_sales_value_df = pd.DataFrame({'Area': default_branches})
+        # Overall Sales Value DataFrame with UPPERCASE headers
+        overall_sales_value_df = pd.DataFrame({'AREA': default_branches})
         overall_sales_value_df = pd.merge(
             overall_sales_value_df,
-            budget_totals[['Area', 'Budget_Value']].rename(columns={'Budget_Value': 'Budget Value/L'}),
-            on='Area',
+            budget_totals[['Area', 'Budget_Value']].rename(columns={'Area': 'AREA', 'Budget_Value': 'BUDGET VALUE/L'}),
+            on='AREA',
             how='left'
-        ).fillna({'Budget Value/L': 0})
+        ).fillna({'BUDGET VALUE/L': 0})
         
         overall_sales_value_df = pd.merge(
             overall_sales_value_df,
-            overall_sales_data[['Area', 'Overall_Sales_Value']].rename(columns={'Overall_Sales_Value': 'Billed Value/L'}),
-            on='Area',
+            overall_sales_data[['Area', 'Overall_Sales_Value']].rename(columns={'Area': 'AREA', 'Overall_Sales_Value': 'BILLED VALUE/L'}),
+            on='AREA',
             how='left'
-        ).fillna({'Billed Value/L': 0})
+        ).fillna({'BILLED VALUE/L': 0})
         
-        # STEP 5: Add Total Rows with proper rounding
+        # STEP 5: Add Total Rows with proper rounding and UPPERCASE headers
         
         # Add total row for budget vs billed quantity
-        total_budget_qty = round(budget_vs_billed_qty_df['Budget Qty/MT'].sum(), 2)
-        total_billed_qty = round(budget_vs_billed_qty_df['Billed Qty/MT'].sum(), 2)
+        total_budget_qty = round(budget_vs_billed_qty_df['BUDGET QTY/MT'].sum(), 2)
+        total_billed_qty = round(budget_vs_billed_qty_df['BILLED QTY/MT'].sum(), 2)
         total_percentage_qty = round((total_billed_qty / total_budget_qty * 100), 2) if total_budget_qty > 0 else 0.0
         
         total_row_qty = pd.DataFrame({
-            'Area': ['TOTAL'],
-            'Budget Qty/MT': [total_budget_qty],
-            'Billed Qty/MT': [total_billed_qty],
+            'AREA': ['TOTAL'],
+            'BUDGET QTY/MT': [total_budget_qty],
+            'BILLED QTY/MT': [total_billed_qty],
             '%': [total_percentage_qty]
         })
         budget_vs_billed_qty_df = pd.concat([budget_vs_billed_qty_df, total_row_qty], ignore_index=True)
         
         # Add total row for budget vs billed value
-        total_budget_value = round(budget_vs_billed_value_df['Budget Value/L'].sum(), 2)
-        total_billed_value = round(budget_vs_billed_value_df['Billed Value/L'].sum(), 2)
+        total_budget_value = round(budget_vs_billed_value_df['BUDGET VALUE/L'].sum(), 2)
+        total_billed_value = round(budget_vs_billed_value_df['BILLED VALUE/L'].sum(), 2)
         total_percentage_value = round((total_billed_value / total_budget_value * 100), 2) if total_budget_value > 0 else 0.0
         
         total_row_value = pd.DataFrame({
-            'Area': ['TOTAL'],
-            'Budget Value/L': [total_budget_value],
-            'Billed Value/L': [total_billed_value],
+            'AREA': ['TOTAL'],
+            'BUDGET VALUE/L': [total_budget_value],
+            'BILLED VALUE/L': [total_billed_value],
             '%': [total_percentage_value]
         })
         budget_vs_billed_value_df = pd.concat([budget_vs_billed_value_df, total_row_value], ignore_index=True)
         
         # Add total rows for overall sales
         total_row_overall_qty = pd.DataFrame({
-            'Area': ['TOTAL'],
-            'Budget Qty/MT': [round(overall_sales_qty_df['Budget Qty/MT'].sum(), 2)],
-            'Billed Qty/MT': [round(overall_sales_qty_df['Billed Qty/MT'].sum(), 2)]
+            'AREA': ['TOTAL'],
+            'BUDGET QTY/MT': [round(overall_sales_qty_df['BUDGET QTY/MT'].sum(), 2)],
+            'BILLED QTY/MT': [round(overall_sales_qty_df['BILLED QTY/MT'].sum(), 2)]
         })
         overall_sales_qty_df = pd.concat([overall_sales_qty_df, total_row_overall_qty], ignore_index=True)
         
         total_row_overall_value = pd.DataFrame({
-            'Area': ['TOTAL'],
-            'Budget Value/L': [round(overall_sales_value_df['Budget Value/L'].sum(), 2)],
-            'Billed Value/L': [round(overall_sales_value_df['Billed Value/L'].sum(), 2)]
+            'AREA': ['TOTAL'],
+            'BUDGET VALUE/L': [round(overall_sales_value_df['BUDGET VALUE/L'].sum(), 2)],
+            'BILLED VALUE/L': [round(overall_sales_value_df['BILLED VALUE/L'].sum(), 2)]
         })
         overall_sales_value_df = pd.concat([overall_sales_value_df, total_row_overall_value], ignore_index=True)
         
         # FINAL ROUNDING: Convert to integers for final display (keeping original behavior)
-        budget_vs_billed_value_df['Budget Value/L'] = budget_vs_billed_value_df['Budget Value/L'].round(0).astype(int)
-        budget_vs_billed_value_df['Billed Value/L'] = budget_vs_billed_value_df['Billed Value/L'].round(0).astype(int)
-        budget_vs_billed_qty_df['Budget Qty/MT'] = budget_vs_billed_qty_df['Budget Qty/MT'].round(0).astype(int)
-        budget_vs_billed_qty_df['Billed Qty/MT'] = budget_vs_billed_qty_df['Billed Qty/MT'].round(0).astype(int)
-        overall_sales_qty_df['Budget Qty/MT'] = overall_sales_qty_df['Budget Qty/MT'].round(0).astype(int)
-        overall_sales_qty_df['Billed Qty/MT'] = overall_sales_qty_df['Billed Qty/MT'].round(0).astype(int)
-        overall_sales_value_df['Budget Value/L'] = overall_sales_value_df['Budget Value/L'].round(0).astype(int)
-        overall_sales_value_df['Billed Value/L'] = overall_sales_value_df['Billed Value/L'].round(0).astype(int)
+        budget_vs_billed_value_df['BUDGET VALUE/L'] = budget_vs_billed_value_df['BUDGET VALUE/L'].round(0).astype(int)
+        budget_vs_billed_value_df['BILLED VALUE/L'] = budget_vs_billed_value_df['BILLED VALUE/L'].round(0).astype(int)
+        budget_vs_billed_qty_df['BUDGET QTY/MT'] = budget_vs_billed_qty_df['BUDGET QTY/MT'].round(0).astype(int)
+        budget_vs_billed_qty_df['BILLED QTY/MT'] = budget_vs_billed_qty_df['BILLED QTY/MT'].round(0).astype(int)
+        overall_sales_qty_df['BUDGET QTY/MT'] = overall_sales_qty_df['BUDGET QTY/MT'].round(0).astype(int)
+        overall_sales_qty_df['BILLED QTY/MT'] = overall_sales_qty_df['BILLED QTY/MT'].round(0).astype(int)
+        overall_sales_value_df['BUDGET VALUE/L'] = overall_sales_value_df['BUDGET VALUE/L'].round(0).astype(int)
+        overall_sales_value_df['BILLED VALUE/L'] = overall_sales_value_df['BILLED VALUE/L'].round(0).astype(int)
         
         # ADDITIONAL SAFETY CHECK: Force fix any remaining percentage anomalies
         for df_name, df in [("QTY", budget_vs_billed_qty_df), ("VALUE", budget_vs_billed_value_df)]:
             if df_name == "QTY":
-                budget_col, billed_col = 'Budget Qty/MT', 'Billed Qty/MT'
+                budget_col, billed_col = 'BUDGET QTY/MT', 'BILLED QTY/MT'
             else:
-                budget_col, billed_col = 'Budget Value/L', 'Billed Value/L'
+                budget_col, billed_col = 'BUDGET VALUE/L', 'BILLED VALUE/L'
             
             # Check for any remaining anomalies
             final_anomaly_mask = (
@@ -1763,12 +1771,12 @@ def filter_os_qty(os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
     os_grouped_qty = (os_df_positive.groupby(os_area_col)
                     .agg({os_qty_col: 'sum'})
                     .reset_index()
-                    .rename(columns={os_area_col: 'Area', os_qty_col: 'TARGET/L'}))
+                    .rename(columns={os_area_col: 'AREA', os_qty_col: 'TARGET/L'}))
     os_grouped_qty['TARGET/L'] = os_grouped_qty['TARGET/L'] / 100000  # Convert to lakhs
     branches_to_display = selected_branches if selected_branches else all_branches
-    result_df = pd.DataFrame({'Area': branches_to_display})
-    result_df = pd.merge(result_df, os_grouped_qty, on='Area', how='left').fillna({'TARGET/L': 0})
-    total_row = pd.DataFrame([{'Area': 'TOTAL', 'TARGET/L': result_df['TARGET/L'].sum()}])
+    result_df = pd.DataFrame({'AREA': branches_to_display})  # Changed from 'Area' to 'AREA'
+    result_df = pd.merge(result_df, os_grouped_qty, on='AREA', how='left').fillna({'TARGET/L': 0})  # Changed from 'Area' to 'AREA'
+    total_row = pd.DataFrame([{'AREA': 'TOTAL', 'TARGET/L': result_df['TARGET/L'].sum()}])  # Changed from 'Area' to 'AREA'
     result_df = pd.concat([result_df, total_row], ignore_index=True)
     result_df['TARGET/L'] = result_df['TARGET/L'].round(2)
     return result_df, start_date, end_date
@@ -1776,7 +1784,7 @@ def filter_os_qty(os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
 def create_od_table_image(df, title, columns_to_show=None):
     """Create a table image from the OD Target DataFrame."""
     if columns_to_show is None:
-        columns_to_show = ['Area', 'TARGET/L']    
+        columns_to_show = ['AREA', 'TARGET/L']    
     fig, ax = plt.subplots(figsize=(10, len(df) * 0.5))
     ax.axis('off')
     nrows, ncols = len(df), len(columns_to_show)
@@ -1787,8 +1795,8 @@ def create_od_table_image(df, title, columns_to_show=None):
 
     for row_idx in range(len(df)):
         for col_idx, col_name in enumerate(columns_to_show):
-            value = df.iloc[row_idx]['Area'] if col_name == 'Area' else df.iloc[row_idx]['TARGET/L']
-            text = str(value) if col_name == 'Area' else f"{float(value):.2f}"
+            value = df.iloc[row_idx]['AREA'] if col_name == 'AREA' else df.iloc[row_idx]['TARGET/L']
+            text = str(value) if col_name == 'AREA' else f"{float(value):.2f}"
             facecolor = '#DDEBF7' if row_idx % 2 == 0 else 'white'
             if row_idx == len(df) - 1 and df.iloc[row_idx, 0] == 'TOTAL':
                 facecolor = '#D3D3D3'
@@ -1807,10 +1815,7 @@ def create_od_table_image(df, title, columns_to_show=None):
     return img_buffer
 
 def create_od_ppt_slide(slide, df, title):
-    """Add a slide with the OD Target table to the presentation - Updated to match budget slide style."""
-    
-    # Use blank slide layout approach - don't try to modify existing placeholders
-    # Simply create our own title and ignore any existing placeholders
+    """Add a slide with the OD Target table to the presentation - Updated with uppercase column names."""
     
     # Create proper title formatting to match budget slides
     title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.4), Inches(12.33), Inches(0.8))
@@ -1829,7 +1834,7 @@ def create_od_ppt_slide(slide, df, title):
     left = Inches(2.665)         # Center the smaller table
     top = Inches(1.4)            # Position below title
     
-    columns_to_show = ['Area', 'TARGET/L']
+    columns_to_show = ['AREA', 'TARGET/L']  # Changed from 'Area' to 'AREA'
     rows, cols = df.shape[0] + 1, len(columns_to_show)
     
     # Create table
@@ -1871,14 +1876,14 @@ def create_od_ppt_slide(slide, df, title):
     total_row_idx = df.shape[0] - 1
     for row_idx in range(len(df)):
         is_total_row = (row_idx == total_row_idx and 
-                       str(df.iloc[row_idx]['Area']).upper() == 'TOTAL')
+                       str(df.iloc[row_idx]['AREA']).upper() == 'TOTAL')
         
         for col_idx, col_name in enumerate(columns_to_show):
             cell = table.cell(row_idx + 1, col_idx)
             
             # Get and format the value
-            if col_name == 'Area':
-                value = df.iloc[row_idx]['Area']
+            if col_name == 'AREA':
+                value = df.iloc[row_idx]['AREA']
                 cell.text = str(value)
             else:  # TARGET/L column
                 value = df.iloc[row_idx]['TARGET/L']
@@ -1916,7 +1921,7 @@ def create_od_ppt_slide(slide, df, title):
     # Set consistent row heights to match budget slides
     table.rows[0].height = Inches(0.5)   # Header row
     for i in range(1, rows):
-        table.rows[i].height = Inches(0.42)  # Data rows
+        table.rows[i].height = Inches(0.42)
 def create_combined_nbc_od_ppt(customer_df, customer_title, sorted_months, od_target_df, od_title, logo_file=None):
     """Create a single PPT with two slides: one for billed customers, one for OD Target."""
     try:
