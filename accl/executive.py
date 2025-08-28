@@ -46,8 +46,11 @@ def get_excel_sheets(file):
         return []
 
 def create_title_slide(prs, title, logo_file=None):
+    """Updated title slide creation with page number"""
     blank_slide_layout = prs.slide_layouts[6]
     title_slide = prs.slides.add_slide(blank_slide_layout)
+    
+    # Company name
     company_name = title_slide.shapes.add_textbox(Inches(0.5), Inches(0.5), Inches(12.33), Inches(1))
     company_frame = company_name.text_frame
     company_frame.text = "Asia Crystal Commodity LLP"
@@ -57,6 +60,8 @@ def create_title_slide(prs, title, logo_file=None):
     p.font.size = Pt(36)
     p.font.bold = True
     p.font.color.rgb = RGBColor(0, 112, 192)
+    
+    # Logo
     if logo_file is not None:
         try:
             logo_buffer = BytesIO(logo_file.read())
@@ -64,6 +69,8 @@ def create_title_slide(prs, title, logo_file=None):
             logo_file.seek(0)
         except Exception as e:
             logger.error(f"Error adding logo to slide: {e}")
+    
+    # Title
     title_box = title_slide.shapes.add_textbox(Inches(0.5), Inches(4.0), Inches(12.33), Inches(1))
     title_frame = title_box.text_frame
     title_frame.text = title
@@ -73,6 +80,8 @@ def create_title_slide(prs, title, logo_file=None):
     p.font.size = Pt(32)
     p.font.bold = True
     p.font.color.rgb = RGBColor(0, 128, 0)
+    
+    # Subtitle
     subtitle = title_slide.shapes.add_textbox(Inches(0.5), Inches(5.0), Inches(12.33), Inches(1))
     subtitle_frame = subtitle.text_frame
     subtitle_frame.text = "ACCLLP"
@@ -82,9 +91,14 @@ def create_title_slide(prs, title, logo_file=None):
     p.font.size = Pt(28)
     p.font.bold = True
     p.font.color.rgb = RGBColor(0, 112, 192)
+    
+    # Add page number (1) to title slide
+    add_page_number(title_slide, 1)
+    
     return title_slide
 
 def add_table_slide(prs, df, title, percent_cols=None):
+    """Updated table slide creation with page numbering"""
     if percent_cols is None:
         percent_cols = []
     
@@ -93,7 +107,7 @@ def add_table_slide(prs, df, title, percent_cols=None):
         return
     
     # Constants
-    MAX_EXECUTIVES_PER_SLIDE = 15  # Strict limit of 15 executives per slide
+    MAX_EXECUTIVES_PER_SLIDE = 15
     
     # Remove any rows with 'ACCLP' if present
     df = df[df.iloc[:, 0] != "ACCLP"].copy()
@@ -107,6 +121,9 @@ def add_table_slide(prs, df, title, percent_cols=None):
     num_executives = len(df)
     num_slides = math.ceil(num_executives / MAX_EXECUTIVES_PER_SLIDE)
     
+    # Calculate starting page number (assuming title slide is page 1)
+    current_slide_count = len(prs.slides)
+    
     # Process each slide
     for slide_num in range(num_slides):
         start_idx = slide_num * MAX_EXECUTIVES_PER_SLIDE
@@ -115,19 +132,107 @@ def add_table_slide(prs, df, title, percent_cols=None):
         
         # On last slide, try to include TOTAL row if there's space
         if slide_num == num_slides - 1 and total_row is not None:
-            if len(slide_df) + 1 <= MAX_EXECUTIVES_PER_SLIDE:  # +1 for TOTAL row
+            if len(slide_df) + 1 <= MAX_EXECUTIVES_PER_SLIDE:
                 slide_df = pd.concat([slide_df, total_row], ignore_index=True)
-                total_row = None  # Mark as added
+                total_row = None
         
         slide_title = title if num_slides == 1 else f"{title} (Slide {slide_num+1})"
-        _create_single_table_slide(prs, slide_df, slide_title, percent_cols)
+        slide = _create_single_table_slide(prs, slide_df, slide_title, percent_cols)
+        
+        # Add page number to the slide
+        page_number = current_slide_count + slide_num + 1
+        add_page_number(slide, page_number)
     
     # Add final slide with TOTAL row if it wasn't included earlier
     if total_row is not None and not total_row.empty:
-        _create_single_table_slide(prs, total_row, f"{title} - Grand Total", percent_cols)
+        slide = _create_single_table_slide(prs, total_row, f"{title} - Grand Total", percent_cols)
+        page_number = len(prs.slides)
+        add_page_number(slide, page_number)
+
+
+def add_page_number(slide, page_num, total_pages=None):
+    """Add page number to bottom right corner of slide"""
+    try:
+        # Create text box for page number in bottom right corner
+        left = Inches(11.5)  # Position from left
+        top = Inches(6.8)    # Position from top (near bottom)
+        width = Inches(1.5)  # Width of text box
+        height = Inches(0.5) # Height of text box
+        
+        page_textbox = slide.shapes.add_textbox(left, top, width, height)
+        page_frame = page_textbox.text_frame
+        
+        # Set page number text
+        if total_pages:
+            page_frame.text = f"{page_num}/{total_pages}"
+        else:
+            page_frame.text = str(page_num)
+        
+        # Format the page number
+        p = page_frame.paragraphs[0]
+        p.alignment = PP_ALIGN.RIGHT
+        p.font.name = "Times New Roman"
+        p.font.size = Pt(10)
+        p.font.color.rgb = RGBColor(128, 128, 128)  # Gray color
+        
+    except Exception as e:
+        logger.error(f"Error adding page number to slide: {e}")
+
+def add_table_slide(prs, df, title, percent_cols=None):
+    """Updated table slide creation with page numbering"""
+    if percent_cols is None:
+        percent_cols = []
+    
+    if df is None or df.empty:
+        logger.warning(f"Skipping slide for {title}: DataFrame is None or empty")
+        return
+    
+    # Constants
+    MAX_EXECUTIVES_PER_SLIDE = 15
+    
+    # Remove any rows with 'ACCLP' if present
+    df = df[df.iloc[:, 0] != "ACCLP"].copy()
+    
+    # Separate regular executives from TOTAL row if present
+    total_row = None
+    if 'TOTAL' in df.iloc[:, 0].values:
+        total_row = df[df.iloc[:, 0] == 'TOTAL']
+        df = df[df.iloc[:, 0] != 'TOTAL']
+    
+    num_executives = len(df)
+    num_slides = math.ceil(num_executives / MAX_EXECUTIVES_PER_SLIDE)
+    
+    # Calculate starting page number (assuming title slide is page 1)
+    current_slide_count = len(prs.slides)
+    
+    # Process each slide
+    for slide_num in range(num_slides):
+        start_idx = slide_num * MAX_EXECUTIVES_PER_SLIDE
+        end_idx = start_idx + MAX_EXECUTIVES_PER_SLIDE
+        slide_df = df.iloc[start_idx:end_idx].copy()
+        
+        # On last slide, try to include TOTAL row if there's space
+        if slide_num == num_slides - 1 and total_row is not None:
+            if len(slide_df) + 1 <= MAX_EXECUTIVES_PER_SLIDE:
+                slide_df = pd.concat([slide_df, total_row], ignore_index=True)
+                total_row = None
+        
+        slide_title = title if num_slides == 1 else f"{title} (Slide {slide_num+1})"
+        slide = _create_single_table_slide(prs, slide_df, slide_title, percent_cols)
+        
+        # Add page number to the slide
+        page_number = current_slide_count + slide_num + 1
+        add_page_number(slide, page_number)
+    
+    # Add final slide with TOTAL row if it wasn't included earlier
+    if total_row is not None and not total_row.empty:
+        slide = _create_single_table_slide(prs, total_row, f"{title} - Grand Total", percent_cols)
+        page_number = len(prs.slides)
+        add_page_number(slide, page_number)
+
 
 def _create_single_table_slide(prs, df, title, percent_cols):
-    """Helper function to create a single slide with a table - Updated with standardized font sizes and uppercase headers"""
+    """Updated helper function to create a single slide with a table"""
     slide_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(slide_layout)
     
@@ -169,10 +274,10 @@ def _create_single_table_slide(prs, df, title, percent_cols):
     # Add header row with 15pt font and uppercase text
     for i, col_name in enumerate(columns):
         cell = table.cell(0, i)
-        cell.text = str(col_name).upper()  # Convert to uppercase
+        cell.text = str(col_name).upper()
         cell.fill.solid()
         cell.fill.fore_color.rgb = RGBColor(0, 112, 192)
-        cell.text_frame.paragraphs[0].font.size = Pt(15)  # Changed from 14 to 15
+        cell.text_frame.paragraphs[0].font.size = Pt(15)
         cell.text_frame.paragraphs[0].font.bold = True
         cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
         cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
@@ -190,7 +295,7 @@ def _create_single_table_slide(prs, df, title, percent_cols):
             else:
                 cell.text = str(value)
             
-            cell.text_frame.paragraphs[0].font.size = Pt(14)  # Changed from 12 to 14
+            cell.text_frame.paragraphs[0].font.size = Pt(14)
             cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
             cell.fill.solid()
             
@@ -202,6 +307,9 @@ def _create_single_table_slide(prs, df, title, percent_cols):
                     cell.fill.fore_color.rgb = RGBColor(221, 235, 247)
                 else:
                     cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
+    
+    return slide
+
 
 def create_table_image(df, title, percent_cols=None):
     if percent_cols is None:
@@ -249,16 +357,22 @@ def create_table_image(df, title, percent_cols=None):
     return img_buffer
 
 def create_consolidated_ppt(dfs_info, logo_file=None, title="Consolidated Report"):
+    """Updated consolidated PPT creation with page numbers"""
     try:
         prs = Presentation()
         prs.slide_width = Inches(13.33)
         prs.slide_height = Inches(7.5)
+        
+        # Create title slide (page 1)
         create_title_slide(prs, title, logo_file)
+        
+        # Process each DataFrame
         for df_info in dfs_info:
             df = df_info['df']
             slide_title = df_info['title']
             percent_cols = df_info.get('percent_cols', [])
             add_table_slide(prs, df, slide_title, percent_cols)
+        
         ppt_buffer = BytesIO()
         prs.save(ppt_buffer)
         ppt_buffer.seek(0)
@@ -267,7 +381,7 @@ def create_consolidated_ppt(dfs_info, logo_file=None, title="Consolidated Report
         logger.error(f"Error creating consolidated PPT: {e}")
         st.error(f"Error creating consolidated PPT: {e}")
         return None
-
+    
 def create_proof_of_calculation_excel(budget_df, sales_df, selected_month, 
                                       budget_exec_col, budget_exec_code_col, budget_area_col, 
                                       budget_sl_code_col, budget_product_group_col, 
@@ -1145,6 +1259,7 @@ def create_customer_table_image(df, title, sorted_months, financial_year):
    return img_buffer
 
 def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=False):
+    """Updated customer slide creation with page number support"""
     if df.empty or len(df.columns) < 2:
         st.warning(f"Skipping customer slide: DataFrame is empty or has insufficient columns {df.columns.tolist()}")
         return
@@ -1154,7 +1269,7 @@ def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=Fal
     title_frame = title_shape.text_frame
     title_frame.text = title
     p = title_frame.paragraphs[0]
-    p.font.size = Pt(18)  # Slightly smaller title for more space
+    p.font.size = Pt(18)
     p.font.bold = True
     p.font.color.rgb = RGBColor(0, 112, 192)
     p.alignment = PP_ALIGN.CENTER
@@ -1169,30 +1284,30 @@ def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=Fal
     num_cols = len(columns)
     
     # Use more of the slide space
-    table_width = Inches(12.0)   # Wider table
-    table_height = Inches(5.8)   # Taller table
-    left = Inches(0.67)          # Center horizontally
-    top = Inches(1.2)            # Position below title
+    table_width = Inches(12.0)
+    table_height = Inches(5.8)
+    left = Inches(0.67)
+    top = Inches(1.2)
     
-    # Calculate row height based on available space - FIX: Convert to int
+    # Calculate row height based on available space - Convert to int
     row_height = int(table_height / num_rows)
     
     table = slide.shapes.add_table(num_rows, num_cols, left, top, table_width, table_height).table
     
     # Calculate column widths to fill the entire table width
-    if num_cols == 3:  # S.NO, EXECUTIVE NAME, and one month column
+    if num_cols == 3:
         sno_width = Inches(0.8)
         exec_width = Inches(4.0)
-        month_width = Inches(7.2)  # Fill remaining space
-    elif num_cols > 3:  # Multiple month columns
+        month_width = Inches(7.2)
+    elif num_cols > 3:
         sno_width = Inches(0.8)
         exec_width = Inches(3.5)
         remaining_width = table_width - sno_width - exec_width
         month_width = remaining_width / (num_cols - 2)
-    else:  # Only 2 columns
+    else:
         sno_width = Inches(0.8)
         exec_width = Inches(11.2)
-        month_width = Inches(1.0)  # Default
+        month_width = Inches(1.0)
     
     # Set column widths
     table.columns[0].width = int(sno_width)
@@ -1200,7 +1315,7 @@ def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=Fal
     for col_idx in range(2, num_cols):
         table.columns[col_idx].width = int(month_width)
     
-    # Set row heights to fill the table - FIX: Use int values
+    # Set row heights to fill the table
     for row_idx in range(num_rows):
         table.rows[row_idx].height = row_height
     
@@ -1209,12 +1324,11 @@ def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=Fal
         cell = table.cell(0, col_idx)
         cell.text = col_name
         cell.fill.solid()
-        cell.fill.fore_color.rgb = RGBColor(0, 112, 192)  # Blue header
-        cell.text_frame.paragraphs[0].font.size = Pt(12)  # Larger font for headers
+        cell.fill.fore_color.rgb = RGBColor(0, 112, 192)
+        cell.text_frame.paragraphs[0].font.size = Pt(12)
         cell.text_frame.paragraphs[0].font.bold = True
         cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
         cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
-        # Add some padding
         cell.margin_left = Inches(0.05)
         cell.margin_right = Inches(0.05)
         cell.margin_top = Inches(0.05)
@@ -1222,7 +1336,6 @@ def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=Fal
     
     # Format data rows consistently
     for row_idx, (index, row) in enumerate(df.iterrows(), start=1):
-        # Check if this is a total row based on executive name content
         executive_name = str(row.get('EXECUTIVE NAME', '')).upper()
         is_total_row = ('TOTAL' in executive_name) or ('GRAND TOTAL' in executive_name)
         
@@ -1235,27 +1348,25 @@ def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=Fal
                 cell.text = ""
                 st.warning(f"Error accessing {col_name} at row {index} in customer slide: {e}")
             
-            # Font formatting based on row type
             if is_total_row:
-                cell.text_frame.paragraphs[0].font.size = Pt(12)  # Larger font for total
+                cell.text_frame.paragraphs[0].font.size = Pt(12)
                 cell.text_frame.paragraphs[0].font.bold = True
                 cell.fill.solid()
-                cell.fill.fore_color.rgb = RGBColor(211, 211, 211)  # Gray for total
+                cell.fill.fore_color.rgb = RGBColor(211, 211, 211)
             else:
-                cell.text_frame.paragraphs[0].font.size = Pt(11)  # Regular font for data
+                cell.text_frame.paragraphs[0].font.size = Pt(11)
                 cell.fill.solid()
-                # Alternating row colors
                 if (row_idx - 1) % 2 == 0:
-                    cell.fill.fore_color.rgb = RGBColor(221, 235, 247)  # Light blue
+                    cell.fill.fore_color.rgb = RGBColor(221, 235, 247)
                 else:
-                    cell.fill.fore_color.rgb = RGBColor(255, 255, 255)  # White
+                    cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
             
             cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
-            # Add padding to cells
             cell.margin_left = Inches(0.05)
             cell.margin_right = Inches(0.05)
             cell.margin_top = Inches(0.05)
             cell.margin_bottom = Inches(0.05)
+
 
 def create_customer_ppt_with_splitting(df, title_base, sorted_months, financial_year):
    """
@@ -1536,20 +1647,19 @@ def create_od_ppt_slides(presentation, df, base_title):
         create_single_od_slide(slide, slide_df, slide_title)
 
 def create_single_od_slide(slide, df, title):
-    """Create a single OD slide with the given data"""
+    """Updated OD slide creation with page number support"""
     if df.empty or len(df.columns) < 2:
         st.warning(f"Skipping OD slide: DataFrame is empty or has insufficient columns {df.columns.tolist()}")
         return
     
     try:
-        # Create title with consistent formatting (same as customer slide)
+        # Create title with consistent formatting
         title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(12.33), Inches(0.8))
         title_frame = title_shape.text_frame
-        # Remove "(Value in Lakhs)" from title
         clean_title = title.replace(" (Value in Lakhs)", "").replace(" (Values in Lakhs)", "")
         title_frame.text = clean_title
         p = title_frame.paragraphs[0]
-        p.font.size = Pt(18)  # Consistent with customer slide
+        p.font.size = Pt(18)
         p.font.bold = True
         p.font.color.rgb = RGBColor(0, 112, 192)
         p.alignment = PP_ALIGN.CENTER
@@ -1557,53 +1667,49 @@ def create_single_od_slide(slide, df, title):
         # Determine key column
         key_column = 'EXECUTIVE' if 'EXECUTIVE' in df.columns else 'Area'
         
-        # Calculate table dimensions (similar to customer slide)
-        num_rows = len(df) + 1  # +1 for header
-        num_cols = 2  # EXECUTIVE and TARGET/L columns
+        # Calculate table dimensions
+        num_rows = len(df) + 1
+        num_cols = 2
         
-        # Use similar positioning as customer slide
-        table_width = Inches(12.0)   # Full width like customer slide
-        table_height = Inches(5.8)   # Full height like customer slide
-        left = Inches(0.67)          # Center horizontally (same as customer slide)
-        top = Inches(1.2)            # Position below title (same as customer slide)
+        table_width = Inches(12.0)
+        table_height = Inches(5.8)
+        left = Inches(0.67)
+        top = Inches(1.2)
         
-        # Calculate row height and convert to int
         row_height = int(table_height / num_rows)
         
         # Create table
         table = slide.shapes.add_table(num_rows, num_cols, left, top, table_width, table_height).table
         
-        # Set column widths to fill entire table width
-        executive_width = Inches(6.0)  # Half the table width
-        target_width = Inches(6.0)     # Other half
+        # Set column widths
+        executive_width = Inches(6.0)
+        target_width = Inches(6.0)
         
         table.columns[0].width = int(executive_width)
         table.columns[1].width = int(target_width)
         
-        # Set row heights to fill the table
+        # Set row heights
         for row_idx in range(num_rows):
             table.rows[row_idx].height = row_height
         
-        # Format header row (consistent with customer slide)
+        # Format header row
         headers = [key_column, "TARGET/L"]
         for col_idx, header_text in enumerate(headers):
             cell = table.cell(0, col_idx)
             cell.text = header_text
             cell.fill.solid()
-            cell.fill.fore_color.rgb = RGBColor(0, 112, 192)  # Blue header (same as customer slide)
-            cell.text_frame.paragraphs[0].font.size = Pt(12)  # Larger font for headers
+            cell.fill.fore_color.rgb = RGBColor(0, 112, 192)
+            cell.text_frame.paragraphs[0].font.size = Pt(12)
             cell.text_frame.paragraphs[0].font.bold = True
             cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
             cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
-            # Add padding (same as customer slide)
             cell.margin_left = Inches(0.05)
             cell.margin_right = Inches(0.05)
             cell.margin_top = Inches(0.05)
             cell.margin_bottom = Inches(0.05)
         
-        # Format data rows (consistent with customer slide logic)
+        # Format data rows
         for row_idx in range(len(df)):
-            # Check if this is a total row based on executive name content
             executive_name = str(df.iloc[row_idx][key_column]).upper()
             is_total_row = ('TOTAL' in executive_name) or ('GRAND TOTAL' in executive_name)
             
@@ -1618,27 +1724,23 @@ def create_single_od_slide(slide, df, title):
             target_cell.text = value_text
             target_cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
             
-            # Apply formatting based on row type (same logic as customer slide)
+            # Apply formatting based on row type
             for col_idx in range(2):
                 cell = table.cell(row_idx + 1, col_idx)
                 
                 if is_total_row:
-                    # Format for total row
                     cell.text_frame.paragraphs[0].font.size = Pt(12)
                     cell.text_frame.paragraphs[0].font.bold = True
                     cell.fill.solid()
-                    cell.fill.fore_color.rgb = RGBColor(211, 211, 211)  # Gray for total
+                    cell.fill.fore_color.rgb = RGBColor(211, 211, 211)
                 else:
-                    # Format for regular data row
                     cell.text_frame.paragraphs[0].font.size = Pt(11)
                     cell.fill.solid()
-                    # Alternating row colors (same as customer slide)
                     if row_idx % 2 == 0:
-                        cell.fill.fore_color.rgb = RGBColor(221, 235, 247)  # Light blue
+                        cell.fill.fore_color.rgb = RGBColor(221, 235, 247)
                     else:
-                        cell.fill.fore_color.rgb = RGBColor(255, 255, 255)  # White
+                        cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
                 
-                # Add padding to cells (same as customer slide)
                 cell.margin_left = Inches(0.05)
                 cell.margin_right = Inches(0.05)
                 cell.margin_top = Inches(0.05)
@@ -1647,6 +1749,7 @@ def create_single_od_slide(slide, df, title):
     except Exception as e:
         st.error(f"Error creating OD PPT slide: {e}")
         st.error(traceback.format_exc())
+
 
 # Legacy function for backward compatibility
 def create_od_ppt_slide(slide, df, title):
