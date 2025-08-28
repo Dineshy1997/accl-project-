@@ -287,31 +287,50 @@ def create_title_slide(prs, title, logo_file=None):
     p.font.bold = True
     p.font.color.rgb = RGBColor(0, 112, 192)    
     return title_slide
+def add_page_number(slide, page_num):
+    """Add page number to the bottom right of a slide."""
+    try:
+        # Add page number text box at bottom right
+        page_number_box = slide.shapes.add_textbox(
+            Inches(11.5), Inches(7.0), Inches(1.5), Inches(0.3)
+        )
+        page_frame = page_number_box.text_frame
+        page_frame.text = str(page_num)
+        
+        # Format page number
+        p = page_frame.paragraphs[0]
+        p.alignment = PP_ALIGN.CENTER
+        p.font.size = Pt(14)
+        p.font.bold = False
+        p.font.color.rgb = RGBColor(128, 128, 128)  # Gray color
+    except Exception as e:
+        logger.error(f"Error adding page number: {e}")
+
 def add_table_slide(prs, df, title, percent_cols=None):
-    """Add a slide with a table to a PPT presentation - Updated with standardized font sizes and uppercase headers."""
+    """Add a slide with a table to a PPT presentation - Updated with page numbers."""
     if df is None or df.empty:
         return None
     slide_layout = prs.slide_layouts[6]  # Blank layout
     slide = prs.slides.add_slide(slide_layout)
     
-    # Title with 15pt font
+    # Title with standardized font
     title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.5), Inches(12.33), Inches(0.75))
     title_frame = title_shape.text_frame
     title_frame.text = title
     p = title_frame.paragraphs[0]
     p.alignment = PP_ALIGN.CENTER
-    p.font.size = Pt(24)  # Changed from 24 to 15
+    p.font.size = Pt(24)  # Updated font size
     p.font.bold = True
     p.font.color.rgb = RGBColor(0, 112, 192)
     
     rows, cols = df.shape
     table = slide.shapes.add_table(rows + 1, cols, Inches(0.5), Inches(1.5), Inches(12.33), Inches(5.5)).table
     
-    # Header row with 15pt font and uppercase text
+    # Header row with uppercase text
     for col_idx, col_name in enumerate(df.columns):
         cell = table.cell(0, col_idx)
         cell.text = str(col_name).upper()  # Convert to uppercase
-        cell.text_frame.paragraphs[0].font.size = Pt(15)  # Changed from 12 to 15
+        cell.text_frame.paragraphs[0].font.size = Pt(15)  # Updated font size
         cell.text_frame.paragraphs[0].font.bold = True
         cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
         cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
@@ -319,7 +338,7 @@ def add_table_slide(prs, df, title, percent_cols=None):
         cell.fill.fore_color.rgb = RGBColor(0, 112, 192)
         cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
     
-    # Data rows with 14pt font
+    # Data rows
     for row_idx in range(df.shape[0]):
         is_total_row = row_idx == rows - 1 and str(df.iloc[row_idx, 0]).upper() in ['TOTAL', 'GRAND TOTAL']
         for col_idx in range(cols):
@@ -329,7 +348,7 @@ def add_table_slide(prs, df, title, percent_cols=None):
                 cell.text = f"{value}%"
             else:
                 cell.text = str(value)
-            cell.text_frame.paragraphs[0].font.size = Pt(14)  # Changed from 11 to 14
+            cell.text_frame.paragraphs[0].font.size = Pt(14)  # Updated font size
             cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
             cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
             if row_idx % 2 == 0 and not is_total_row:
@@ -339,23 +358,35 @@ def add_table_slide(prs, df, title, percent_cols=None):
                 cell.text_frame.paragraphs[0].font.bold = True
                 cell.fill.solid()
                 cell.fill.fore_color.rgb = RGBColor(211, 211, 211)
+    
+    # Add page number (will be set by the calling function)
     return slide
 
 def create_consolidated_ppt(all_dfs_with_titles, logo_file=None, title="ACCLLP Consolidated Report"):
-    """Create a consolidated PPT with all report data."""
+    """Create a consolidated PPT with all report data - Updated with page numbers."""
     try:
         prs = Presentation()
         prs.slide_width = Inches(13.33)
         prs.slide_height = Inches(7.5)
+        
+        # Create title slide (no page number)
         create_title_slide(prs, title, logo_file)
+        
+        page_num = 1  # Start page numbering from 1 for content slides
+        
+        # Add content slides with page numbers
         for df_info in all_dfs_with_titles:
             if df_info and 'df' in df_info and 'title' in df_info:
-                add_table_slide(
+                slide = add_table_slide(
                     prs, 
                     df_info['df'], 
                     df_info['title'],
                     df_info.get('percent_cols')
                 )
+                if slide:
+                    add_page_number(slide, page_num)
+                    page_num += 1
+        
         ppt_buffer = BytesIO()
         prs.save(ppt_buffer)
         ppt_buffer.seek(0)
@@ -976,14 +1007,14 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
         st.error(f"Error calculating budget values: {str(e)}")
         return None, None, None, None
 def create_budget_ppt(budget_vs_billed_qty_df, budget_vs_billed_value_df, overall_sales_qty_df, overall_sales_value_df, month_title=None, logo_file=None):
-    """Create PPT presentation with budget vs billed data - Fixed slide order and correct data matching"""
+    """Create PPT presentation with budget vs billed data - Updated with page numbers."""
     try:
         prs = Presentation()
         prs.slide_width = Inches(13.33)
         prs.slide_height = Inches(7.5)
         blank_slide_layout = prs.slide_layouts[6]  # Blank slide layout
         
-        # Create title slide
+        # Create title slide (no page number)
         title_slide = prs.slides.add_slide(blank_slide_layout)
         company_name = title_slide.shapes.add_textbox(Inches(0.5), Inches(0.5), Inches(12.33), Inches(1))
         company_frame = company_name.text_frame
@@ -1023,56 +1054,55 @@ def create_budget_ppt(budget_vs_billed_qty_df, budget_vs_billed_value_df, overal
         p.font.bold = True
         p.font.color.rgb = RGBColor(0, 112, 192)
         
-        def add_table_slide_improved(title_text, df):
+        def add_table_slide_improved(title_text, df, page_num):
             slide = prs.slides.add_slide(blank_slide_layout)
             
-            # Simplified title
+            # Title
             title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.4), Inches(12.33), Inches(0.8))
             title_text_frame = title_shape.text_frame
             title_text_frame.text = title_text
             p = title_text_frame.paragraphs[0]
             p.alignment = PP_ALIGN.CENTER
-            p.font.size = Pt(28)  # Increased from 24 to 28
+            p.font.size = Pt(28)
             p.font.bold = True
             p.font.color.rgb = RGBColor(0, 112, 192)
             
-            # Better table sizing - much larger and properly centered
-            table_width = Inches(11)     # Much wider
-            table_height = Inches(5.8)   # Taller
-            left = Inches(1.165)         # Center the table
-            top = Inches(1.4)            # Below title
+            # Table
+            table_width = Inches(11)
+            table_height = Inches(5.8)
+            left = Inches(1.165)
+            top = Inches(1.4)
             
             rows, cols = df.shape[0] + 1, df.shape[1]
             table = slide.shapes.add_table(rows, cols, left, top, table_width, table_height).table
             
-            # Set column widths dynamically based on number of columns
+            # Set column widths
             if cols == 4:  # Budget vs Billed tables (with percentage)
-                area_width = Inches(3.5)     # Area column
-                value_width = Inches(2.5)    # Budget/Billed columns  
-                percent_width = Inches(1.5)  # Percentage column
+                area_width = Inches(3.5)
+                value_width = Inches(2.5)
+                percent_width = Inches(1.5)
                 
                 table.columns[0].width = area_width      
                 table.columns[1].width = value_width     
                 table.columns[2].width = value_width     
                 table.columns[3].width = percent_width   
             elif cols == 3:  # Overall Sales tables (no percentage)
-                area_width = Inches(4.0)     # Wider area column
-                value_width = Inches(3.0)    # Wider value columns
+                area_width = Inches(4.0)
+                value_width = Inches(3.0)
                 
                 table.columns[0].width = area_width      
                 table.columns[1].width = value_width     
                 table.columns[2].width = value_width     
             else:
-                # Default equal widths for other cases
                 col_width = table_width.inches / cols
                 for i in range(cols):
                     table.columns[i].width = Inches(col_width)
             
-            # Header row formatting
+            # Header row
             for col_idx, col_name in enumerate(df.columns):
                 cell = table.cell(0, col_idx)
-                cell.text = str(col_name)
-                cell.text_frame.paragraphs[0].font.size = Pt(16)  # Increased from 14 to 16
+                cell.text = str(col_name).upper()  # Convert to uppercase
+                cell.text_frame.paragraphs[0].font.size = Pt(16)
                 cell.text_frame.paragraphs[0].font.bold = True
                 cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
                 cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
@@ -1082,7 +1112,7 @@ def create_budget_ppt(budget_vs_billed_qty_df, budget_vs_billed_value_df, overal
                 fill.fore_color.rgb = RGBColor(0, 112, 192)
                 cell.text_frame.paragraphs[0].runs[0].font.color.rgb = RGBColor(255, 255, 255)
             
-            # Data rows formatting
+            # Data rows
             total_row_idx = df.shape[0] - 1
             for row_idx in range(df.shape[0]):
                 is_total_row = (row_idx == total_row_idx and 
@@ -1092,13 +1122,13 @@ def create_budget_ppt(budget_vs_billed_qty_df, budget_vs_billed_value_df, overal
                     cell = table.cell(row_idx + 1, col_idx)
                     value = df.iloc[row_idx, col_idx]
                     
-                    # Format percentage column only if it exists and is the last column
+                    # Format percentage column
                     if col_idx == df.shape[1] - 1 and cols == 4 and '%' in str(df.columns[col_idx]):
                         cell.text = f"{value}%"
                     else:
                         cell.text = str(value)
                     
-                    cell.text_frame.paragraphs[0].font.size = Pt(14)  # Increased from 12 to 14
+                    cell.text_frame.paragraphs[0].font.size = Pt(14)
                     cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
                     cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
                     
@@ -1108,29 +1138,28 @@ def create_budget_ppt(budget_vs_billed_qty_df, budget_vs_billed_value_df, overal
                         fill.solid()
                         fill.fore_color.rgb = RGBColor(211, 211, 211)
                     else:
-                        # Alternating row colors
                         if row_idx % 2 == 0:
                             fill = cell.fill
                             fill.solid()
-                            fill.fore_color.rgb = RGBColor(240, 248, 255)  # Light blue
+                            fill.fore_color.rgb = RGBColor(240, 248, 255)
             
-            # Set consistent row heights - slightly increased for larger fonts
-            table.rows[0].height = Inches(0.5)   # Header row - increased for larger font
+            # Set row heights
+            table.rows[0].height = Inches(0.5)
             for i in range(1, rows):
-                table.rows[i].height = Inches(0.42)  # Data rows - slightly increased
+                table.rows[i].height = Inches(0.42)
+            
+            # Add page number
+            add_page_number(slide, page_num)
         
-        # CORRECTED: Add slides in the correct order with the RIGHT DataFrames
-        # Tab 0: Budget vs Billed Quantity - use budget_vs_billed_qty_df
-        add_table_slide_improved(f"BUDGET AGAINST BILLED QUANTITY - {month_title}", budget_vs_billed_qty_df)
-        
-        # Tab 1: Budget vs Billed Value - use budget_vs_billed_value_df  
-        add_table_slide_improved(f"BUDGET AGAINST BILLED VALUE - {month_title}", budget_vs_billed_value_df)
-        
-        # Tab 2: Overall Sales (Qty) - use overall_sales_qty_df
-        add_table_slide_improved(f"OVERALL SALES QUANTITY - {month_title}", overall_sales_qty_df)
-        
-        # Tab 3: Overall Sales (Value) - use overall_sales_value_df
-        add_table_slide_improved(f"OVERALL SALES VALUE - {month_title}", overall_sales_value_df)
+        # Add slides with page numbers
+        page_num = 1
+        add_table_slide_improved(f"BUDGET AGAINST BILLED QUANTITY - {month_title}", budget_vs_billed_qty_df, page_num)
+        page_num += 1
+        add_table_slide_improved(f"BUDGET AGAINST BILLED VALUE - {month_title}", budget_vs_billed_value_df, page_num)
+        page_num += 1
+        add_table_slide_improved(f"OVERALL SALES QUANTITY - {month_title}", overall_sales_qty_df, page_num)
+        page_num += 1
+        add_table_slide_improved(f"OVERALL SALES VALUE - {month_title}", overall_sales_value_df, page_num)
         
         ppt_buffer = BytesIO()
         prs.save(ppt_buffer)
@@ -1553,14 +1582,14 @@ def create_customer_table_image(df, title, sorted_months, financial_year):
     plt.close()
     return img_buffer
 def create_customer_ppt_slide_fixed(slide, df, title, sorted_months, financial_year):
-    """Add a slide with the billed customers table - completely fixed version."""
+    """Add a slide with the billed customers table - Updated with page numbers."""
     
     # Clear any existing shapes
     for shape in slide.shapes:
         if hasattr(shape, 'text'):
             shape.text = ""
     
-    # Title - positioned higher and larger
+    # Title
     title_shape = slide.shapes.add_textbox(Inches(1), Inches(0.3), Inches(11.33), Inches(0.8))
     title_frame = title_shape.text_frame
     title_frame.text = f"{title} - FY {financial_year}"
@@ -1571,29 +1600,27 @@ def create_customer_ppt_slide_fixed(slide, df, title, sorted_months, financial_y
     p.font.color.rgb = RGBColor(0, 112, 192)
     p.alignment = PP_ALIGN.CENTER
     
-    # Calculate table structure
+    # Table structure
     columns = ['S.No', 'Branch Name'] + sorted_months
-    num_rows = len(df) + 1  # +1 for header
+    num_rows = len(df) + 1
     num_cols = len(columns)
     
-    # Much larger table dimensions
+    # Table dimensions
     table_left = Inches(0.5)
     table_top = Inches(1.4)
-    table_width = Inches(12.33)  # Almost full width
-    table_height = Inches(5.8)   # Much taller
+    table_width = Inches(12.33)
+    table_height = Inches(5.8)
     
     # Create table
     table_shape = slide.shapes.add_table(num_rows, num_cols, table_left, table_top, table_width, table_height)
     table = table_shape.table
     
-    # Set column widths more carefully
-    # Calculate available width for month columns
+    # Set column widths
     s_no_width = Inches(0.8)
     branch_width = Inches(2.5)
     remaining_width = table_width.inches - s_no_width.inches - branch_width.inches
     month_col_width = remaining_width / len(sorted_months) if sorted_months else 1.0
     
-    # Apply column widths
     table.columns[0].width = s_no_width
     table.columns[1].width = branch_width
     for i in range(2, num_cols):
@@ -1602,77 +1629,65 @@ def create_customer_ppt_slide_fixed(slide, df, title, sorted_months, financial_y
     # Format header row
     for col_idx, col_name in enumerate(columns):
         cell = table.cell(0, col_idx)
-        cell.text = str(col_name)
+        cell.text = str(col_name).upper()  # Convert to uppercase
         
-        # Header cell formatting
         cell.fill.solid()
         cell.fill.fore_color.rgb = RGBColor(0, 112, 192)
         
-        # Text formatting for header
         paragraph = cell.text_frame.paragraphs[0]
-        paragraph.font.size = Pt(12)
+        paragraph.font.size = Pt(15)  # Updated font size
         paragraph.font.bold = True
         paragraph.font.color.rgb = RGBColor(255, 255, 255)
         paragraph.alignment = PP_ALIGN.CENTER
         
-        # Set text frame properties
         cell.text_frame.margin_left = Inches(0.05)
         cell.text_frame.margin_right = Inches(0.05)
         cell.text_frame.margin_top = Inches(0.05)
         cell.text_frame.margin_bottom = Inches(0.05)
         cell.text_frame.word_wrap = True
-        
-        # Vertical alignment
         cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
     
     # Format data rows
     for row_idx in range(len(df)):
-        # Check if this is the total row
         is_total_row = (row_idx == len(df) - 1 and 
                        str(df.iloc[row_idx, 1]).upper() == 'GRAND TOTAL')
         
         for col_idx in range(num_cols):
             cell = table.cell(row_idx + 1, col_idx)
             
-            # Get the value from dataframe
             if col_idx < len(df.columns):
                 value = df.iloc[row_idx, col_idx]
                 cell.text = str(value)
             else:
                 cell.text = ""
             
-            # Data cell formatting
             cell.fill.solid()
             if is_total_row:
-                cell.fill.fore_color.rgb = RGBColor(192, 192, 192)  # Light gray for totals
+                cell.fill.fore_color.rgb = RGBColor(192, 192, 192)
             else:
                 if row_idx % 2 == 0:
-                    cell.fill.fore_color.rgb = RGBColor(240, 248, 255)  # Very light blue
+                    cell.fill.fore_color.rgb = RGBColor(240, 248, 255)
                 else:
-                    cell.fill.fore_color.rgb = RGBColor(255, 255, 255)  # White
+                    cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
             
-            # Text formatting for data
             paragraph = cell.text_frame.paragraphs[0]
-            paragraph.font.size = Pt(11)
+            paragraph.font.size = Pt(14)  # Updated font size
             paragraph.font.bold = is_total_row
             paragraph.font.color.rgb = RGBColor(0, 0, 0)
             paragraph.alignment = PP_ALIGN.CENTER
             
-            # Set text frame properties
             cell.text_frame.margin_left = Inches(0.05)
             cell.text_frame.margin_right = Inches(0.05)
             cell.text_frame.margin_top = Inches(0.05)
             cell.text_frame.margin_bottom = Inches(0.05)
             cell.text_frame.word_wrap = True
-            
-            # Vertical alignment
             cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
     
-    # Set consistent row heights
+    # Set row heights
     header_row_height = Inches(0.4)
     data_row_height = Inches(0.35)
     
-    table.rows[0].height = header_row_height  # Header row
+    table.rows[0].height = header_row_height
     for i in range(1, num_rows):
         table.rows[i].height = data_row_height
 def extract_area_name(area):
@@ -1815,64 +1830,61 @@ def create_od_table_image(df, title, columns_to_show=None):
     return img_buffer
 
 def create_od_ppt_slide(slide, df, title):
-    """Add a slide with the OD Target table to the presentation - Updated with uppercase column names."""
+    """Add a slide with the OD Target table - Updated with uppercase column names."""
     
-    # Create proper title formatting to match budget slides
+    # Create title
     title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.4), Inches(12.33), Inches(0.8))
     title_text_frame = title_shape.text_frame
     title_text_frame.text = title
     title_text_frame.word_wrap = True
     p = title_text_frame.paragraphs[0]
     p.alignment = PP_ALIGN.CENTER
-    p.font.size = Pt(28)  # Match budget slide title size
+    p.font.size = Pt(28)
     p.font.bold = True
-    p.font.color.rgb = RGBColor(0, 112, 192)  # Match budget slide blue color
+    p.font.color.rgb = RGBColor(0, 112, 192)
     
-    # Better table sizing and positioning to match budget slides
-    table_width = Inches(8)      # Smaller width since only 2 columns
-    table_height = Inches(5.8)   # Match budget slide height
-    left = Inches(2.665)         # Center the smaller table
-    top = Inches(1.4)            # Position below title
+    # Table setup
+    table_width = Inches(8)
+    table_height = Inches(5.8)
+    left = Inches(2.665)
+    top = Inches(1.4)
     
-    columns_to_show = ['AREA', 'TARGET/L']  # Changed from 'Area' to 'AREA'
+    columns_to_show = ['AREA', 'TARGET/L']
     rows, cols = df.shape[0] + 1, len(columns_to_show)
     
     # Create table
     table_shape = slide.shapes.add_table(rows, cols, left, top, table_width, table_height)
     table = table_shape.table
     
-    # Set column widths optimized for 2 columns
-    area_width = Inches(4.0)     # Area column
-    target_width = Inches(4.0)   # TARGET/L column
+    # Set column widths
+    area_width = Inches(4.0)
+    target_width = Inches(4.0)
     
-    table.columns[0].width = area_width      # Area column
-    table.columns[1].width = target_width    # TARGET/L column
+    table.columns[0].width = area_width
+    table.columns[1].width = target_width
     
-    # Header row formatting to match budget slides
+    # Header row
     for col_idx, col_name in enumerate(columns_to_show):
         cell = table.cell(0, col_idx)
-        cell.text = col_name
+        cell.text = col_name.upper()  # Convert to uppercase
         
-        # Header formatting
         paragraph = cell.text_frame.paragraphs[0]
-        paragraph.font.size = Pt(16)  # Match budget slide header font
+        paragraph.font.size = Pt(16)
         paragraph.font.bold = True
         paragraph.font.color.rgb = RGBColor(255, 255, 255)
         paragraph.alignment = PP_ALIGN.CENTER
         
-        # Cell background
         cell.fill.solid()
-        cell.fill.fore_color.rgb = RGBColor(0, 112, 192)  # Match budget slide blue
+        cell.fill.fore_color.rgb = RGBColor(0, 112, 192)
         cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
         
-        # Set text frame properties
         cell.text_frame.margin_left = Inches(0.05)
         cell.text_frame.margin_right = Inches(0.05)
         cell.text_frame.margin_top = Inches(0.05)
         cell.text_frame.margin_bottom = Inches(0.05)
         cell.text_frame.word_wrap = True
     
-    # Data rows formatting to match budget slides
+    # Data rows
     total_row_idx = df.shape[0] - 1
     for row_idx in range(len(df)):
         is_total_row = (row_idx == total_row_idx and 
@@ -1881,7 +1893,6 @@ def create_od_ppt_slide(slide, df, title):
         for col_idx, col_name in enumerate(columns_to_show):
             cell = table.cell(row_idx + 1, col_idx)
             
-            # Get and format the value
             if col_name == 'AREA':
                 value = df.iloc[row_idx]['AREA']
                 cell.text = str(value)
@@ -1889,9 +1900,8 @@ def create_od_ppt_slide(slide, df, title):
                 value = df.iloc[row_idx]['TARGET/L']
                 cell.text = f"{float(value):.2f}"
             
-            # Data cell formatting
             paragraph = cell.text_frame.paragraphs[0]
-            paragraph.font.size = Pt(14)  # Match budget slide data font
+            paragraph.font.size = Pt(14)
             paragraph.font.color.rgb = RGBColor(0, 0, 0)
             paragraph.alignment = PP_ALIGN.CENTER
             
@@ -1900,26 +1910,22 @@ def create_od_ppt_slide(slide, df, title):
             
             cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
             
-            # Set text frame properties
             cell.text_frame.margin_left = Inches(0.05)
             cell.text_frame.margin_right = Inches(0.05)
             cell.text_frame.margin_top = Inches(0.05)
             cell.text_frame.margin_bottom = Inches(0.05)
             cell.text_frame.word_wrap = True
             
-            # Cell background colors
             if is_total_row:
                 cell.fill.solid()
-                cell.fill.fore_color.rgb = RGBColor(211, 211, 211)  # Gray for total row
+                cell.fill.fore_color.rgb = RGBColor(211, 211, 211)
             else:
-                # Alternating row colors to match budget slides
                 if row_idx % 2 == 0:
                     cell.fill.solid()
-                    cell.fill.fore_color.rgb = RGBColor(240, 248, 255)  # Light blue
-                # Odd rows remain white (no fill needed for white)
+                    cell.fill.fore_color.rgb = RGBColor(240, 248, 255)
     
-    # Set consistent row heights to match budget slides
-    table.rows[0].height = Inches(0.5)   # Header row
+    # Set row heights
+    table.rows[0].height = Inches(0.5)
     for i in range(1, rows):
         table.rows[i].height = Inches(0.42)
 def create_combined_nbc_od_ppt(customer_df, customer_title, sorted_months, od_target_df, od_title, logo_file=None):
@@ -1944,19 +1950,22 @@ def create_combined_nbc_od_ppt(customer_df, customer_title, sorted_months, od_ta
         st.error(f"Error creating Combined NBC & OD Target PPT: {e}")
         return None
 def create_nbc_individual_ppt(customer_df, customer_title, sorted_months, financial_year, logo_file=None):
-    """Create individual PPT for NBC report only."""
+    """Create individual PPT for NBC report - Updated with page numbers."""
     try:
         prs = Presentation()
         prs.slide_width = Inches(13.33)
         prs.slide_height = Inches(7.5)
         
-        # Create title slide
+        # Create title slide (no page number)
         create_title_slide(prs, "Number of Billed Customers Report", logo_file)
         
-        # Add NBC slide with completely rewritten formatting
-        slide_layout = prs.slide_layouts[6]  # Blank slide
+        # Add NBC slide with page number
+        slide_layout = prs.slide_layouts[6]
         slide1 = prs.slides.add_slide(slide_layout)
         create_customer_ppt_slide_fixed(slide1, customer_df, customer_title, sorted_months, financial_year)
+        
+        # Add page number
+        add_page_number(slide1, 1)
         
         ppt_buffer = BytesIO()
         prs.save(ppt_buffer)
@@ -1969,19 +1978,22 @@ def create_nbc_individual_ppt(customer_df, customer_title, sorted_months, financ
     
 
 def create_od_individual_ppt(od_target_df, od_title, logo_file=None):
-    """Create individual PPT for OD Target report only."""
+    """Create individual PPT for OD Target report - Updated with page numbers."""
     try:
         prs = Presentation()
         prs.slide_width = Inches(13.33)
         prs.slide_height = Inches(7.5)
         
-        # Create title slide
+        # Create title slide (no page number)
         create_title_slide(prs, "OD Target Report", logo_file)
         
-        # Add OD Target slide
-        slide_layout = prs.slide_layouts[1]  # Title and content
+        # Add OD Target slide with page number
+        slide_layout = prs.slide_layouts[1]
         slide2 = prs.slides.add_slide(slide_layout)
         create_od_ppt_slide(slide2, od_target_df, od_title)
+        
+        # Add page number
+        add_page_number(slide2, 1)
         
         ppt_buffer = BytesIO()
         prs.save(ppt_buffer)
@@ -2636,23 +2648,37 @@ def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_
    
    return final, regional_summary, region_branch_mapping
 def create_od_ppt_updated(df, regional_df, title, logo_file=None):
-   """Create a PPT for OD Target vs Collection Report with regional summary."""
-   try:
-       prs = Presentation()
-       prs.slide_width = Inches(13.33)
-       prs.slide_height = Inches(7.5)
-       create_title_slide(prs, title, logo_file)
-       add_table_slide(prs, df, f"Branch-wise Performance - {title}", percent_cols=[3, 6])
-       if regional_df is not None and not regional_df.empty:
-           add_table_slide(prs, regional_df, f"Regional Summary - {title}", percent_cols=[3, 6])
-       ppt_buffer = BytesIO()
-       prs.save(ppt_buffer)
-       ppt_buffer.seek(0)
-       return ppt_buffer
-   except Exception as e:
-       logger.error(f"Error creating OD PPT: {e}")
-       st.error(f"Error creating OD PPT: {e}")
-       return None
+    """Create a PPT for OD Target vs Collection Report - Updated with page numbers."""
+    try:
+        prs = Presentation()
+        prs.slide_width = Inches(13.33)
+        prs.slide_height = Inches(7.5)
+        
+        # Create title slide (no page number)
+        create_title_slide(prs, title, logo_file)
+        
+        page_num = 1
+        
+        # Branch-wise performance slide
+        slide = add_table_slide(prs, df, f"Branch-wise Performance - {title}", percent_cols=[3, 6])
+        if slide:
+            add_page_number(slide, page_num)
+            page_num += 1
+        
+        # Regional summary slide (if exists)
+        if regional_df is not None and not regional_df.empty:
+            slide = add_table_slide(prs, regional_df, f"Regional Summary - {title}", percent_cols=[3, 6])
+            if slide:
+                add_page_number(slide, page_num)
+        
+        ppt_buffer = BytesIO()
+        prs.save(ppt_buffer)
+        ppt_buffer.seek(0)
+        return ppt_buffer
+    except Exception as e:
+        logger.error(f"Error creating OD PPT: {e}")
+        st.error(f"Error creating OD PPT: {e}")
+        return None
 def tab_od_target():
     """OD Target vs Collection Report Tab with AUTO-MAPPING."""
     st.header("OD Target vs Collection Report")   
@@ -3267,24 +3293,34 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
         return None
 
 def create_product_growth_ppt(group_results, month_title, logo_file=None):
-    """Create a PPT for Product Growth analysis."""
+    """Create a PPT for Product Growth analysis - Updated with page numbers."""
     try:
         prs = Presentation()
         prs.slide_width = Inches(13.33)
         prs.slide_height = Inches(7.5)
         
-        # Create title slide
+        # Create title slide (no page number)
         create_title_slide(prs, f"Product Growth by Company Group – {month_title}", logo_file)
+        
+        page_num = 1
         
         # Add data slides for each company group
         for group, data in group_results.items():
             qty_df = data['qty_df']
             value_df = data['value_df']
             
-            add_table_slide(prs, qty_df, f"{group} - Quantity Growth ", percent_cols=[4])
-            add_table_slide(prs, value_df, f"{group} - Value Growth", percent_cols=[4])
+            # Quantity slide
+            slide = add_table_slide(prs, qty_df, f"{group} - Quantity Growth", percent_cols=[4])
+            if slide:
+                add_page_number(slide, page_num)
+                page_num += 1
+            
+            # Value slide  
+            slide = add_table_slide(prs, value_df, f"{group} - Value Growth", percent_cols=[4])
+            if slide:
+                add_page_number(slide, page_num)
+                page_num += 1
         
-        # Save to buffer
         ppt_buffer = BytesIO()
         prs.save(ppt_buffer)
         ppt_buffer.seek(0)
