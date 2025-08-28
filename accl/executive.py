@@ -97,57 +97,7 @@ def create_title_slide(prs, title, logo_file=None):
     
     return title_slide
 
-def add_table_slide(prs, df, title, percent_cols=None):
-    """Updated table slide creation with page numbering"""
-    if percent_cols is None:
-        percent_cols = []
-    
-    if df is None or df.empty:
-        logger.warning(f"Skipping slide for {title}: DataFrame is None or empty")
-        return
-    
-    # Constants
-    MAX_EXECUTIVES_PER_SLIDE = 15
-    
-    # Remove any rows with 'ACCLP' if present
-    df = df[df.iloc[:, 0] != "ACCLP"].copy()
-    
-    # Separate regular executives from TOTAL row if present
-    total_row = None
-    if 'TOTAL' in df.iloc[:, 0].values:
-        total_row = df[df.iloc[:, 0] == 'TOTAL']
-        df = df[df.iloc[:, 0] != 'TOTAL']
-    
-    num_executives = len(df)
-    num_slides = math.ceil(num_executives / MAX_EXECUTIVES_PER_SLIDE)
-    
-    # Calculate starting page number (assuming title slide is page 1)
-    current_slide_count = len(prs.slides)
-    
-    # Process each slide
-    for slide_num in range(num_slides):
-        start_idx = slide_num * MAX_EXECUTIVES_PER_SLIDE
-        end_idx = start_idx + MAX_EXECUTIVES_PER_SLIDE
-        slide_df = df.iloc[start_idx:end_idx].copy()
-        
-        # On last slide, try to include TOTAL row if there's space
-        if slide_num == num_slides - 1 and total_row is not None:
-            if len(slide_df) + 1 <= MAX_EXECUTIVES_PER_SLIDE:
-                slide_df = pd.concat([slide_df, total_row], ignore_index=True)
-                total_row = None
-        
-        slide_title = title if num_slides == 1 else f"{title} (Slide {slide_num+1})"
-        slide = _create_single_table_slide(prs, slide_df, slide_title, percent_cols)
-        
-        # Add page number to the slide
-        page_number = current_slide_count + slide_num + 1
-        add_page_number(slide, page_number)
-    
-    # Add final slide with TOTAL row if it wasn't included earlier
-    if total_row is not None and not total_row.empty:
-        slide = _create_single_table_slide(prs, total_row, f"{title} - Grand Total", percent_cols)
-        page_number = len(prs.slides)
-        add_page_number(slide, page_number)
+
 
 
 def add_page_number(slide, page_num, total_pages=None):
@@ -230,7 +180,6 @@ def add_table_slide(prs, df, title, percent_cols=None):
         page_number = len(prs.slides)
         add_page_number(slide, page_number)
 
-
 def _create_single_table_slide(prs, df, title, percent_cols):
     """Updated helper function to create a single slide with a table"""
     slide_layout = prs.slide_layouts[6]
@@ -310,7 +259,6 @@ def _create_single_table_slide(prs, df, title, percent_cols):
     
     return slide
 
-
 def create_table_image(df, title, percent_cols=None):
     if percent_cols is None:
         percent_cols = []
@@ -357,7 +305,7 @@ def create_table_image(df, title, percent_cols=None):
     return img_buffer
 
 def create_consolidated_ppt(dfs_info, logo_file=None, title="Consolidated Report"):
-    """Updated consolidated PPT creation with page numbers"""
+    """Updated consolidated PPT creation with page numbers and thank you slide"""
     try:
         prs = Presentation()
         prs.slide_width = Inches(13.33)
@@ -372,6 +320,9 @@ def create_consolidated_ppt(dfs_info, logo_file=None, title="Consolidated Report
             slide_title = df_info['title']
             percent_cols = df_info.get('percent_cols', [])
             add_table_slide(prs, df, slide_title, percent_cols)
+        
+        # Add thank you slide at the end
+        create_thank_you_slide(prs, logo_file)
         
         ppt_buffer = BytesIO()
         prs.save(ppt_buffer)
@@ -1367,7 +1318,6 @@ def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=Fal
             cell.margin_top = Inches(0.05)
             cell.margin_bottom = Inches(0.05)
 
-
 def create_customer_ppt_with_splitting(df, title_base, sorted_months, financial_year):
    """
    Create multiple PowerPoint slides with table splitting for better readability
@@ -1750,7 +1700,44 @@ def create_single_od_slide(slide, df, title):
         st.error(f"Error creating OD PPT slide: {e}")
         st.error(traceback.format_exc())
 
+def create_thank_you_slide(prs, logo_file=None):
+    """Create a thank you slide at the end of presentation"""
+    try:
+        blank_slide_layout = prs.slide_layouts[6]
+        thank_you_slide = prs.slides.add_slide(blank_slide_layout)
+        
+        # Logo (if provided)
+        if logo_file is not None:
+            try:
+                logo_buffer = BytesIO(logo_file.read())
+                logo = thank_you_slide.shapes.add_picture(logo_buffer, Inches(5.665), Inches(2.0), width=Inches(2), height=Inches(2))
+                logo_file.seek(0)
+            except Exception as e:
+                logger.error(f"Error adding logo to thank you slide: {e}")
+        
+        # Thank You message
+        thank_you_box = thank_you_slide.shapes.add_textbox(Inches(0.5), Inches(3.5), Inches(12.33), Inches(1.5))
+        thank_you_frame = thank_you_box.text_frame
+        thank_you_frame.text = "THANK YOU"
+        p = thank_you_frame.paragraphs[0]
+        p.alignment = PP_ALIGN.CENTER
+        p.font.name = "Times New Roman"
+        p.font.size = Pt(48)
+        p.font.bold = True
+        p.font.color.rgb = RGBColor(0, 128, 0)
+        
 
+        
+        # Add page number to thank you slide
+        page_number = len(prs.slides)
+        add_page_number(thank_you_slide, page_number)
+        
+        return thank_you_slide
+        
+    except Exception as e:
+        logger.error(f"Error creating thank you slide: {e}")
+        return None
+    
 # Legacy function for backward compatibility
 def create_od_ppt_slide(slide, df, title):
     """Legacy function - use create_od_ppt_slides for automatic splitting"""
