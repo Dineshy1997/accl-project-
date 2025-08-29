@@ -53,7 +53,7 @@ def create_title_slide(prs, title, logo_file=None):
     # Company name
     company_name = title_slide.shapes.add_textbox(Inches(0.5), Inches(0.5), Inches(12.33), Inches(1))
     company_frame = company_name.text_frame
-    company_frame.text = "Asia Crystal Commodity LLP"
+    company_frame.text = "ASIA CRYSTAL COMMODITY LLP"
     p = company_frame.paragraphs[0]
     p.alignment = PP_ALIGN.CENTER
     p.font.name = "Times New Roman"
@@ -73,7 +73,7 @@ def create_title_slide(prs, title, logo_file=None):
     # Title
     title_box = title_slide.shapes.add_textbox(Inches(0.5), Inches(4.0), Inches(12.33), Inches(1))
     title_frame = title_box.text_frame
-    title_frame.text = title
+    title_frame.text = title.upper()
     p = title_frame.paragraphs[0]
     p.alignment = PP_ALIGN.CENTER
     p.font.name = "Times New Roman"
@@ -81,22 +81,12 @@ def create_title_slide(prs, title, logo_file=None):
     p.font.bold = True
     p.font.color.rgb = RGBColor(0, 128, 0)
     
-    # Subtitle
-    subtitle = title_slide.shapes.add_textbox(Inches(0.5), Inches(5.0), Inches(12.33), Inches(1))
-    subtitle_frame = subtitle.text_frame
-    subtitle_frame.text = "ACCLLP"
-    p = subtitle_frame.paragraphs[0]
-    p.alignment = PP_ALIGN.CENTER
-    p.font.name = "Times New Roman"
-    p.font.size = Pt(28)
-    p.font.bold = True
-    p.font.color.rgb = RGBColor(0, 112, 192)
+    # Subtitle removed - no longer adding ACCLLP text
     
     # Add page number (1) to title slide
     add_page_number(title_slide, 1)
     
     return title_slide
-
 
 
 
@@ -129,7 +119,7 @@ def add_page_number(slide, page_num, total_pages=None):
         logger.error(f"Error adding page number to slide: {e}")
 
 def add_table_slide(prs, df, title, percent_cols=None):
-    """Updated table slide creation with page numbering"""
+    """Updated table slide creation with page numbering - Fixed to exclude TOTAL from slide titles"""
     if percent_cols is None:
         percent_cols = []
     
@@ -143,11 +133,15 @@ def add_table_slide(prs, df, title, percent_cols=None):
     # Remove any rows with 'ACCLP' if present
     df = df[df.iloc[:, 0] != "ACCLP"].copy()
     
-    # Separate regular executives from TOTAL row if present
+    # Separate regular data from TOTAL/GRAND TOTAL row if present
     total_row = None
-    if 'TOTAL' in df.iloc[:, 0].values:
-        total_row = df[df.iloc[:, 0] == 'TOTAL']
-        df = df[df.iloc[:, 0] != 'TOTAL']
+    total_keywords = ['TOTAL', 'GRAND TOTAL']
+    
+    # Check for any total row
+    total_mask = df.iloc[:, 0].isin(total_keywords)
+    if total_mask.any():
+        total_row = df[total_mask]
+        df = df[~total_mask]  # Remove total rows from main data
     
     num_executives = len(df)
     num_slides = math.ceil(num_executives / MAX_EXECUTIVES_PER_SLIDE)
@@ -163,11 +157,13 @@ def add_table_slide(prs, df, title, percent_cols=None):
         
         # On last slide, try to include TOTAL row if there's space
         if slide_num == num_slides - 1 and total_row is not None:
-            if len(slide_df) + 1 <= MAX_EXECUTIVES_PER_SLIDE:
+            if len(slide_df) + len(total_row) <= MAX_EXECUTIVES_PER_SLIDE:
                 slide_df = pd.concat([slide_df, total_row], ignore_index=True)
-                total_row = None
+                total_row = None  # Mark as used
         
-        slide_title = title if num_slides == 1 else f"{title} (Slide {slide_num+1})"
+        # Create slide title - Use original title without slide numbers
+        slide_title = title
+        
         slide = _create_single_table_slide(prs, slide_df, slide_title, percent_cols)
         
         # Add page number to the slide
@@ -176,7 +172,7 @@ def add_table_slide(prs, df, title, percent_cols=None):
     
     # Add final slide with TOTAL row if it wasn't included earlier
     if total_row is not None and not total_row.empty:
-        slide = _create_single_table_slide(prs, total_row, f"{title} - Grand Total", percent_cols)
+        slide = _create_single_table_slide(prs, total_row, title, percent_cols)
         page_number = len(prs.slides)
         add_page_number(slide, page_number)
 
@@ -188,7 +184,7 @@ def _create_single_table_slide(prs, df, title, percent_cols):
     # Add title with 15pt font
     title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(12.33), Inches(0.8))
     title_frame = title_shape.text_frame
-    title_frame.text = title
+    title_frame.text = title.upper()
     p = title_frame.paragraphs[0]
     p.font.size = Pt(28)  
     p.font.bold = True
@@ -242,7 +238,7 @@ def _create_single_table_slide(prs, df, title, percent_cols):
             if col_idx in percent_cols and isinstance(value, (int, float)) and not pd.isna(value):
                 cell.text = f"{value}%"
             else:
-                cell.text = str(value)
+                cell.text = str(value).upper() if isinstance(value, str) else str(value)
             
             cell.text_frame.paragraphs[0].font.size = Pt(14)
             cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
@@ -959,7 +955,7 @@ def create_budget_ppt(budget_vs_billed_value_df, budget_vs_billed_qty_df, overal
                if len(chunks) == 1:
                    slide_title = title_base
                else:
-                   slide_title = f"{title_base} - Part {i}"
+                   slide_title = f"{title_base}"
                
                add_table_slide(prs, final_data, slide_title, percent_cols=percent_cols)
        
@@ -999,217 +995,242 @@ def determine_financial_year(date):
        return f"{year % 100 - 1}-{year % 100}"
 
 def create_customer_table(sales_df, date_col, branch_col, customer_id_col, executive_col, selected_months=None, selected_branches=None, selected_executives=None):
-   """
-   Creates a table of unique customer counts per executive for selected months, branches, and executives.
-   
-   Parameters:
-   - sales_df: DataFrame containing sales data.
-   - date_col: Column name for dates.
-   - branch_col: Column name for branch names.
-   - customer_id_col: Column name for customer IDs (SL Code).
-   - executive_col: Column name for executive names.
-   - selected_months: List of months to filter (format: 'MMM YYYY').
-   - selected_branches: List of branches to filter.
-   - selected_executives: List of executives to filter.
-   
-   Returns:
-   - Dictionary with financial year as key and (DataFrame, sorted_months) as value.
-   """
-   sales_df = sales_df.copy()
-   
-   # Validate columns
-   for col in [date_col, branch_col, customer_id_col, executive_col]:
-       if col not in sales_df.columns:
-           st.error(f"Column '{col}' not found in sales data.")
-           return None
-   
-   # Convert date column to datetime
-   try:
-       sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors='coerce', dayfirst=True, format='mixed')
-   except Exception as e:
-       st.error(f"Error converting '{date_col}' to datetime: {e}. Ensure dates are in a valid format.")
-       return None
-   
-   # Check for valid dates
-   valid_dates = sales_df[date_col].notna()
-   if not valid_dates.any():
-       st.error(f"Column '{date_col}' contains no valid dates.")
-       return None
-   
-   # Extract month-year for filtering
-   sales_df['Month_Year'] = sales_df[date_col].dt.strftime('%b %Y')
-   
-   # Filter by selected months if provided
-   if selected_months:
-       sales_df = sales_df[sales_df['Month_Year'].isin(selected_months)]
-       if sales_df.empty:
-           st.error(f"No data found for selected months: {', '.join(selected_months)}")
-           return None
+    """
+    Creates a table of unique customer counts per executive for selected months, branches, and executives.
+    
+    Parameters:
+    - sales_df: DataFrame containing sales data.
+    - date_col: Column name for dates.
+    - branch_col: Column name for branch names.
+    - customer_id_col: Column name for customer IDs (SL Code).
+    - executive_col: Column name for executive names.
+    - selected_months: List of months to filter (format: 'MMM YYYY').
+    - selected_branches: List of branches to filter.
+    - selected_executives: List of executives to filter.
+    
+    Returns:
+    - Dictionary with formatted month period as key and (DataFrame, sorted_months) as value.
+    """
+    sales_df = sales_df.copy()
+    
+    # Validate columns
+    for col in [date_col, branch_col, customer_id_col, executive_col]:
+        if col not in sales_df.columns:
+            st.error(f"Column '{col}' not found in sales data.")
+            return None
+    
+    # Convert date column to datetime
+    try:
+        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors='coerce', dayfirst=True, format='mixed')
+    except Exception as e:
+        st.error(f"Error converting '{date_col}' to datetime: {e}. Ensure dates are in a valid format.")
+        return None
+    
+    # Check for valid dates
+    valid_dates = sales_df[date_col].notna()
+    if not valid_dates.any():
+        st.error(f"Column '{date_col}' contains no valid dates.")
+        return None
+    
+    # Extract month-year for filtering
+    sales_df['Month_Year'] = sales_df[date_col].dt.strftime('%b %Y')
+    
+    # Filter by selected months if provided
+    if selected_months:
+        sales_df = sales_df[sales_df['Month_Year'].isin(selected_months)]
+        if sales_df.empty:
+            st.error(f"No data found for selected months: {', '.join(selected_months)}")
+            return None
 
-   # Determine financial year
-   def determine_financial_year(date):
-       if pd.isna(date):
-           return None
-       year = date.year
-       month = date.month
-       if month >= 4:
-           return f"{year}-{year+1}"
-       else:
-           return f"{year-1}-{year}"
-   
-   sales_df['Financial_Year'] = sales_df[date_col].apply(determine_financial_year)
-   available_financial_years = sales_df['Financial_Year'].dropna().unique()
-   if len(available_financial_years) == 0:
-       st.error("No valid financial years found in the data.")
-       return None
-   
-   result_dict = {}
-   for fin_year in sorted(available_financial_years):
-       fy_df = sales_df[sales_df['Financial_Year'] == fin_year].copy()
-       if fy_df.empty:
-           continue
-       
-       # Extract unique months in chronological order
-       fy_df['Month_Year_Period'] = fy_df[date_col].dt.to_period('M')
-       available_months = fy_df['Month_Year_Period'].unique()
-       month_names = [pd.to_datetime(str(m) + '-01').strftime('%b %Y') for m in sorted(available_months)]
-       
-       if not month_names:
-           continue
-       
-       # Filter by selected months if provided
-       if selected_months:
-           month_names = [m for m in month_names if m in selected_months]
-           if not month_names:
-               continue
-       
-       # Standardize branch and executive names
-       try:
-           fy_df['Branch'] = fy_df[branch_col].astype(str).str.strip().str.upper()
-           fy_df['EXECUTIVE'] = fy_df[executive_col].astype(str).str.strip().str.upper()
-       except Exception as e:
-           st.error(f"Error processing columns: {e}")
-           continue
-       
-       # Apply branch filter if provided
-       if selected_branches:
-           fy_df = fy_df[fy_df['Branch'].isin([b.upper() for b in selected_branches])]
-           if fy_df.empty:
-               continue
-       
-       # FIX: Determine executives to display based on both branch and executive selections
-       if selected_branches:
-           # If branches are selected, get executives associated with those branches
-           branch_df = fy_df[fy_df['Branch'].isin([b.upper() for b in selected_branches])]
-           branch_executives = sorted(branch_df['EXECUTIVE'].dropna().unique())
-           
-           # If specific executives are also selected, use intersection
-           if selected_executives:
-               selected_execs_upper = [str(e).upper() for e in selected_executives]
-               executives_to_display = [exec for exec in branch_executives if exec in selected_execs_upper]
-           else:
-               executives_to_display = branch_executives
-       else:
-           # Use provided selected_executives or all executives in filtered data
-           executives_to_display = [str(e).upper() for e in selected_executives] if selected_executives else sorted(fy_df['EXECUTIVE'].dropna().unique())
-       
-       # Apply executive filter
-       if executives_to_display:
-           fy_df = fy_df[fy_df['EXECUTIVE'].isin(executives_to_display)]
-           if fy_df.empty:
-               continue
-       
-       if not executives_to_display:
-           continue
-       
-       # Group by executive and month to count unique customer codes
-       grouped_df = fy_df.groupby(['EXECUTIVE', 'Month_Year'])[customer_id_col].nunique().reset_index(name='Customer_Count')
-       
-       # Pivot to create table with months as columns
-       pivot_df = grouped_df.pivot_table(
-           values='Customer_Count',
-           index='EXECUTIVE',
-           columns='Month_Year',
-           aggfunc='sum',
-           fill_value=0
-       ).reset_index()
-       
-       # Rename index column to uppercase
-       pivot_df = pivot_df.rename(columns={'EXECUTIVE': 'EXECUTIVE NAME'})
-       
-       # Create result dataframe with all executives to display
-       result_df = pd.DataFrame({'EXECUTIVE NAME': executives_to_display})
-       result_df = pd.merge(
-           result_df,
-           pivot_df,
-           on='EXECUTIVE NAME',
-           how='left'
-       ).fillna(0)
-       
-       # Keep only selected months
-       columns_to_keep = ['EXECUTIVE NAME'] + month_names
-       result_df = result_df[[col for col in columns_to_keep if col in result_df.columns]]
-       
-       # Convert counts to integers
-       for col in result_df.columns[1:]:
-           result_df[col] = result_df[col].astype(int)
-       
-       # Add S.NO column (uppercase)
-       result_df.insert(0, 'S.NO', [str(i) for i in range(1, len(result_df) + 1)])
-       
-       # Add total row
-       total_row = {'S.NO': '0', 'EXECUTIVE NAME': 'GRAND TOTAL'}
-       for col in month_names:
-           if col in result_df.columns:
-               total_row[col] = result_df[col].sum()
-       
-       result_df = pd.concat([result_df, pd.DataFrame([total_row])], ignore_index=True)
-       
-       result_dict[fin_year] = (result_df, month_names)
-   
-   return result_dict
+    # Determine financial year for internal processing but use month for title
+    def determine_financial_year(date):
+        if pd.isna(date):
+            return None
+        year = date.year
+        month = date.month
+        if month >= 4:
+            return f"{year}-{year+1}"
+        else:
+            return f"{year-1}-{year}"
+    
+    sales_df['Financial_Year'] = sales_df[date_col].apply(determine_financial_year)
+    available_financial_years = sales_df['Financial_Year'].dropna().unique()
+    if len(available_financial_years) == 0:
+        st.error("No valid financial years found in the data.")
+        return None
+    
+    result_dict = {}
+    for fin_year in sorted(available_financial_years):
+        fy_df = sales_df[sales_df['Financial_Year'] == fin_year].copy()
+        if fy_df.empty:
+            continue
+        
+        # Extract unique months in chronological order
+        fy_df['Month_Year_Period'] = fy_df[date_col].dt.to_period('M')
+        available_months = fy_df['Month_Year_Period'].unique()
+        month_names = [pd.to_datetime(str(m) + '-01').strftime('%b %Y') for m in sorted(available_months)]
+        
+        if not month_names:
+            continue
+        
+        # Filter by selected months if provided
+        if selected_months:
+            month_names = [m for m in month_names if m in selected_months]
+            if not month_names:
+                continue
+        
+        # Standardize branch and executive names
+        try:
+            fy_df['Branch'] = fy_df[branch_col].astype(str).str.strip().str.upper()
+            fy_df['EXECUTIVE'] = fy_df[executive_col].astype(str).str.strip().str.upper()
+        except Exception as e:
+            st.error(f"Error processing columns: {e}")
+            continue
+        
+        # Apply branch filter if provided
+        if selected_branches:
+            fy_df = fy_df[fy_df['Branch'].isin([b.upper() for b in selected_branches])]
+            if fy_df.empty:
+                continue
+        
+        # Determine executives to display based on both branch and executive selections
+        if selected_branches:
+            branch_df = fy_df[fy_df['Branch'].isin([b.upper() for b in selected_branches])]
+            branch_executives = sorted(branch_df['EXECUTIVE'].dropna().unique())
+            
+            if selected_executives:
+                selected_execs_upper = [str(e).upper() for e in selected_executives]
+                executives_to_display = [exec for exec in branch_executives if exec in selected_execs_upper]
+            else:
+                executives_to_display = branch_executives
+        else:
+            executives_to_display = [str(e).upper() for e in selected_executives] if selected_executives else sorted(fy_df['EXECUTIVE'].dropna().unique())
+        
+        # Apply executive filter
+        if executives_to_display:
+            fy_df = fy_df[fy_df['EXECUTIVE'].isin(executives_to_display)]
+            if fy_df.empty:
+                continue
+        
+        if not executives_to_display:
+            continue
+        
+        # Group by executive and month to count unique customer codes
+        grouped_df = fy_df.groupby(['EXECUTIVE', 'Month_Year'])[customer_id_col].nunique().reset_index(name='Customer_Count')
+        
+        # Pivot to create table with months as columns
+        pivot_df = grouped_df.pivot_table(
+            values='Customer_Count',
+            index='EXECUTIVE',
+            columns='Month_Year',
+            aggfunc='sum',
+            fill_value=0
+        ).reset_index()
+        
+        # Rename index column to uppercase
+        pivot_df = pivot_df.rename(columns={'EXECUTIVE': 'EXECUTIVE NAME'})
+        
+        # Create result dataframe with all executives to display
+        result_df = pd.DataFrame({'EXECUTIVE NAME': executives_to_display})
+        result_df = pd.merge(
+            result_df,
+            pivot_df,
+            on='EXECUTIVE NAME',
+            how='left'
+        ).fillna(0)
+        
+        # Keep only selected months
+        columns_to_keep = ['EXECUTIVE NAME'] + month_names
+        result_df = result_df[[col for col in columns_to_keep if col in result_df.columns]]
+        
+        # Convert counts to integers
+        for col in result_df.columns[1:]:
+            result_df[col] = result_df[col].astype(int)
+        
+        # Add total row
+        total_row = {'EXECUTIVE NAME': 'GRAND TOTAL'}
+        for col in month_names:
+            if col in result_df.columns:
+                total_row[col] = result_df[col].sum()
+        
+        result_df = pd.concat([result_df, pd.DataFrame([total_row])], ignore_index=True)
+        
+        # Format month period for title - CHANGED FROM FY TO MONTH
+        if selected_months:
+            month_period = format_month_for_title(selected_months)
+        else:
+            month_period = format_month_for_title(month_names)
+        
+        result_dict[month_period] = (result_df, month_names)
+    
+    return result_dict
 
-def create_customer_table_image(df, title, sorted_months, financial_year):
-   fig, ax = plt.subplots(figsize=(14, len(df) * 0.6))
-   ax.axis('off')
-   columns = list(df.columns)
-   expected_columns = {'S.NO', 'EXECUTIVE NAME'}.union(set(sorted_months))
-   actual_columns = set(columns)
-   if not {'S.NO', 'EXECUTIVE NAME'}.issubset(actual_columns):
-       st.warning(f"Missing essential columns in customer DataFrame for image: S.NO or EXECUTIVE NAME")
-       return BytesIO()
-   rows = len(df)
-   ncols = len(columns)
-   width = 1.0 / ncols
-   height = 1.0 / rows
-   table = Table(ax, bbox=[0, 0, 1, 1])
-   for col_idx, col_name in enumerate(columns):
-       table.add_cell(0, col_idx, width, height, text=col_name, loc='center', facecolor='#0070C0')
-       table[0, col_idx].set_text_props(weight='bold', color='white', fontsize=10)
-   for row_idx in range(rows):
-       for col_idx in range(ncols):
-           value = df.iloc[row_idx, col_idx]
-           text = str(value)
-           facecolor = '#DDEBF7' if row_idx % 2 == 0 else 'white'
-           if row_idx == rows - 1:
-               facecolor = '#D3D3D3'
-               table.add_cell(row_idx + 1, col_idx, width, height, text=text, loc='center', facecolor=facecolor).set_text_props(weight='bold', fontsize=10)
-           else:
-               table.add_cell(row_idx + 1, col_idx, width, height, text=text, loc='center', facecolor=facecolor).set_text_props(fontsize=10)
-   table[(0, 0)].width = 0.05
-   table[(0, 1)].width = 0.25
-   for col_idx in range(2, ncols):
-       table[(0, col_idx)].width = 0.07
-   table.auto_set_font_size(False)
-   table.set_fontsize(10)
-   ax.add_table(table)
-   plt.suptitle(title, fontsize=14, weight='bold', color='#0070C0', y=1.02)
-   img_buffer = BytesIO()
-   plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150)
-   plt.close()
-   return img_buffer
+def format_month_for_title(month_list):
+    """Convert month list to title format like JUL-2025"""
+    if not month_list:
+        return "UNKNOWN"
+    
+    # If multiple months, use first and last
+    if len(month_list) > 1:
+        first_month = month_list[0]
+        last_month = month_list[-1]
+        # Convert "Jul 2025" to "JUL-2025" 
+        first_formatted = first_month.replace(' ', '-').upper()
+        last_formatted = last_month.replace(' ', '-').upper()
+        return f"{first_formatted} TO {last_formatted}"
+    else:
+        # Single month: "Jul 2025" -> "JUL-2025"
+        return month_list[0].replace(' ', '-').upper()
+   
 
-def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=False):
+def create_customer_table_image(df, title, sorted_months, month_period):
+    fig, ax = plt.subplots(figsize=(14, len(df) * 0.6))
+    ax.axis('off')
+    columns = list(df.columns)
+    expected_columns = {'EXECUTIVE NAME'}.union(set(sorted_months))
+    actual_columns = set(columns)
+    if not {'EXECUTIVE NAME'}.issubset(actual_columns):
+        st.warning(f"Missing essential columns in customer DataFrame for image: EXECUTIVE NAME")
+        return BytesIO()
+    rows = len(df)
+    ncols = len(columns)
+    width = 1.0 / ncols
+    height = 1.0 / rows
+    table = Table(ax, bbox=[0, 0, 1, 1])
+    for col_idx, col_name in enumerate(columns):
+        table.add_cell(0, col_idx, width, height, text=col_name, loc='center', facecolor='#0070C0')
+        table[0, col_idx].set_text_props(weight='bold', color='white', fontsize=10)
+    for row_idx in range(rows):
+        for col_idx in range(ncols):
+            value = df.iloc[row_idx, col_idx]
+            text = str(value)
+            facecolor = '#DDEBF7' if row_idx % 2 == 0 else 'white'
+            if row_idx == rows - 1:
+                facecolor = '#D3D3D3'
+                table.add_cell(row_idx + 1, col_idx, width, height, text=text, loc='center', facecolor=facecolor).set_text_props(weight='bold', fontsize=10)
+            else:
+                table.add_cell(row_idx + 1, col_idx, width, height, text=text, loc='center', facecolor=facecolor).set_text_props(fontsize=10)
+    if ncols > 0:
+        table[(0, 0)].width = 0.30  # Executive name column wider
+    if ncols > 1:
+        remaining_width = 0.70
+        col_width = remaining_width / (ncols - 1)
+        for i in range(1, ncols):
+            table[(0, i)].width = col_width
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    ax.add_table(table)
+    
+    # CHANGE THIS LINE - Remove "FY" prefix from title
+    clean_title = title.replace("FY ", "")
+    plt.suptitle(clean_title, fontsize=14, weight='bold', color='#0070C0', y=1.02)
+    
+    img_buffer = BytesIO()
+    plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150)
+    plt.close()
+    return img_buffer
+
+def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=False, page_number=None):
     """Updated customer slide creation with page number support"""
     if df.empty or len(df.columns) < 2:
         st.warning(f"Skipping customer slide: DataFrame is empty or has insufficient columns {df.columns.tolist()}")
@@ -1218,7 +1239,7 @@ def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=Fal
     # Create title with consistent formatting
     title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(12.33), Inches(0.8))
     title_frame = title_shape.text_frame
-    title_frame.text = title
+    title_frame.text = title.upper()
     p = title_frame.paragraphs[0]
     p.font.size = Pt(18)
     p.font.bold = True
@@ -1226,8 +1247,8 @@ def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=Fal
     p.alignment = PP_ALIGN.CENTER
     
     columns = list(df.columns)
-    if 'S.NO' not in columns or 'EXECUTIVE NAME' not in columns:
-        st.warning(f"Missing essential columns in customer DataFrame: S.NO or EXECUTIVE NAME")
+    if 'EXECUTIVE NAME' not in columns:
+        st.warning(f"Missing essential column in customer DataFrame: EXECUTIVE NAME")
         return
     
     # Calculate table dimensions to use full slide space
@@ -1246,24 +1267,20 @@ def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=Fal
     table = slide.shapes.add_table(num_rows, num_cols, left, top, table_width, table_height).table
     
     # Calculate column widths to fill the entire table width
-    if num_cols == 3:
-        sno_width = Inches(0.8)
+    if num_cols == 2:
         exec_width = Inches(4.0)
-        month_width = Inches(7.2)
-    elif num_cols > 3:
-        sno_width = Inches(0.8)
-        exec_width = Inches(3.5)
-        remaining_width = table_width - sno_width - exec_width
-        month_width = remaining_width / (num_cols - 2)
+        month_width = Inches(8.0)
+    elif num_cols > 2:
+        exec_width = Inches(4.0)
+        remaining_width = table_width - exec_width
+        month_width = remaining_width / (num_cols - 1)
     else:
-        sno_width = Inches(0.8)
-        exec_width = Inches(11.2)
+        exec_width = Inches(12.0)
         month_width = Inches(1.0)
     
     # Set column widths
-    table.columns[0].width = int(sno_width)
-    table.columns[1].width = int(exec_width)
-    for col_idx in range(2, num_cols):
+    table.columns[0].width = int(exec_width)
+    for col_idx in range(1, num_cols):
         table.columns[col_idx].width = int(month_width)
     
     # Set row heights to fill the table
@@ -1273,7 +1290,7 @@ def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=Fal
     # Format header row consistently
     for col_idx, col_name in enumerate(columns):
         cell = table.cell(0, col_idx)
-        cell.text = col_name
+        cell.text = col_name.upper()
         cell.fill.solid()
         cell.fill.fore_color.rgb = RGBColor(0, 112, 192)
         cell.text_frame.paragraphs[0].font.size = Pt(12)
@@ -1294,7 +1311,7 @@ def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=Fal
             cell = table.cell(row_idx, col_idx)
             try:
                 value = row[col_name]
-                cell.text = str(value)
+                cell.text = str(value).upper() if isinstance(value, str) else str(value)
             except (KeyError, ValueError) as e:
                 cell.text = ""
                 st.warning(f"Error accessing {col_name} at row {index} in customer slide: {e}")
@@ -1317,66 +1334,68 @@ def create_customer_ppt_slide(slide, df, title, sorted_months, is_last_slide=Fal
             cell.margin_right = Inches(0.05)
             cell.margin_top = Inches(0.05)
             cell.margin_bottom = Inches(0.05)
+    
+    # Add page number if provided
+    if page_number is not None:
+        add_page_number(slide, page_number)
 
-def create_customer_ppt_with_splitting(df, title_base, sorted_months, financial_year):
-   """
-   Create multiple PowerPoint slides with table splitting for better readability
-   """
-   slides_data = []
-   
-   if df.empty:
-       return slides_data
-   
-   # Remove GRAND TOTAL row temporarily for splitting
-   total_row = None
-   if not df.empty and df.iloc[-1].get('EXECUTIVE NAME') == 'GRAND TOTAL':
-       total_row = df.iloc[-1:].copy()
-       data_rows = df.iloc[:-1].copy()
-   else:
-       data_rows = df.copy()
-   
-   # Split threshold
-   max_rows_per_slide = 15
-   
-   # If data fits in one slide
-   if len(data_rows) <= max_rows_per_slide:
-       # Add total row back if it exists
-       if total_row is not None:
-           final_df = pd.concat([data_rows, total_row], ignore_index=True)
-       else:
-           final_df = data_rows
-       
-       slides_data.append({
-           'df': final_df,
-           'title': title_base,
-           'is_last': True
-       })
-   else:
-       # Split into multiple slides
-       num_parts = (len(data_rows) + max_rows_per_slide - 1) // max_rows_per_slide
-       
-       for i in range(num_parts):
-           start_idx = i * max_rows_per_slide
-           end_idx = min((i + 1) * max_rows_per_slide, len(data_rows))
-           chunk = data_rows.iloc[start_idx:end_idx].copy()
-           
-           # Add total row only to the last slide
-           if i == num_parts - 1 and total_row is not None:
-               chunk = pd.concat([chunk, total_row], ignore_index=True)
-           
-           # Create slide title
-           if num_parts == 1:
-               slide_title = title_base
-           else:
-               slide_title = f"{title_base} - Part {i + 1}"
-           
-           slides_data.append({
-               'df': chunk,
-               'title': slide_title,
-               'is_last': (i == num_parts - 1)
-           })
-   
-   return slides_data
+def create_customer_ppt_with_splitting(df, title_base, sorted_months, month_period):
+    """
+    Create multiple PowerPoint slides with table splitting for better readability
+    """
+    slides_data = []
+    
+    if df.empty:
+        return slides_data
+    
+    # Remove GRAND TOTAL row temporarily for splitting
+    total_row = None
+    if not df.empty and df.iloc[-1].get('EXECUTIVE NAME') == 'GRAND TOTAL':
+        total_row = df.iloc[-1:].copy()
+        data_rows = df.iloc[:-1].copy()
+    else:
+        data_rows = df.copy()
+    
+    # Split threshold
+    max_rows_per_slide = 15
+    
+    # If data fits in one slide
+    if len(data_rows) <= max_rows_per_slide:
+        # Add total row back if it exists
+        if total_row is not None:
+            final_df = pd.concat([data_rows, total_row], ignore_index=True)
+        else:
+            final_df = data_rows
+        
+        slides_data.append({
+            'df': final_df,
+            'title': f"NUMBER OF BILLED CUSTOMERS - {month_period}",
+            'is_last': True
+        })
+    else:
+        # Split into multiple slides
+        num_parts = (len(data_rows) + max_rows_per_slide - 1) // max_rows_per_slide
+        
+        for i in range(num_parts):
+            start_idx = i * max_rows_per_slide
+            end_idx = min((i + 1) * max_rows_per_slide, len(data_rows))
+            chunk = data_rows.iloc[start_idx:end_idx].copy()
+            
+            # Add total row only to the last slide
+            if i == num_parts - 1 and total_row is not None:
+                chunk = pd.concat([chunk, total_row], ignore_index=True)
+            
+            # Create slide title with slide number
+            slide_title = f"NUMBER OF BILLED CUSTOMERS - {month_period})"
+            
+            slides_data.append({
+                'df': chunk,
+                'title': slide_title,
+                'is_last': (i == num_parts - 1)
+            })
+    
+    return slides_data
+
 def extract_area_name(area):
    if pd.isna(area) or not str(area).strip():
        return None
@@ -1423,7 +1442,7 @@ def filter_os_qty(os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
        st.error(f"Error converting '{os_due_date_col}' to datetime: {e}. Ensure dates are in 'YYYY-MM-DD' format.")
        return None, None, None
    
-   # FIX 1: Convert negative values to 0 BEFORE division
+   # Convert negative values to 0 BEFORE division
    os_df[os_qty_col] = pd.to_numeric(os_df[os_qty_col], errors='coerce').fillna(0)
    os_df[os_qty_col] = os_df[os_qty_col].clip(lower=0)  # Convert negative values to 0
    os_df[os_qty_col] = os_df[os_qty_col] / 100000  # Then divide by 100000
@@ -1464,21 +1483,14 @@ def filter_os_qty(os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
            st.error("No data matches the selected branches.")
            return None, None, None
    
-   # FIX 2: Determine executives to display based on both branch and executive selections
-   if selected_branches:
-       # If branches are selected, get executives associated with those branches
-       branch_df = os_df[os_df[os_area_col].isin([b.upper() for b in selected_branches])]
-       branch_executives = sorted(branch_df[os_exec_col].dropna().unique())
-       
-       # If specific executives are also selected, use intersection
-       if selected_executives:
-           selected_execs_upper = [str(e).upper() for e in selected_executives]
-           executives_to_display = [exec for exec in branch_executives if exec in selected_execs_upper]
-       else:
-           executives_to_display = branch_executives
+   # FIXED: Executive filtering logic - only use selected_executives if provided
+   if selected_executives:
+       # Use only the explicitly selected executives
+       selected_execs_upper = [str(e).upper() for e in selected_executives]
+       executives_to_display = selected_execs_upper
    else:
-       # Use provided selected_executives or all executives in filtered data
-       executives_to_display = [str(e).upper() for e in selected_executives] if selected_executives else sorted(os_df[os_exec_col].dropna().unique())
+       # If no executives selected, use all executives in the filtered data
+       executives_to_display = sorted(os_df[os_exec_col].dropna().unique())
    
    # Filter data by selected executives
    if executives_to_display:
@@ -1499,7 +1511,7 @@ def filter_os_qty(os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
                     .reset_index()
                     .rename(columns={os_exec_col: 'EXECUTIVE', os_qty_col: 'TARGET/L'}))
 
-   # Ensure all executives_to_display are included
+   # Ensure all executives_to_display are included (only selected ones)
    result_df = pd.DataFrame({'EXECUTIVE': executives_to_display})
    result_df = pd.merge(result_df, os_grouped_qty, on='EXECUTIVE', how='left').fillna({'TARGET/L': 0})
    
@@ -1585,7 +1597,7 @@ def create_od_ppt_slides(presentation, df, base_title):
         
         # Create slide title with part number if multiple slides
         if num_slides > 1:
-            slide_title = f"{base_title} - Part {slide_num + 1}"
+            slide_title = f"{base_title}"
         else:
             slide_title = base_title
         
@@ -1607,7 +1619,7 @@ def create_single_od_slide(slide, df, title):
         title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(12.33), Inches(0.8))
         title_frame = title_shape.text_frame
         clean_title = title.replace(" (Value in Lakhs)", "").replace(" (Values in Lakhs)", "")
-        title_frame.text = clean_title
+        title_frame.text = clean_title.upper()
         p = title_frame.paragraphs[0]
         p.font.size = Pt(18)
         p.font.bold = True
@@ -1646,7 +1658,7 @@ def create_single_od_slide(slide, df, title):
         headers = [key_column, "TARGET/L"]
         for col_idx, header_text in enumerate(headers):
             cell = table.cell(0, col_idx)
-            cell.text = header_text
+            cell.text = header_text.upper()
             cell.fill.solid()
             cell.fill.fore_color.rgb = RGBColor(0, 112, 192)
             cell.text_frame.paragraphs[0].font.size = Pt(12)
@@ -1665,7 +1677,7 @@ def create_single_od_slide(slide, df, title):
             
             # Fill executive name
             exec_cell = table.cell(row_idx + 1, 0)
-            exec_cell.text = str(df.iloc[row_idx][key_column])
+            exec_cell.text = str(df.iloc[row_idx][key_column]).upper()
             exec_cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
             
             # Fill target value
@@ -1742,6 +1754,7 @@ def create_thank_you_slide(prs, logo_file=None):
 def create_od_ppt_slide(slide, df, title):
     """Legacy function - use create_od_ppt_slides for automatic splitting"""
     create_single_od_slide(slide, df, title)
+
 def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
                        os_jan_due_date_col, os_jan_ref_date_col, os_jan_net_value_col, os_jan_exec_col, os_jan_sl_code_col, os_jan_area_col,
                        os_feb_due_date_col, os_feb_ref_date_col, os_feb_net_value_col, os_feb_exec_col, os_feb_sl_code_col, os_feb_area_col,
@@ -1869,7 +1882,8 @@ def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
 
    month_collection = sale_value_sum.merge(os_feb_month_sum, on="EXECUTIVE", how="outer").fillna(0)
    month_collection["FOR THE MONTH COLLECTION/L"] = month_collection["Sale Value"] - month_collection["OS Month Collection"]
-   month_collection["% ACHIEVED (SELECTED MONTH)"] = np.where(
+   # FIXED: Renamed column from "% ACHIEVED (SELECTED MONTH)" to "FOR THE MONTH % ACHIEVED"
+   month_collection["FOR THE MONTH % ACHIEVED"] = np.where(
        month_collection["Sale Value"] > 0,
        (month_collection["FOR THE MONTH COLLECTION/L"] / month_collection["Sale Value"]) * 100,
        0
@@ -1878,12 +1892,12 @@ def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
    # Merge all - Following original order and logic exactly
    final = collection.drop(columns=["OS Jan Coll", "OS Feb Coll"]) \
        .merge(overdue_sum, on="EXECUTIVE", how="outer") \
-       .merge(month_collection[["EXECUTIVE", "FOR THE MONTH COLLECTION/L", "% ACHIEVED (SELECTED MONTH)"]],
+       .merge(month_collection[["EXECUTIVE", "FOR THE MONTH COLLECTION/L", "FOR THE MONTH % ACHIEVED"]],
               on="EXECUTIVE", how="outer").fillna(0)
 
    # Reorder columns to match original function's exact order
    final = final[["EXECUTIVE", "DUE TARGET/L", "COLLECTION ACHIEVED/L", "OVERALL % ACHIEVED", 
-                  "FOR THE MONTH OVERDUE/L", "FOR THE MONTH COLLECTION/L", "% ACHIEVED (SELECTED MONTH)"]]
+                  "FOR THE MONTH OVERDUE/L", "FOR THE MONTH COLLECTION/L", "FOR THE MONTH % ACHIEVED"]]
 
    # Preserve exec list
    final = pd.DataFrame({'EXECUTIVE': executives_to_display}).merge(final, on='EXECUTIVE', how='left').fillna(0)
@@ -1894,13 +1908,13 @@ def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
    # Scale + rounding only after percentages done - Updated column names
    val_cols = ["DUE TARGET/L", "COLLECTION ACHIEVED/L", "FOR THE MONTH OVERDUE/L", "FOR THE MONTH COLLECTION/L"]
    final[val_cols] = final[val_cols].div(100000).round(2)
-   final[["OVERALL % ACHIEVED", "% ACHIEVED (SELECTED MONTH)"]] = final[["OVERALL % ACHIEVED", "% ACHIEVED (SELECTED MONTH)"]].round(2)
+   final[["OVERALL % ACHIEVED", "FOR THE MONTH % ACHIEVED"]] = final[["OVERALL % ACHIEVED", "FOR THE MONTH % ACHIEVED"]].round(2)
 
    # Sort + TOTAL
    final.sort_values("EXECUTIVE", inplace=True)
    total_row = {'EXECUTIVE': 'TOTAL'}
    for col in final.columns[1:]:
-       if col in ["OVERALL % ACHIEVED", "% ACHIEVED (SELECTED MONTH)"]:
+       if col in ["OVERALL % ACHIEVED", "FOR THE MONTH % ACHIEVED"]:
            total_row[col] = round(
                np.average(final[col], weights=final["DUE TARGET/L"] if col == "OVERALL % ACHIEVED" else final["FOR THE MONTH OVERDUE/L"]),
                2
@@ -1910,6 +1924,7 @@ def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
    final = pd.concat([final, pd.DataFrame([total_row])], ignore_index=True)
 
    return final
+
 def get_available_months(os_jan, os_feb, total_sale,
                         os_jan_due_date_col, os_jan_ref_date_col,
                         os_feb_due_date_col, os_feb_ref_date_col,
@@ -2191,23 +2206,23 @@ def sidebar_ui():
    with st.sidebar:
        st.title("Integrated Reports Dashboard")
        st.subheader("File Uploads")        
-       sales_file = st.file_uploader("Upload Current Year Sales Excel File", type=["xlsx"], key="upload_sales")
+       sales_file = st.file_uploader("Current Month Sales Excel File", type=["xlsx"], key="upload_sales")
        if sales_file:
            st.session_state.sales_file = sales_file
            st.success("✅ Current Year Sales file uploaded")
-       ly_sales_file = st.file_uploader("Upload Last Year Sales Excel File", type=["xlsx"], key="upload_ly_sales")
+       ly_sales_file = st.file_uploader("Last Year Sales Excel File", type=["xlsx"], key="upload_ly_sales")
        if ly_sales_file:
            st.session_state.ly_sales_file = ly_sales_file
            st.success("✅ Last Year Sales file uploaded")
-       budget_file = st.file_uploader("Upload Budget Excel File", type=["xlsx"], key="upload_budget")
+       budget_file = st.file_uploader("Current Year Budget Excel File", type=["xlsx"], key="upload_budget")
        if budget_file:
            st.session_state.budget_file = budget_file
            st.success("✅ Budget file uploaded")
-       os_jan_file = st.file_uploader("Upload OS-Previous Month Excel File", type=["xlsx"], key="upload_os_jan")
+       os_jan_file = st.file_uploader("OS-Previous Month Excel File", type=["xlsx"], key="upload_os_jan")
        if os_jan_file:
            st.session_state.os_jan_file = os_jan_file
            st.success("✅ OS-Previous Month file uploaded")
-       os_feb_file = st.file_uploader("Upload OS-Current Month Excel File", type=["xlsx"], key="upload_os_feb")
+       os_feb_file = st.file_uploader("OS-Current Month Excel File", type=["xlsx"], key="upload_os_feb")
        if os_feb_file:
            st.session_state.os_feb_file = os_feb_file
            st.success("✅ OS-Current Month file uploaded")
@@ -2226,9 +2241,9 @@ def main():
     st.title("🔄 Integrated Reports Dashboard")
 
     required_files = {
-        "Current Year Sales File": st.session_state.sales_file,
+        "Current Month Sales File": st.session_state.sales_file,
         "Last Year Sales File": st.session_state.ly_sales_file,
-        "Budget File": st.session_state.budget_file,
+        "Current Year Budget File": st.session_state.budget_file,
         "OS-Previous Month Excel File": st.session_state.os_jan_file,
         "OS-Current Month Excel File": st.session_state.os_feb_file
     }
@@ -3215,7 +3230,7 @@ def main():
                                     for fy, (result_df, sorted_months) in results.items():
                                         st.write(f"**Financial Year: {fy}**")
                                         st.dataframe(result_df, use_container_width=True)
-                                        title = f"NUMBER OF BILLED CUSTOMERS - FY {fy}"
+                                        title = f"NUMBER OF BILLED CUSTOMERS - {fy}"
                                         img_buffer = create_customer_table_image(result_df, title, sorted_months, fy)
                                         if img_buffer:
                                             st.image(img_buffer, use_column_width=True)
@@ -3245,7 +3260,7 @@ def main():
                                             key=f'nbc_download_{fy}'
                                         )
                                         st.session_state.customers_results = [
-                                            {'df': result_df, 'title': f"NUMBER OF BILLED CUSTOMERS - FY {fy}"}
+                                            {'df': result_df, 'title': f"NUMBER OF BILLED CUSTOMERS - {fy}"}
                                         ]
                                 else:
                                     st.error("Failed to generate report. Check your data.")
