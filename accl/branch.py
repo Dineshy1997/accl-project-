@@ -277,15 +277,7 @@ def create_title_slide(prs, title, logo_file=None):
     p.font.size = Pt(32)
     p.font.bold = True
     p.font.color.rgb = RGBColor(0, 128, 0)
-    subtitle = title_slide.shapes.add_textbox(Inches(0.5), Inches(5.0), Inches(12.33), Inches(1))
-    subtitle_frame = subtitle.text_frame
-    subtitle_frame.text = "ACCLLP"
-    p = subtitle_frame.paragraphs[0]
-    p.alignment = PP_ALIGN.CENTER
-    p.font.name = "Times New Roman"
-    p.font.size = Pt(28)
-    p.font.bold = True
-    p.font.color.rgb = RGBColor(0, 112, 192)    
+    
     return title_slide
 def add_page_number(slide, page_num):
     """Add page number to the bottom right of a slide."""
@@ -307,7 +299,7 @@ def add_page_number(slide, page_num):
         logger.error(f"Error adding page number: {e}")
 
 def add_table_slide(prs, df, title, percent_cols=None):
-    """Add a slide with a table to a PPT presentation - Updated with page numbers."""
+    """Add a slide with a table to a PPT presentation - Updated with page numbers and uppercase content."""
     if df is None or df.empty:
         return None
     slide_layout = prs.slide_layouts[6]  # Blank layout
@@ -316,10 +308,10 @@ def add_table_slide(prs, df, title, percent_cols=None):
     # Title with standardized font
     title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.5), Inches(12.33), Inches(0.75))
     title_frame = title_shape.text_frame
-    title_frame.text = title
+    title_frame.text = title.upper()  # Ensure title is uppercase
     p = title_frame.paragraphs[0]
     p.alignment = PP_ALIGN.CENTER
-    p.font.size = Pt(24)  # Updated font size
+    p.font.size = Pt(24)
     p.font.bold = True
     p.font.color.rgb = RGBColor(0, 112, 192)
     
@@ -330,7 +322,7 @@ def add_table_slide(prs, df, title, percent_cols=None):
     for col_idx, col_name in enumerate(df.columns):
         cell = table.cell(0, col_idx)
         cell.text = str(col_name).upper()  # Convert to uppercase
-        cell.text_frame.paragraphs[0].font.size = Pt(15)  # Updated font size
+        cell.text_frame.paragraphs[0].font.size = Pt(15)
         cell.text_frame.paragraphs[0].font.bold = True
         cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
         cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
@@ -347,8 +339,12 @@ def add_table_slide(prs, df, title, percent_cols=None):
             if percent_cols and col_idx in percent_cols:
                 cell.text = f"{value}%"
             else:
-                cell.text = str(value)
-            cell.text_frame.paragraphs[0].font.size = Pt(14)  # Updated font size
+                # Make text content uppercase for branch/area names (first column)
+                if col_idx == 0:
+                    cell.text = str(value).upper()
+                else:
+                    cell.text = str(value)
+            cell.text_frame.paragraphs[0].font.size = Pt(14)
             cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
             cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
             if row_idx % 2 == 0 and not is_total_row:
@@ -364,29 +360,7 @@ def add_table_slide(prs, df, title, percent_cols=None):
 def create_thank_you_slide(prs, logo_file=None):
     """Create a standard thank you slide for PPT."""
     blank_slide_layout = prs.slide_layouts[6]  # Blank slide layout
-    thank_you_slide = prs.slides.add_slide(blank_slide_layout)
-    
-    # Company name at top
-    company_name = thank_you_slide.shapes.add_textbox(Inches(0.5), Inches(0.5), Inches(12.33), Inches(1))
-    company_frame = company_name.text_frame
-    company_frame.text = "Asia Crystal Commodity LLP"
-    p = company_frame.paragraphs[0]
-    p.alignment = PP_ALIGN.CENTER
-    p.font.name = "Times New Roman"
-    p.font.size = Pt(36)
-    p.font.bold = True
-    p.font.color.rgb = RGBColor(0, 112, 192)
-    
-    # Logo (if provided)
-    if logo_file is not None:
-        try:
-            logo_buffer = BytesIO(logo_file.read())
-            logo = thank_you_slide.shapes.add_picture(logo_buffer, Inches(5.665), Inches(1.5), width=Inches(2), height=Inches(2))
-            # Reset file pointer for future use
-            logo_file.seek(0)
-        except Exception as e:
-            logger.error(f"Error adding logo to thank you slide: {e}")
-    
+    thank_you_slide = prs.slides.add_slide(blank_slide_layout)  
     # Main "Thank You" text
     thank_you_box = thank_you_slide.shapes.add_textbox(Inches(0.5), Inches(3.5), Inches(12.33), Inches(1.5))
     thank_you_frame = thank_you_box.text_frame
@@ -397,18 +371,6 @@ def create_thank_you_slide(prs, logo_file=None):
     p.font.size = Pt(48)
     p.font.bold = True
     p.font.color.rgb = RGBColor(0, 128, 0)
-    
-    # Subtitle
-    subtitle = thank_you_slide.shapes.add_textbox(Inches(0.5), Inches(5.2), Inches(12.33), Inches(1))
-    subtitle_frame = subtitle.text_frame
-    subtitle_frame.text = "ACCLLP"
-    p = subtitle_frame.paragraphs[0]
-    p.alignment = PP_ALIGN.CENTER
-    p.font.name = "Times New Roman"
-    p.font.size = Pt(28)
-    p.font.bold = True
-    p.font.color.rgb = RGBColor(0, 112, 192)
-    
     return thank_you_slide
 
 def create_consolidated_ppt(all_dfs_with_titles, logo_file=None, title="ACCLLP Consolidated Report"):
@@ -1070,7 +1032,7 @@ def create_budget_ppt(budget_vs_billed_qty_df, budget_vs_billed_value_df, overal
         title_slide = prs.slides.add_slide(blank_slide_layout)
         company_name = title_slide.shapes.add_textbox(Inches(0.5), Inches(0.5), Inches(12.33), Inches(1))
         company_frame = company_name.text_frame
-        company_frame.text = "Asia Crystal Commodity LLP"
+        company_frame.text = "ASIA CRYSTAL COMMODITY LLP"
         p = company_frame.paragraphs[0]
         p.alignment = PP_ALIGN.CENTER
         p.font.name = "Times New Roman"
@@ -1088,7 +1050,7 @@ def create_budget_ppt(budget_vs_billed_qty_df, budget_vs_billed_value_df, overal
         
         title = title_slide.shapes.add_textbox(Inches(0.5), Inches(4.0), Inches(12.33), Inches(1))
         title_frame = title.text_frame
-        title_frame.text = f"Monthly Review Meeting – {month_title}"
+        title_frame.text = f"MONTHLY REVIEW MEETING – {month_title.upper()}"
         p = title_frame.paragraphs[0]
         p.alignment = PP_ALIGN.CENTER
         p.font.name = "Times New Roman"
@@ -1112,7 +1074,7 @@ def create_budget_ppt(budget_vs_billed_qty_df, budget_vs_billed_value_df, overal
             # Title
             title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.4), Inches(12.33), Inches(0.8))
             title_text_frame = title_shape.text_frame
-            title_text_frame.text = title_text
+            title_text_frame.text = title_text.upper()  # Ensure title is uppercase
             p = title_text_frame.paragraphs[0]
             p.alignment = PP_ALIGN.CENTER
             p.font.size = Pt(28)
@@ -1178,7 +1140,7 @@ def create_budget_ppt(budget_vs_billed_qty_df, budget_vs_billed_value_df, overal
                     if col_idx == df.shape[1] - 1 and cols == 4 and '%' in str(df.columns[col_idx]):
                         cell.text = f"{value}%"
                     else:
-                        cell.text = str(value)
+                        cell.text = str(value).upper()  # Make content uppercase
                     
                     cell.text_frame.paragraphs[0].font.size = Pt(14)
                     cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
@@ -1203,15 +1165,15 @@ def create_budget_ppt(budget_vs_billed_qty_df, budget_vs_billed_value_df, overal
             # Add page number
             add_page_number(slide, page_num)
         
-        # Add slides with page numbers
+        # Add slides with updated titles
         page_num = 1
-        add_table_slide_improved(f"BUDGET AGAINST BILLED QUANTITY - {month_title}", budget_vs_billed_qty_df, page_num)
+        add_table_slide_improved(f"BUDGET VS BILLED - QUANTITY - {month_title.upper()}", budget_vs_billed_qty_df, page_num)
         page_num += 1
-        add_table_slide_improved(f"BUDGET AGAINST BILLED VALUE - {month_title}", budget_vs_billed_value_df, page_num)
+        add_table_slide_improved(f"BUDGET VS BILLED - VALUE - {month_title.upper()}", budget_vs_billed_value_df, page_num)
         page_num += 1
-        add_table_slide_improved(f"OVERALL SALES QUANTITY - {month_title}", overall_sales_qty_df, page_num)
+        add_table_slide_improved(f"OVERALL SALES - QUANTITY - {month_title.upper()}", overall_sales_qty_df, page_num)
         page_num += 1
-        add_table_slide_improved(f"OVERALL SALES VALUE - {month_title}", overall_sales_value_df, page_num)
+        add_table_slide_improved(f"OVERALL SALES - VALUE - {month_title.upper()}", overall_sales_value_df, page_num)
         
         ppt_buffer = BytesIO()
         prs.save(ppt_buffer)
@@ -1491,10 +1453,10 @@ def tab_budget_vs_billed():
                         logger.error(f"Error generating proof file: {e}")
                 
                 dfs_info = [
-                    {'df': budget_vs_billed_qty_df, 'title': f"BUDGET AGAINST BILLED QUANTITY - {selected_month}", 'percent_cols': [3]},
-                    {'df': budget_vs_billed_value_df, 'title': f"BUDGET AGAINST BILLED - {selected_month}", 'percent_cols': [3]},
-                    {'df': overall_sales_qty_df, 'title': f"OVERALL SALES - {selected_month}", 'percent_cols': [3]},
-                    {'df': overall_sales_value_df, 'title': f"OVERALL SALES - {selected_month}", 'percent_cols': [3]}
+                    {'df': budget_vs_billed_qty_df, 'title': f"BUDGET AGAINST BILLED - QUANTITY - {selected_month}", 'percent_cols': [3]},
+                    {'df': budget_vs_billed_value_df, 'title': f"BUDGET AGAINST BILLED - VALUE - {selected_month}", 'percent_cols': [3]},
+                    {'df': overall_sales_qty_df, 'title': f"OVERALL SALES - QUANTITY - {selected_month}", 'percent_cols': [3]},
+                    {'df': overall_sales_value_df, 'title': f"OVERALL SALES - VALUE - {selected_month}", 'percent_cols': [3]}
                 ]
                 st.session_state.budget_results = dfs_info
             else:
@@ -1523,22 +1485,22 @@ def create_customer_table(sales_df, date_col, branch_col, customer_id_col, execu
     sales_df = sales_df.copy()
     for col in [date_col, branch_col, customer_id_col, executive_col]:
         if col not in sales_df.columns:
-            st.error(f"Column '{col}' not found in sales data.")
+            st.error(f"COLUMN '{col}' NOT FOUND IN SALES DATA.")
             return None
     try:
         sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors='coerce')
     except Exception as e:
-        st.error(f"Error converting '{date_col}' to datetime: {e}. Ensure dates are in a valid format.")
+        st.error(f"ERROR CONVERTING '{date_col}' TO DATETIME: {e}. ENSURE DATES ARE IN A VALID FORMAT.")
         return None
     valid_dates = sales_df[date_col].notna()
     if not valid_dates.any():
-        st.error(f"Column '{date_col}' contains no valid dates.")
+        st.error(f"COLUMN '{date_col}' CONTAINS NO VALID DATES.")
         return None
     sales_df['Financial_Year'] = sales_df[date_col].apply(determine_financial_year)
     available_financial_years = sorted(sales_df['Financial_Year'].unique())
     sales_df = sales_df[sales_df[date_col].notna()].copy()
     if sales_df.empty:
-        st.error("No valid dates found in data after filtering.")
+        st.error("NO VALID DATES FOUND IN DATA AFTER FILTERING.")
         return None
     sales_df['Month'] = sales_df[date_col].dt.month
     sales_df['Year'] = sales_df[date_col].dt.year
@@ -1546,18 +1508,18 @@ def create_customer_table(sales_df, date_col, branch_col, customer_id_col, execu
     try:
         sales_df['Raw_Branch'] = sales_df[branch_col].astype(str).str.upper()
     except Exception as e:
-        st.error(f"Error processing branch column '{branch_col}': {e}.")
+        st.error(f"ERROR PROCESSING BRANCH COLUMN '{branch_col}': {e}.")
         return None
     sales_df['Mapped_Branch'] = sales_df['Raw_Branch'].replace(nbc_branch_mapping)
     if selected_branches:
         sales_df = sales_df[sales_df['Mapped_Branch'].isin(selected_branches)]
         if sales_df.empty:
-            st.error("No data matches the selected branches.")
+            st.error("NO DATA MATCHES THE SELECTED BRANCHES.")
             return None
     if selected_executives:
         sales_df = sales_df[sales_df[executive_col].isin(selected_executives)]
         if sales_df.empty:
-            st.error("No data matches the selected executives.")
+            st.error("NO DATA MATCHES THE SELECTED EXECUTIVES.")
             return None
     result_dict = {}
     for fy in available_financial_years:
@@ -1565,7 +1527,7 @@ def create_customer_table(sales_df, date_col, branch_col, customer_id_col, execu
         
         if fy_df.empty:
             continue
-        fy_df['Date_Sort'] = fy_df[date_col]  # For sorting months chronologically
+        fy_df['Date_Sort'] = fy_df[date_col]
         available_months = fy_df.sort_values('Date_Sort')['Month_Name'].unique()
         if selected_branches:
             branches_to_display = selected_branches
@@ -1580,15 +1542,16 @@ def create_customer_table(sales_df, date_col, branch_col, customer_id_col, execu
             aggfunc='sum',
             fill_value=0
         ).reset_index()
-        result_df = pd.DataFrame({'Branch Name': branches_to_display})
-        result_df = pd.merge(result_df, pivot_df, left_on='Branch Name', right_on='Mapped_Branch', how='left').fillna(0)
+        result_df = pd.DataFrame({'BRANCH NAME': branches_to_display})
+        result_df = pd.merge(result_df, pivot_df, left_on='BRANCH NAME', right_on='Mapped_Branch', how='left').fillna(0)
         result_df = result_df.drop(columns=['Mapped_Branch'] if 'Mapped_Branch' in result_df.columns else [])
         for month in available_months:
             if month not in result_df.columns:
                 result_df[month] = 0
-        result_df = result_df[['Branch Name'] + [month for month in available_months if month in result_df.columns]]
-        result_df.insert(0, 'S.No', range(1, len(result_df) + 1))
-        total_row = {'S.No': '', 'Branch Name': 'GRAND TOTAL'}
+        result_df = result_df[['BRANCH NAME'] + [month for month in available_months if month in result_df.columns]]
+        # NO S.NO COLUMN ADDED
+        
+        total_row = {'BRANCH NAME': 'GRAND TOTAL'}
         for month in available_months:
             if month in result_df.columns:
                 total_row[month] = result_df[month].sum()
@@ -1602,39 +1565,48 @@ def create_customer_table_image(df, title, sorted_months, financial_year):
     """Create a table image from the DataFrame."""
     fig, ax = plt.subplots(figsize=(14, len(df) * 0.6))
     ax.axis('off')
-    columns = ['S.No', 'Branch Name'] + sorted_months
+    # UPDATED: Remove S.No column from display
+    columns = ['BRANCH NAME'] + sorted_months
     rows = len(df)
     ncols = len(columns)
     width = 1.0 / ncols
     height = 1.0 / rows
     table = Table(ax, bbox=[0, 0, 1, 1])
     for col_idx, col_name in enumerate(columns):
-        table.add_cell(0, col_idx, width, height, text=col_name, loc='center', facecolor='#0070C0')
+        table.add_cell(0, col_idx, width, height, text=col_name.upper(), loc='center', facecolor='#0070C0')
         table[0, col_idx].set_text_props(weight='bold', color='white', fontsize=10)
     for row_idx in range(rows):
         for col_idx in range(ncols):
-            value = df.iloc[row_idx, col_idx]
+            if col_idx == 0:  # Branch Name column
+                value = df.iloc[row_idx, 0]  # Get Branch Name from first column
+            else:  # Month columns
+                month_name = columns[col_idx]
+                if month_name in df.columns:
+                    value = df.iloc[row_idx, df.columns.get_loc(month_name)]
+                else:
+                    value = 0
             text = str(value)
             facecolor = '#DDEBF7' if row_idx % 2 == 0 else 'white'
             if row_idx == rows - 1:  # GRAND TOTAL
                 facecolor = '#D3D3D3'
-                table.add_cell(row_idx + 1, col_idx, width, height, text=text, loc='center', facecolor=facecolor).set_text_props(weight='bold', fontsize=10)
+                table.add_cell(row_idx + 1, col_idx, width, height, text=text.upper(), loc='center', facecolor=facecolor).set_text_props(weight='bold', fontsize=10)
             else:
-                table.add_cell(row_idx + 1, col_idx, width, height, text=text, loc='center', facecolor=facecolor).set_text_props(fontsize=10)
-    table[(0, 0)].width = 0.05
-    table[(0, 1)].width = 0.15
-    for col_idx in range(2, ncols):
-        table[(0, col_idx)].width = 0.08
+                table.add_cell(row_idx + 1, col_idx, width, height, text=text.upper(), loc='center', facecolor=facecolor).set_text_props(fontsize=10)
+    # UPDATED: Adjust column widths without S.No column
+    table[(0, 0)].width = 0.20  # Branch Name column
+    for col_idx in range(1, ncols):
+        table[(0, col_idx)].width = 0.80 / (ncols - 1)  # Distribute remaining width among month columns
     table.auto_set_font_size(False)
     table.set_fontsize(10)
     ax.add_table(table)
-    plt.suptitle(f"{title} - FY {financial_year}", fontsize=14, weight='bold', color='#0070C0', y=1.02)
+    # UPDATED: Change title format to include selected month
+    plt.suptitle(f"{title.upper()}", fontsize=14, weight='bold', color='#0070C0', y=1.02)
     img_buffer = BytesIO()
     plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150)
     plt.close()
     return img_buffer
 def create_customer_ppt_slide_fixed(slide, df, title, sorted_months, financial_year):
-    """Add a slide with the billed customers table - Updated with page numbers."""
+    """Add a slide with the billed customers table - Updated with page numbers and no S.No column."""
     
     # Clear any existing shapes
     for shape in slide.shapes:
@@ -1644,7 +1616,7 @@ def create_customer_ppt_slide_fixed(slide, df, title, sorted_months, financial_y
     # Title
     title_shape = slide.shapes.add_textbox(Inches(1), Inches(0.3), Inches(11.33), Inches(0.8))
     title_frame = title_shape.text_frame
-    title_frame.text = f"{title} - FY {financial_year}"
+    title_frame.text = f"{title.upper()}"
     title_frame.word_wrap = True
     p = title_frame.paragraphs[0]
     p.font.size = Pt(24)
@@ -1652,8 +1624,8 @@ def create_customer_ppt_slide_fixed(slide, df, title, sorted_months, financial_y
     p.font.color.rgb = RGBColor(0, 112, 192)
     p.alignment = PP_ALIGN.CENTER
     
-    # Table structure
-    columns = ['S.No', 'Branch Name'] + sorted_months
+    # Table structure - UPDATED: Remove S.No column
+    columns = ['BRANCH NAME'] + sorted_months
     num_rows = len(df) + 1
     num_cols = len(columns)
     
@@ -1667,27 +1639,25 @@ def create_customer_ppt_slide_fixed(slide, df, title, sorted_months, financial_y
     table_shape = slide.shapes.add_table(num_rows, num_cols, table_left, table_top, table_width, table_height)
     table = table_shape.table
     
-    # Set column widths
-    s_no_width = Inches(0.8)
+    # Set column widths - UPDATED: Adjust without S.No column
     branch_width = Inches(2.5)
-    remaining_width = table_width.inches - s_no_width.inches - branch_width.inches
+    remaining_width = table_width.inches - branch_width.inches
     month_col_width = remaining_width / len(sorted_months) if sorted_months else 1.0
     
-    table.columns[0].width = s_no_width
-    table.columns[1].width = branch_width
-    for i in range(2, num_cols):
+    table.columns[0].width = branch_width
+    for i in range(1, num_cols):
         table.columns[i].width = Inches(month_col_width)
     
     # Format header row
     for col_idx, col_name in enumerate(columns):
         cell = table.cell(0, col_idx)
-        cell.text = str(col_name).upper()  # Convert to uppercase
+        cell.text = str(col_name).upper()
         
         cell.fill.solid()
         cell.fill.fore_color.rgb = RGBColor(0, 112, 192)
         
         paragraph = cell.text_frame.paragraphs[0]
-        paragraph.font.size = Pt(15)  # Updated font size
+        paragraph.font.size = Pt(15)
         paragraph.font.bold = True
         paragraph.font.color.rgb = RGBColor(255, 255, 255)
         paragraph.alignment = PP_ALIGN.CENTER
@@ -1702,16 +1672,21 @@ def create_customer_ppt_slide_fixed(slide, df, title, sorted_months, financial_y
     # Format data rows
     for row_idx in range(len(df)):
         is_total_row = (row_idx == len(df) - 1 and 
-                       str(df.iloc[row_idx, 1]).upper() == 'GRAND TOTAL')
+                       str(df.iloc[row_idx, 0]).upper() == 'GRAND TOTAL')
         
         for col_idx in range(num_cols):
             cell = table.cell(row_idx + 1, col_idx)
             
-            if col_idx < len(df.columns):
-                value = df.iloc[row_idx, col_idx]
-                cell.text = str(value)
-            else:
-                cell.text = ""
+            if col_idx == 0:  # Branch Name column
+                value = df.iloc[row_idx, 0]
+                cell.text = str(value).upper()
+            else:  # Month columns
+                month_name = columns[col_idx]
+                if month_name in df.columns:
+                    value = df.iloc[row_idx, df.columns.get_loc(month_name)]
+                    cell.text = str(value)
+                else:
+                    cell.text = "0"
             
             cell.fill.solid()
             if is_total_row:
@@ -1723,7 +1698,7 @@ def create_customer_ppt_slide_fixed(slide, df, title, sorted_months, financial_y
                     cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
             
             paragraph = cell.text_frame.paragraphs[0]
-            paragraph.font.size = Pt(14)  # Updated font size
+            paragraph.font.size = Pt(14)
             paragraph.font.bold = is_total_row
             paragraph.font.color.rgb = RGBColor(0, 0, 0)
             paragraph.alignment = PP_ALIGN.CENTER
@@ -1782,7 +1757,7 @@ def filter_os_qty(os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
     required_columns = [os_area_col, os_qty_col, os_due_date_col, os_exec_col]
     for col in required_columns:
         if col not in os_df.columns:
-            st.error(f"Column '{col}' not found in OS data.")
+            st.error(f"COLUMN '{col}' NOT FOUND IN OS DATA.")
             return None, None, None
     os_df = os_df.copy()
     os_df[os_area_col] = os_df[os_area_col].apply(extract_area_name)
@@ -1790,7 +1765,7 @@ def filter_os_qty(os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
     try:
         os_df[os_due_date_col] = pd.to_datetime(os_df[os_due_date_col], errors='coerce')
     except Exception as e:
-        st.error(f"Error converting '{os_due_date_col}' to datetime: {e}. Ensure dates are in 'YYYY-MM-DD' format.")
+        st.error(f"ERROR CONVERTING '{os_due_date_col}' TO DATETIME: {e}. ENSURE DATES ARE IN 'YYYY-MM-DD' FORMAT.")
         return None, None, None
     start_date, end_date = None, None
     if selected_years and till_month:
@@ -1800,7 +1775,7 @@ def filter_os_qty(os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
         }
         till_month_num = month_map.get(till_month)
         if not till_month_num:
-            st.error("Invalid month selected.")
+            st.error("INVALID MONTH SELECTED.")
             return None, None, None
         selected_years = [int(year) for year in selected_years]
         earliest_year = min(selected_years)
@@ -1813,41 +1788,40 @@ def filter_os_qty(os_df, os_area_col, os_qty_col, os_due_date_col, os_exec_col,
             (os_df[os_due_date_col] <= end_date)
         ]
         if os_df.empty:
-            st.error(f"No data matches the period from Jan {earliest_year} to {end_date.strftime('%b %Y')}.")
+            st.error(f"NO DATA MATCHES THE PERIOD FROM JAN {earliest_year} TO {end_date.strftime('%b %Y')}.")
             return None, None, None
     all_branches = sorted(os_df[os_area_col].dropna().unique())
     if not selected_branches:
-        selected_branches = all_branches  # Default to all branches if none selected
+        selected_branches = all_branches
     if sorted(selected_branches) != all_branches:
         os_df = os_df[os_df[os_area_col].isin(selected_branches)]
         if os_df.empty:
-            st.error("No data matches the selected branches.")
+            st.error("NO DATA MATCHES THE SELECTED BRANCHES.")
             return None, None, None
     all_executives = sorted(os_df[os_exec_col].dropna().unique())
     if selected_executives and sorted(selected_executives) != sorted(all_executives):
         os_df = os_df[os_df[os_exec_col].isin(selected_executives)]
         if os_df.empty:
-            st.error("No data matches the selected executives.")
+            st.error("NO DATA MATCHES THE SELECTED EXECUTIVES.")
             return None, None, None
     os_df[os_qty_col] = pd.to_numeric(os_df[os_qty_col], errors='coerce').fillna(0)
     if os_df[os_qty_col].isna().any():
-        st.warning(f"Non-numeric values in '{os_qty_col}' replaced with 0.")
+        st.warning(f"NON-NUMERIC VALUES IN '{os_qty_col}' REPLACED WITH 0.")
     os_df_positive = os_df[os_df[os_qty_col] > 0].copy()
     if os_df_positive.empty:
-        st.warning("No positive net values found in the filtered data.")
+        st.warning("NO POSITIVE NET VALUES FOUND IN THE FILTERED DATA.")
     os_grouped_qty = (os_df_positive.groupby(os_area_col)
                     .agg({os_qty_col: 'sum'})
                     .reset_index()
                     .rename(columns={os_area_col: 'AREA', os_qty_col: 'TARGET/L'}))
-    os_grouped_qty['TARGET/L'] = os_grouped_qty['TARGET/L'] / 100000  # Convert to lakhs
+    os_grouped_qty['TARGET/L'] = os_grouped_qty['TARGET/L'] / 100000
     branches_to_display = selected_branches if selected_branches else all_branches
-    result_df = pd.DataFrame({'AREA': branches_to_display})  # Changed from 'Area' to 'AREA'
-    result_df = pd.merge(result_df, os_grouped_qty, on='AREA', how='left').fillna({'TARGET/L': 0})  # Changed from 'Area' to 'AREA'
-    total_row = pd.DataFrame([{'AREA': 'TOTAL', 'TARGET/L': result_df['TARGET/L'].sum()}])  # Changed from 'Area' to 'AREA'
+    result_df = pd.DataFrame({'AREA': branches_to_display})
+    result_df = pd.merge(result_df, os_grouped_qty, on='AREA', how='left').fillna({'TARGET/L': 0})
+    total_row = pd.DataFrame([{'AREA': 'TOTAL', 'TARGET/L': result_df['TARGET/L'].sum()}])
     result_df = pd.concat([result_df, total_row], ignore_index=True)
     result_df['TARGET/L'] = result_df['TARGET/L'].round(2)
     return result_df, start_date, end_date
-
 def create_od_table_image(df, title, columns_to_show=None):
     """Create a table image from the OD Target DataFrame."""
     if columns_to_show is None:
@@ -1857,15 +1831,15 @@ def create_od_table_image(df, title, columns_to_show=None):
     nrows, ncols = len(df), len(columns_to_show)
     table = Table(ax, bbox=[0, 0, 1, 1])
     for col_idx, col_name in enumerate(columns_to_show):
-        table.add_cell(0, col_idx, 1.0/ncols, 1.0/nrows, text=col_name, loc='center', facecolor='#F2F2F2')
+        table.add_cell(0, col_idx, 1.0/ncols, 1.0/nrows, text=col_name.upper(), loc='center', facecolor='#F2F2F2')
         table[0, col_idx].set_text_props(weight='bold', color='black', fontsize=12)
 
     for row_idx in range(len(df)):
         for col_idx, col_name in enumerate(columns_to_show):
             value = df.iloc[row_idx]['AREA'] if col_name == 'AREA' else df.iloc[row_idx]['TARGET/L']
-            text = str(value) if col_name == 'AREA' else f"{float(value):.2f}"
+            text = str(value).upper() if col_name == 'AREA' else f"{float(value):.2f}"
             facecolor = '#DDEBF7' if row_idx % 2 == 0 else 'white'
-            if row_idx == len(df) - 1 and df.iloc[row_idx, 0] == 'TOTAL':
+            if row_idx == len(df) - 1 and str(df.iloc[row_idx, 0]).upper() == 'TOTAL':
                 facecolor = '#D3D3D3'
                 table.add_cell(row_idx + 1, col_idx, 1.0/ncols, 1.0/nrows, text=text, loc='center', facecolor=facecolor).set_text_props(weight='bold', fontsize=12)
             else:
@@ -1875,7 +1849,7 @@ def create_od_table_image(df, title, columns_to_show=None):
     table.auto_set_font_size(False)
     table.set_fontsize(10)
     ax.add_table(table)
-    plt.suptitle(title, fontsize=16, weight='bold', color='black', y=1.05)
+    plt.suptitle(title.upper(), fontsize=16, weight='bold', color='black', y=1.05)
     img_buffer = BytesIO()
     plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150)
     plt.close()
@@ -1887,7 +1861,7 @@ def create_od_ppt_slide(slide, df, title):
     # Create title
     title_shape = slide.shapes.add_textbox(Inches(0.5), Inches(0.4), Inches(12.33), Inches(0.8))
     title_text_frame = title_shape.text_frame
-    title_text_frame.text = title
+    title_text_frame.text = title.upper()
     title_text_frame.word_wrap = True
     p = title_text_frame.paragraphs[0]
     p.alignment = PP_ALIGN.CENTER
@@ -1918,7 +1892,7 @@ def create_od_ppt_slide(slide, df, title):
     # Header row
     for col_idx, col_name in enumerate(columns_to_show):
         cell = table.cell(0, col_idx)
-        cell.text = col_name.upper()  # Convert to uppercase
+        cell.text = col_name.upper()
         
         paragraph = cell.text_frame.paragraphs[0]
         paragraph.font.size = Pt(16)
@@ -1947,7 +1921,7 @@ def create_od_ppt_slide(slide, df, title):
             
             if col_name == 'AREA':
                 value = df.iloc[row_idx]['AREA']
-                cell.text = str(value)
+                cell.text = str(value).upper()
             else:  # TARGET/L column
                 value = df.iloc[row_idx]['TARGET/L']
                 cell.text = f"{float(value):.2f}"
@@ -2001,20 +1975,23 @@ def create_combined_nbc_od_ppt(customer_df, customer_title, sorted_months, od_ta
         logger.error(f"Error creating Combined NBC & OD Target PPT: {e}")
         st.error(f"Error creating Combined NBC & OD Target PPT: {e}")
         return None
-def create_nbc_individual_ppt(customer_df, customer_title, sorted_months, financial_year, logo_file=None):
-    """Create individual PPT for NBC report - Updated with page numbers."""
+def create_nbc_individual_ppt(customer_df, customer_title, sorted_months, financial_year, selected_month, logo_file=None):
+    """Create individual PPT for NBC report - Updated with page numbers and month in title."""
     try:
         prs = Presentation()
         prs.slide_width = Inches(13.33)
         prs.slide_height = Inches(7.5)
         
         # Create title slide (no page number)
-        create_title_slide(prs, "Number of Billed Customers Report", logo_file)
+        create_title_slide(prs, "NUMBER OF BILLED CUSTOMERS REPORT", logo_file)
         
         # Add NBC slide with page number
         slide_layout = prs.slide_layouts[6]
         slide1 = prs.slides.add_slide(slide_layout)
-        create_customer_ppt_slide_fixed(slide1, customer_df, customer_title, sorted_months, financial_year)
+        
+        # Updated title format: NUMBER OF BILLED CUSTOMERS - SELECTED_MONTH
+        updated_title = f"NUMBER OF BILLED CUSTOMERS - {selected_month.upper()}"
+        create_customer_ppt_slide_fixed(slide1, customer_df, updated_title, sorted_months, financial_year)
         
         # Add page number
         add_page_number(slide1, 1)
@@ -2030,19 +2007,19 @@ def create_nbc_individual_ppt(customer_df, customer_title, sorted_months, financ
     
 
 def create_od_individual_ppt(od_target_df, od_title, logo_file=None):
-    """Create individual PPT for OD Target report - Updated with page numbers."""
+    """Create individual PPT for OD Target report - Updated with page numbers and uppercase title."""
     try:
         prs = Presentation()
         prs.slide_width = Inches(13.33)
         prs.slide_height = Inches(7.5)
         
         # Create title slide (no page number)
-        create_title_slide(prs, "OD Target Report", logo_file)
+        create_title_slide(prs, "OD TARGET REPORT", logo_file)
         
         # Add OD Target slide with page number
         slide_layout = prs.slide_layouts[1]
         slide2 = prs.slides.add_slide(slide_layout)
-        create_od_ppt_slide(slide2, od_target_df, od_title)
+        create_od_ppt_slide(slide2, od_target_df, od_title.upper())
         
         # Add page number
         add_page_number(slide2, 1)
@@ -2055,7 +2032,6 @@ def create_od_individual_ppt(od_target_df, od_title, logo_file=None):
         logger.error(f"Error creating OD Target PPT: {e}")
         st.error(f"Error creating OD Target PPT: {e}")
         return None
-
 def tab_billed_customers():
     """Number of Billed Customers Report and OD Target Report Tab with AUTO-MAPPING."""
     st.header("Number of Billed Customers & OD Target Report")   
@@ -2064,16 +2040,16 @@ def tab_billed_customers():
     os_jan_file = st.session_state.os_jan_file
     os_feb_file = st.session_state.os_feb_file    
     if not sales_file:
-        st.warning("Please upload the Sales file in the sidebar")
+        st.warning("Please upload the sales file in the sidebar")
         return dfs_info
     nbc_tab, od_tab = st.tabs(["Number of Billed Customers", "OD Target"])
     with nbc_tab:
-        st.subheader("Number of Billed Customers Setup")        
+        st.subheader("Number of Billed Customers Setup")
         try:
             sales_sheets = get_excel_sheets(sales_file)
             
             if not sales_sheets:
-                st.error("No sheets found in Sales file.")
+                st.error("No Sheets found in Sales File.")
                 return dfs_info
             sales_sheet = st.selectbox("Select Sales Sheet", sales_sheets, 
                                     index=sales_sheets.index('Sheet1') if 'Sheet1' in sales_sheets else 0, 
@@ -2100,14 +2076,14 @@ def tab_billed_customers():
                 )
             with col2:
                 customer_id_col = st.selectbox(
-                    "Customer ID Column",
+                    "Customer Id Column",
                     columns,
                     index=columns.index(nbc_mapping['customer_id']) if nbc_mapping['customer_id'] else 0,
                     help="This column should contain unique customer identifiers.",
                     key='nbc_customer_id_col'
                 )
                 executive_col = st.selectbox(
-                    "Executive Column",
+                    "EXECUTIVE COLUMN",
                     columns,
                     index=columns.index(nbc_mapping['executive']) if nbc_mapping['executive'] else 0,
                     help="This column should contain executive names for filtering.",
@@ -2119,19 +2095,19 @@ def tab_billed_customers():
                 raw_branches = sales_df[branch_col].dropna().astype(str).str.upper().unique().tolist()
                 all_nbc_branches = sorted(set([nbc_branch_mapping.get(branch.split(' - ')[-1], branch.split(' - ')[-1]) for branch in raw_branches]))
                 
-                branch_select_all = st.checkbox("Select All Branches", value=True, key='nbc_branch_all')
+                branch_select_all = st.checkbox("Select all Branches", value=True, key='nbc_branch_all')
                 if branch_select_all:
                     selected_branches = all_nbc_branches
                 else:
-                    selected_branches = st.multiselect("Select Branches", all_nbc_branches, key='nbc_branches')
+                    selected_branches = st.multiselect("Select Branch", all_nbc_branches, key='nbc_branches')
             with filter_tab2:
                 all_executives = sorted(sales_df[executive_col].dropna().unique().tolist())
                 
-                exec_select_all = st.checkbox("Select All Executives", value=True, key='nbc_exec_all')
+                exec_select_all = st.checkbox("Select all Executives", value=True, key='nbc_exec_all')
                 if exec_select_all:
                     selected_executives = all_executives
                 else:
-                    selected_executives = st.multiselect("Select Executives", all_executives, key='nbc_executives')
+                    selected_executives = st.multiselect("Select Executive", all_executives, key='nbc_executives')
             if st.button("Generate Billed Customers Report", key='nbc_generate'):
                 results = create_customer_table(
                     sales_df, date_col, branch_col, customer_id_col, executive_col,
@@ -2139,41 +2115,46 @@ def tab_billed_customers():
                     selected_executives=selected_executives
                 )                
                 if results:
-                    st.subheader("Results")
+                    st.subheader("RESULTS")
                     for fy, (result_df, sorted_months) in results.items():
-                        st.write(f"**Financial Year: {fy}**")
+                        st.write(f"**FINANCIAL YEAR: {fy}**")
                         st.dataframe(result_df)
-                        title = "NUMBER OF BILLED CUSTOMERS"
+                        
+                        # Get the most recent/selected month for the title
+                        latest_month = sorted_months[-1] if sorted_months else "UNKNOWN"
+                        title = f"NUMBER OF BILLED CUSTOMERS - {latest_month}"
+                        
                         img_buffer = create_customer_table_image(result_df, title, sorted_months, fy)
                         if img_buffer:
                             st.image(img_buffer, use_column_width=True)
                         
-                        # ADD INDIVIDUAL NBC PPT DOWNLOAD HERE
+                        # UPDATED NBC PPT DOWNLOAD with new title format
                         nbc_ppt_buffer = create_nbc_individual_ppt(
                             result_df, 
-                            f"NUMBER OF BILLED CUSTOMERS - FY {fy}",
+                            title,  # Use the new title format
                             sorted_months,
                             fy,
+                            latest_month,  # Pass the selected month
                             st.session_state.logo_file
                         )
                         
                         if nbc_ppt_buffer:
                             unique_id = str(uuid.uuid4())[:8]
                             st.download_button(
-                                label=f"Download NBC Report PPT (FY {fy})",
+                                label=f"DOWNLOAD NBC REPORT PPT ({latest_month})",
                                 data=nbc_ppt_buffer,
-                                file_name=f"NBC_Report_FY_{fy}_{unique_id}.pptx",
+                                file_name=f"NBC_Report_{latest_month}_{unique_id}.pptx",
                                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                                 key=f'nbc_individual_download_{fy}_{unique_id}'
                             )
                         
-                        customers_dfs = [{'df': result_df, 'title': f"NUMBER OF BILLED CUSTOMERS - FY {fy}"}]
+                        customers_dfs = [{'df': result_df, 'title': title}]  # Use new title format
                         st.session_state.customers_results = customers_dfs
-                        dfs_info.append({'df': result_df, 'title': f"NUMBER OF BILLED CUSTOMERS - FY {fy}"})
+                        dfs_info.append({'df': result_df, 'title': title})
                 else:
-                    st.error("Failed to generate Number of Billed Customers report. Check your data and selections.")
+                    st.error("FAILED TO GENERATE NUMBER OF BILLED CUSTOMERS REPORT. CHECK YOUR DATA AND SELECTIONS.")
         except Exception as e:
-            st.error(f"Error in Number of Billed Customers tab: {e}")
+            st.error(f"ERROR IN NUMBER OF BILLED CUSTOMERS TAB: {e}")
             logger.error(f"Error in Number of Billed Customers tab: {e}")
     with od_tab:
         st.subheader("OD Target Setup")
@@ -2454,19 +2435,19 @@ def create_dynamic_regional_summary(final_df, region_branch_mapping):
     regional_summary = df.groupby('Region')[numeric_cols].sum().reset_index()
     
     # Calculate percentage columns for regions
-    regional_summary["Overall % Achieved"] = np.where(
+    regional_summary["OVERALL % ACHIEVED"] = np.where(
         regional_summary["Due Target"] > 0,
         (regional_summary["Collection Achieved"] / regional_summary["Due Target"]) * 100,
         0
     )
-    regional_summary["% Achieved (Selected Month)"] = np.where(
+    regional_summary["FOR THE MONTH % ACHIEVED"] = np.where(
         regional_summary["For the month Overdue"] > 0,
         (regional_summary["For the month Collection"] / regional_summary["For the month Overdue"]) * 100,
         0
     )
     
     # Round all columns to 2 decimal places consistently
-    round_cols = numeric_cols + ["Overall % Achieved", "% Achieved (Selected Month)"]
+    round_cols = numeric_cols + ["OVERALL % ACHIEVED", "FOR THE MONTH % ACHIEVED"]
     regional_summary[round_cols] = regional_summary[round_cols].round(2)
     
     # Create total row
@@ -2474,27 +2455,30 @@ def create_dynamic_regional_summary(final_df, region_branch_mapping):
     for col in numeric_cols:
         total_row[col] = round(regional_summary[col].sum(), 2)
     # Calculate total percentages using the same logic as calculate_od_values_updated
-    total_row["Overall % Achieved"] = round(
+    total_row["OVERALL % ACHIEVED"] = round(
         (total_row["Collection Achieved"] / total_row["Due Target"] * 100) if total_row["Due Target"] > 0 else 0, 2
     )
-    total_row["% Achieved (Selected Month)"] = round(
+    total_row["FOR THE MONTH % ACHIEVED"] = round(
         (total_row["For the month Collection"] / total_row["For the month Overdue"] * 100) if total_row["For the month Overdue"] > 0 else 0, 2
     )
     
     # Append total row
     regional_summary = pd.concat([regional_summary, pd.DataFrame([total_row])], ignore_index=True)
     
-    # Rename columns to include /L units for display
+    # Rename columns to include /L units and make them uppercase for display
     regional_summary = regional_summary.rename(columns={
-        "Due Target": "Due Target/L",
-        "Collection Achieved": "Collection Achieved/L", 
-        "For the month Overdue": "For the month Overdue/L",
-        "For the month Collection": "For the month Collection/L"
+        "Region": "REGION",
+        "Due Target": "DUE TARGET/L",
+        "Collection Achieved": "COLLECTION ACHIEVED/L", 
+        "For the month Overdue": "FOR THE MONTH OVERDUE/L",
+        "For the month Collection": "FOR THE MONTH COLLECTION/L"
     })
     
-    # Reorder columns with updated column names
-    regional_summary = regional_summary[["Region", "Due Target/L", "Collection Achieved/L", "Overall % Achieved",
-                                        "For the month Overdue/L", "For the month Collection/L", "% Achieved (Selected Month)"]]
+    # Reorder columns with updated uppercase column names
+    regional_summary = regional_summary[["REGION", "DUE TARGET/L", "COLLECTION ACHIEVED/L", "OVERALL % ACHIEVED",
+                                        "FOR THE MONTH OVERDUE/L", "FOR THE MONTH COLLECTION/L", "FOR THE MONTH % ACHIEVED"]]
+    
+    return regional_summary
     
     return regional_summary
 def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_str,
@@ -2502,203 +2486,204 @@ def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_
                               os_second_due_date_col, os_second_ref_date_col, os_second_unit_col, os_second_net_value_col, os_second_exec_col, os_second_region_col,
                               sale_bill_date_col, sale_due_date_col, sale_branch_col, sale_value_col, sale_exec_col, sale_region_col,
                               selected_executives, selected_branches, selected_regions):
-   """Calculate OD Target vs Collection metrics with updated filtering and dynamic regional summary."""
-   os_first = os_first.copy()
-   os_second = os_second.copy()
-   total_sale = total_sale.copy()
-   
-   # Validate numeric columns
-   for df, col, file in [
-       (os_first, os_first_net_value_col, "OS-First"),
-       (os_second, os_second_net_value_col, "OS-Second"),
-       (total_sale, sale_value_col, "Total Sale")
-   ]:
-       try:
-           df[col] = pd.to_numeric(df[col], errors='coerce')
-           if df[col].isna().all():
-               st.error(f"Column '{col}' in {file} contains no valid numeric data.")
-               return None, None, None
-       except Exception as e:
-           st.error(f"Error processing column '{col}' in {file}: {e}")
-           return None, None, None
+    """Calculate OD Target vs Collection metrics with updated filtering and dynamic regional summary."""
+    os_first = os_first.copy()
+    os_second = os_second.copy()
+    total_sale = total_sale.copy()
+    
+    # Validate numeric columns
+    for df, col, file in [
+        (os_first, os_first_net_value_col, "OS-First"),
+        (os_second, os_second_net_value_col, "OS-Second"),
+        (total_sale, sale_value_col, "Total Sale")
+    ]:
+        try:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+            if df[col].isna().all():
+                st.error(f"COLUMN '{col}' IN {file} CONTAINS NO VALID NUMERIC DATA.")
+                return None, None, None
+        except Exception as e:
+            st.error(f"ERROR PROCESSING COLUMN '{col}' IN {file}: {e}")
+            return None, None, None
 
-   # Filter out negative values
-   os_first_initial_rows = os_first.shape[0]
-   os_first = os_first[os_first[os_first_net_value_col] >= 0]
-   os_first_filtered_rows = os_first.shape[0]
-   logger.debug(f"OS-First: Filtered out {os_first_initial_rows - os_first_filtered_rows} rows with negative Net Value")
+    # Filter out negative values
+    os_first_initial_rows = os_first.shape[0]
+    os_first = os_first[os_first[os_first_net_value_col] >= 0]
+    os_first_filtered_rows = os_first.shape[0]
+    logger.debug(f"OS-First: Filtered out {os_first_initial_rows - os_first_filtered_rows} rows with negative Net Value")
 
-   os_second_initial_rows = os_second.shape[0]
-   os_second = os_second[os_second[os_second_net_value_col] >= 0]
-   os_second_filtered_rows = os_second.shape[0]
-   logger.debug(f"OS-Second: Filtered out {os_second_initial_rows - os_second_filtered_rows} rows with negative Net Value")
+    os_second_initial_rows = os_second.shape[0]
+    os_second = os_second[os_second[os_second_net_value_col] >= 0]
+    os_second_filtered_rows = os_second.shape[0]
+    logger.debug(f"OS-Second: Filtered out {os_second_initial_rows - os_second_filtered_rows} rows with negative Net Value")
 
-   # Convert date columns and map branches
-   os_first[os_first_due_date_col] = pd.to_datetime(os_first[os_first_due_date_col], errors='coerce')
-   os_first[os_first_ref_date_col] = pd.to_datetime(os_first.get(os_first_ref_date_col), errors='coerce')
-   os_first["Branch"] = os_first[os_first_unit_col].apply(map_branch, case='title')
+    # Convert date columns and map branches (KEEP DATA PROCESSING NORMAL)
+    os_first[os_first_due_date_col] = pd.to_datetime(os_first[os_first_due_date_col], errors='coerce')
+    os_first[os_first_ref_date_col] = pd.to_datetime(os_first.get(os_first_ref_date_col), errors='coerce')
+    os_first["Branch"] = os_first[os_first_unit_col].apply(map_branch, case='title')  # Keep title case for processing
 
-   os_second[os_second_due_date_col] = pd.to_datetime(os_second[os_second_due_date_col], errors='coerce')
-   os_second[os_second_ref_date_col] = pd.to_datetime(os_second.get(os_second_ref_date_col), errors='coerce')
-   os_second["Branch"] = os_second[os_second_unit_col].apply(map_branch, case='title')
+    os_second[os_second_due_date_col] = pd.to_datetime(os_second[os_second_due_date_col], errors='coerce')
+    os_second[os_second_ref_date_col] = pd.to_datetime(os_second.get(os_second_ref_date_col), errors='coerce')
+    os_second["Branch"] = os_second[os_second_unit_col].apply(map_branch, case='title')
 
-   total_sale[sale_bill_date_col] = pd.to_datetime(total_sale[sale_bill_date_col], errors='coerce')
-   total_sale[sale_due_date_col] = pd.to_datetime(total_sale[sale_due_date_col], errors='coerce')
-   total_sale["Branch"] = total_sale[sale_branch_col].apply(map_branch, case='title')
+    total_sale[sale_bill_date_col] = pd.to_datetime(total_sale[sale_bill_date_col], errors='coerce')
+    total_sale[sale_due_date_col] = pd.to_datetime(total_sale[sale_due_date_col], errors='coerce')
+    total_sale["Branch"] = total_sale[sale_branch_col].apply(map_branch, case='title')
 
-   # Create region-branch mapping BEFORE any further branch name changes
-   region_branch_mapping = create_region_branch_mapping(
-       os_first, os_second, total_sale,
-       os_first_unit_col, os_first_region_col,
-       os_second_unit_col, os_second_region_col,
-       sale_branch_col, sale_region_col
-   )
+    # Create region-branch mapping BEFORE any further branch name changes
+    region_branch_mapping = create_region_branch_mapping(
+        os_first, os_second, total_sale,
+        os_first_unit_col, os_first_region_col,
+        os_second_unit_col, os_second_region_col,
+        sale_branch_col, sale_region_col
+    )
 
-   # Apply executive filtering
-   if selected_executives:
-       os_first = os_first[os_first[os_first_exec_col].isin(selected_executives)]
-       os_second = os_second[os_second[os_second_exec_col].isin(selected_executives)]
-       total_sale = total_sale[total_sale[sale_exec_col].isin(selected_executives)]
+    # Apply executive filtering
+    if selected_executives:
+        os_first = os_first[os_first[os_first_exec_col].isin(selected_executives)]
+        os_second = os_second[os_second[os_second_exec_col].isin(selected_executives)]
+        total_sale = total_sale[total_sale[sale_exec_col].isin(selected_executives)]
 
-   # Check for empty dataframes after executive filtering
-   empty_dfs = []
-   if os_first.empty:
-       empty_dfs.append("OS-First")
-   if os_second.empty:
-       empty_dfs.append("OS-Second")
-   if total_sale.empty:
-       empty_dfs.append("Total Sale")
-   
-   if empty_dfs:
-       st.error(f"No data remains after executive filtering for: {', '.join(empty_dfs)}")
-       return None, None, None
+    # Check for empty dataframes after executive filtering
+    empty_dfs = []
+    if os_first.empty:
+        empty_dfs.append("OS-First")
+    if os_second.empty:
+        empty_dfs.append("OS-Second")
+    if total_sale.empty:
+        empty_dfs.append("Total Sale")
+    
+    if empty_dfs:
+        st.error(f"NO DATA REMAINS AFTER EXECUTIVE FILTERING FOR: {', '.join(empty_dfs)}")
+        return None, None, None
 
-   # Apply branch filtering
-   if selected_branches:
-       os_first = os_first[os_first["Branch"].isin(selected_branches)]
-       os_second = os_second[os_second["Branch"].isin(selected_branches)]
-       total_sale = total_sale[total_sale["Branch"].isin(selected_branches)]
+    # Apply branch filtering
+    if selected_branches:
+        os_first = os_first[os_first["Branch"].isin(selected_branches)]
+        os_second = os_second[os_second["Branch"].isin(selected_branches)]
+        total_sale = total_sale[total_sale["Branch"].isin(selected_branches)]
 
-   # Apply region filtering
-   if selected_regions and region_branch_mapping:
-       branches_in_selected_regions = []
-       for region in selected_regions:
-           if region in region_branch_mapping:
-               branches_in_selected_regions.extend(region_branch_mapping[region])      
-       if branches_in_selected_regions:
-           os_first = os_first[os_first["Branch"].isin(branches_in_selected_regions)]
-           os_second = os_second[os_second["Branch"].isin(branches_in_selected_regions)]
-           total_sale = total_sale[total_sale["Branch"].isin(branches_in_selected_regions)]
+    # Apply region filtering
+    if selected_regions and region_branch_mapping:
+        branches_in_selected_regions = []
+        for region in selected_regions:
+            if region in region_branch_mapping:
+                branches_in_selected_regions.extend(region_branch_mapping[region])      
+        if branches_in_selected_regions:
+            os_first = os_first[os_first["Branch"].isin(branches_in_selected_regions)]
+            os_second = os_second[os_second["Branch"].isin(branches_in_selected_regions)]
+            total_sale = total_sale[total_sale["Branch"].isin(branches_in_selected_regions)]
 
-   # Check for empty dataframes after all filtering
-   empty_dfs = []
-   if os_first.empty:
-       empty_dfs.append("OS-First")
-   if os_second.empty:
-       empty_dfs.append("OS-Second")
-   if total_sale.empty:
-       empty_dfs.append("Total Sale")   
-   if empty_dfs:
-       st.error(f"No data remains after filtering for: {', '.join(empty_dfs)}")
-       return None, None, None
+    # Check for empty dataframes after all filtering
+    empty_dfs = []
+    if os_first.empty:
+        empty_dfs.append("OS-First")
+    if os_second.empty:
+        empty_dfs.append("OS-Second")
+    if total_sale.empty:
+        empty_dfs.append("Total Sale")   
+    if empty_dfs:
+        st.error(f"NO DATA REMAINS AFTER FILTERING FOR: {', '.join(empty_dfs)}")
+        return None, None, None
 
-   # Calculate metrics
-   specified_date = pd.to_datetime("01-" + selected_month_str, format="%d-%b-%y")
-   specified_month_end = specified_date + pd.offsets.MonthEnd(0)
+    # Calculate metrics
+    specified_date = pd.to_datetime("01-" + selected_month_str, format="%d-%b-%y")
+    specified_month_end = specified_date + pd.offsets.MonthEnd(0)
 
-   # Due target calculation
-   due_target = os_first[os_first[os_first_due_date_col] <= specified_month_end]
-   due_target_sum = due_target.groupby("Branch")[os_first_net_value_col].sum().reset_index()
-   due_target_sum.columns = ["Branch", "Due Target"]
+    # Due target calculation
+    due_target = os_first[os_first[os_first_due_date_col] <= specified_month_end]
+    due_target_sum = due_target.groupby("Branch")[os_first_net_value_col].sum().reset_index()
+    due_target_sum.columns = ["Branch", "Due Target"]
 
-   # Collection calculation
-   os_first_coll = os_first[os_first[os_first_due_date_col] <= specified_month_end]
-   os_first_coll_sum = os_first_coll.groupby("Branch")[os_first_net_value_col].sum().reset_index()
-   os_first_coll_sum.columns = ["Branch", "OS Jan Coll"]
+    # Collection calculation
+    os_first_coll = os_first[os_first[os_first_due_date_col] <= specified_month_end]
+    os_first_coll_sum = os_first_coll.groupby("Branch")[os_first_net_value_col].sum().reset_index()
+    os_first_coll_sum.columns = ["Branch", "OS Jan Coll"]
 
-   os_second_coll = os_second[(os_second[os_second_due_date_col] <= specified_month_end) & 
-                             (os_second[os_second_ref_date_col] < specified_date)]
-   os_second_coll_sum = os_second_coll.groupby("Branch")[os_second_net_value_col].sum().reset_index()
-   os_second_coll_sum.columns = ["Branch", "OS Feb Coll"]
+    os_second_coll = os_second[(os_second[os_second_due_date_col] <= specified_month_end) & 
+                              (os_second[os_second_ref_date_col] < specified_date)]
+    os_second_coll_sum = os_second_coll.groupby("Branch")[os_second_net_value_col].sum().reset_index()
+    os_second_coll_sum.columns = ["Branch", "OS Feb Coll"]
 
-   collection = os_first_coll_sum.merge(os_second_coll_sum, on="Branch", how="outer").fillna(0)
-   collection["Collection Achieved"] = collection["OS Jan Coll"] - collection["OS Feb Coll"]
-   collection["Overall % Achieved"] = np.where(collection["OS Jan Coll"] > 0, 
-                                              (collection["Collection Achieved"] / collection["OS Jan Coll"]) * 100, 
-                                              0)
-   collection = collection.merge(due_target_sum[["Branch", "Due Target"]], on="Branch", how="outer").fillna(0)
+    collection = os_first_coll_sum.merge(os_second_coll_sum, on="Branch", how="outer").fillna(0)
+    collection["Collection Achieved"] = collection["OS Jan Coll"] - collection["OS Feb Coll"]
+    collection["Overall % Achieved"] = np.where(collection["OS Jan Coll"] > 0, 
+                                               (collection["Collection Achieved"] / collection["OS Jan Coll"]) * 100, 
+                                               0)
+    collection = collection.merge(due_target_sum[["Branch", "Due Target"]], on="Branch", how="outer").fillna(0)
 
-   # Overdue calculation
-   overdue = total_sale[(total_sale[sale_bill_date_col].between(specified_date, specified_month_end)) & 
-                       (total_sale[sale_due_date_col].between(specified_date, specified_month_end))]
-   overdue_sum = overdue.groupby("Branch")[sale_value_col].sum().reset_index()
-   overdue_sum.columns = ["Branch", "For the month Overdue"]
+    # Overdue calculation
+    overdue = total_sale[(total_sale[sale_bill_date_col].between(specified_date, specified_month_end)) & 
+                        (total_sale[sale_due_date_col].between(specified_date, specified_month_end))]
+    overdue_sum = overdue.groupby("Branch")[sale_value_col].sum().reset_index()
+    overdue_sum.columns = ["Branch", "For the month Overdue"]
 
-   # Sale value calculation
-   sale_value = overdue.groupby("Branch")[sale_value_col].sum().reset_index()
-   sale_value.columns = ["Branch", "Sale Value"]
+    # Sale value calculation
+    sale_value = overdue.groupby("Branch")[sale_value_col].sum().reset_index()
+    sale_value.columns = ["Branch", "Sale Value"]
 
-   # Month collection calculation
-   os_second_month = os_second[(os_second[os_second_ref_date_col].between(specified_date, specified_month_end)) & 
-                              (os_second[os_second_due_date_col].between(specified_date, specified_month_end))]
-   os_second_month_sum = os_second_month.groupby("Branch")[os_second_net_value_col].sum().reset_index()
-   os_second_month_sum.columns = ["Branch", "OS Month Collection"]
+    # Month collection calculation
+    os_second_month = os_second[(os_second[os_second_ref_date_col].between(specified_date, specified_month_end)) & 
+                               (os_second[os_second_due_date_col].between(specified_date, specified_month_end))]
+    os_second_month_sum = os_second_month.groupby("Branch")[os_second_net_value_col].sum().reset_index()
+    os_second_month_sum.columns = ["Branch", "OS Month Collection"]
 
-   month_collection = sale_value.merge(os_second_month_sum, on="Branch", how="outer").fillna(0)
-   month_collection["For the month Collection"] = month_collection["Sale Value"] - month_collection["OS Month Collection"]
-   month_collection_final = month_collection[["Branch", "For the month Collection"]]
+    month_collection = sale_value.merge(os_second_month_sum, on="Branch", how="outer").fillna(0)
+    month_collection["For the month Collection"] = month_collection["Sale Value"] - month_collection["OS Month Collection"]
+    month_collection_final = month_collection[["Branch", "For the month Collection"]]
 
-   # Final merge
-   final = collection.drop(columns=["OS Jan Coll", "OS Feb Coll"]).merge(overdue_sum, on="Branch", how="outer")\
-           .merge(month_collection_final, on="Branch", how="outer").fillna(0)
-   
-   final["% Achieved (Selected Month)"] = np.where(final["For the month Overdue"] > 0, 
-                                                  (final["For the month Collection"] / final["For the month Overdue"]) * 100, 
-                                                  0)
+    # Final merge
+    final = collection.drop(columns=["OS Jan Coll", "OS Feb Coll"]).merge(overdue_sum, on="Branch", how="outer")\
+            .merge(month_collection_final, on="Branch", how="outer").fillna(0)
+    
+    # Calculate percentage - UPDATED column name
+    final["For The Month % Achieved"] = np.where(final["For the month Overdue"] > 0, 
+                                                   (final["For the month Collection"] / final["For the month Overdue"]) * 100, 
+                                                   0)
 
-   # Convert to lakhs and round
-   val_cols = ["Due Target", "Collection Achieved", "For the month Overdue", "For the month Collection"]
-   final[val_cols] = final[val_cols].div(100000)
-   round_cols = val_cols + ["Overall % Achieved", "% Achieved (Selected Month)"]
-   final[round_cols] = final[round_cols].round(2)
+    # Convert to lakhs and round
+    val_cols = ["Due Target", "Collection Achieved", "For the month Overdue", "For the month Collection"]
+    final[val_cols] = final[val_cols].div(100000)
+    round_cols = val_cols + ["Overall % Achieved", "For The Month % Achieved"]
+    final[round_cols] = final[round_cols].round(2)
 
-   # Reorder columns
-   final = final[["Branch", "Due Target", "Collection Achieved", "Overall % Achieved", 
-                 "For the month Overdue", "For the month Collection", "% Achieved (Selected Month)"]]
-   
-   final.sort_values("Branch", inplace=True)
+    # Reorder columns
+    final = final[["Branch", "Due Target", "Collection Achieved", "Overall % Achieved", 
+                  "For the month Overdue", "For the month Collection", "For The Month % Achieved"]]
+    
+    final.sort_values("Branch", inplace=True)
 
-   # Calculate regional summary BEFORE adding total row
-   # Note: The create_dynamic_regional_summary function may need to be updated to handle the new column names with /L units
-   regional_summary = create_dynamic_regional_summary(final, region_branch_mapping)
+    # Calculate regional summary BEFORE adding total row
+    regional_summary = create_dynamic_regional_summary(final, region_branch_mapping)
 
-   # *** FIXED: Add total row using exact formula like regional summary ***
-   total_row = {'Branch': 'TOTAL'}
-   for col in final.columns[1:]:
-       if col == "Overall % Achieved":
-           # Use exact formula: (Total Collection Achieved / Total Due Target) * 100
-           total_due = final["Due Target"].sum()
-           total_achieved = final["Collection Achieved"].sum()
-           total_row[col] = round((total_achieved / total_due * 100) if total_due > 0 else 0, 2)
-       elif col == "% Achieved (Selected Month)":
-           # Use exact formula: (Total Month Collection / Total Month Overdue) * 100
-           total_overdue = final["For the month Overdue"].sum()
-           total_month_collection = final["For the month Collection"].sum()
-           total_row[col] = round((total_month_collection / total_overdue * 100) if total_overdue > 0 else 0, 2)
-       else:
-           total_row[col] = round(final[col].sum(), 2)
-   
-   final = pd.concat([final, pd.DataFrame([total_row])], ignore_index=True)
-   
-   # Rename columns to include /L units at the very end for PowerPoint display
-   final = final.rename(columns={
-       "Due Target": "Due Target/L",
-       "Collection Achieved": "Collection Achieved/L", 
-       "For the month Overdue": "For the month Overdue/L",
-       "For the month Collection": "For the month Collection/L"
-   })
-   
-   return final, regional_summary, region_branch_mapping
+    # Add total row using exact formula like regional summary
+    total_row = {'Branch': 'TOTAL'}
+    for col in final.columns[1:]:
+        if col == "Overall % Achieved":
+            total_due = final["Due Target"].sum()
+            total_achieved = final["Collection Achieved"].sum()
+            total_row[col] = round((total_achieved / total_due * 100) if total_due > 0 else 0, 2)
+        elif col == "For The Month % Achieved":
+            total_overdue = final["For the month Overdue"].sum()
+            total_month_collection = final["For the month Collection"].sum()
+            total_row[col] = round((total_month_collection / total_overdue * 100) if total_overdue > 0 else 0, 2)
+        else:
+            total_row[col] = round(final[col].sum(), 2)
+    
+    final = pd.concat([final, pd.DataFrame([total_row])], ignore_index=True)
+    
+    # Rename columns to include /L units and uppercase for display
+    final = final.rename(columns={
+        "Branch": "BRANCH",
+        "Due Target": "DUE TARGET/L",
+        "Collection Achieved": "COLLECTION ACHIEVED/L", 
+        "Overall % Achieved": "OVERALL % ACHIEVED",
+        "For the month Overdue": "FOR THE MONTH OVERDUE/L",
+        "For the month Collection": "FOR THE MONTH COLLECTION/L",
+        "For The Month % Achieved": "FOR THE MONTH % ACHIEVED"
+    })
+    
+    return final, regional_summary, region_branch_mapping
 def create_od_ppt_updated(df, regional_df, title, logo_file=None):
     """Create a PPT for OD Target vs Collection Report - Updated with page numbers."""
     try:
@@ -2707,19 +2692,19 @@ def create_od_ppt_updated(df, regional_df, title, logo_file=None):
         prs.slide_height = Inches(7.5)
         
         # Create title slide (no page number)
-        create_title_slide(prs, title, logo_file)
+        create_title_slide(prs, title.upper(), logo_file)
         
         page_num = 1
         
         # Branch-wise performance slide
-        slide = add_table_slide(prs, df, f"Branch-wise Performance - {title}", percent_cols=[3, 6])
+        slide = add_table_slide(prs, df, f"OD TARGET VS COLLECTION - BRANCH - {title.split(' - ')[-1].upper()}", percent_cols=[3, 6])
         if slide:
             add_page_number(slide, page_num)
             page_num += 1
         
         # Regional summary slide (if exists)
         if regional_df is not None and not regional_df.empty:
-            slide = add_table_slide(prs, regional_df, f"Regional Summary - {title}", percent_cols=[3, 6])
+            slide = add_table_slide(prs, regional_df, f"OD TARGET VS COLLECTION - REGIONAL - {title.split(' - ')[-1].upper()}", percent_cols=[3, 6])
             if slide:
                 add_page_number(slide, page_num)
         
@@ -2920,7 +2905,7 @@ def tab_od_target():
                 with result_tabs[0]:
                     st.write("**Branch-wise OD Target vs Collection**")
                     st.dataframe(final)
-                    img_buffer = create_table_image(final, f"OD TARGET VS COLLECTION (Branch-wise) - {selected_month_str}", percent_cols=[3, 6])
+                    img_buffer = create_table_image(final, f"OD TARGET VS COLLECTION- BRANCH - {selected_month_str}", percent_cols=[3, 6])
                     if img_buffer:
                         st.image(img_buffer, use_column_width=True)              
                 tab_idx = 1
@@ -2928,7 +2913,7 @@ def tab_od_target():
                     with result_tabs[1]:
                         st.write("**Regional Summary**")
                         st.dataframe(regional_summary)
-                        img_buffer = create_table_image(regional_summary, f"OD TARGET VS COLLECTION (Regional Summary) - {selected_month_str}", percent_cols=[3, 6])
+                        img_buffer = create_table_image(regional_summary, f"OD TARGET VS COLLECTION - REGIONAL - {selected_month_str}", percent_cols=[3, 6])
                         if img_buffer:
                             st.image(img_buffer, use_column_width=True)
                     tab_idx = 2
@@ -2943,13 +2928,13 @@ def tab_od_target():
                     else:
                         st.write("No region mapping was created or used.")
                 dfs_info = [
-                    {'df': final, 'title': f"OD TARGET VS COLLECTION (Branch-wise) - {selected_month_str}", 'percent_cols': [3, 6]}
+                    {'df': final, 'title': f"OD TARGET VS COLLECTION- BRANCH - {selected_month_str}", 'percent_cols': [3, 6]}
                 ]
                 
                 if regional_summary is not None and not regional_summary.empty:
                     dfs_info.append({
                         'df': regional_summary, 
-                        'title': f"OD TARGET VS COLLECTION (Regional Summary) - {selected_month_str}", 
+                        'title': f"OD TARGET VS COLLECTION- REGIONAL - {selected_month_str}", 
                         'percent_cols': [3, 6]
                     })
                 st.session_state.od_results = dfs_info
@@ -3038,7 +3023,7 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
     """Calculate product growth metrics comparing last year, current year and budget data."""
     try:
         # Debug information to help troubleshoot
-        st.write("Processing data...")
+        st.write("PROCESSING DATA...")
         
         # Create copies to avoid modifying original DataFrames
         ly_df = ly_df.copy()
@@ -3047,20 +3032,20 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
 
         # Validate columns
         required_cols = [
-            (ly_df, [ly_date_col, ly_qty_col, ly_value_col, ly_product_col, ly_company_group_col, ly_exec_col], "Last Year"),
-            (cy_df, [cy_date_col, cy_qty_col, cy_value_col, cy_product_col, cy_company_group_col, cy_exec_col], "Current Year"),
-            (budget_df, [budget_qty_col, budget_value_col, budget_product_group_col, budget_company_group_col, budget_exec_col], "Budget")
+            (ly_df, [ly_date_col, ly_qty_col, ly_value_col, ly_product_col, ly_company_group_col, ly_exec_col], "LAST YEAR"),
+            (cy_df, [cy_date_col, cy_qty_col, cy_value_col, cy_product_col, cy_company_group_col, cy_exec_col], "CURRENT YEAR"),
+            (budget_df, [budget_qty_col, budget_value_col, budget_product_group_col, budget_company_group_col, budget_exec_col], "BUDGET")
         ]
         
         for df, cols, df_name in required_cols:
             missing_cols = [col for col in cols if col not in df.columns]
             if missing_cols:
-                st.error(f"Missing columns in {df_name} data: {missing_cols}")
+                st.error(f"MISSING COLUMNS IN {df_name} DATA: {missing_cols}")
                 return None
 
         # Apply executive filter
         if selected_executives:
-            st.write(f"Applying executive filter: {len(selected_executives)} executives selected")
+            st.write(f"APPLYING EXECUTIVE FILTER: {len(selected_executives)} EXECUTIVES SELECTED")
             if ly_exec_col in ly_df.columns:
                 ly_df = ly_df[ly_df[ly_exec_col].isin(selected_executives)]
             if cy_exec_col in cy_df.columns:
@@ -3070,81 +3055,72 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
 
         if ly_df.empty or cy_df.empty or budget_df.empty:
             empty_dfs = []
-            if ly_df.empty: empty_dfs.append("Last Year")
-            if cy_df.empty: empty_dfs.append("Current Year")
-            if budget_df.empty: empty_dfs.append("Budget")
+            if ly_df.empty: empty_dfs.append("LAST YEAR")
+            if cy_df.empty: empty_dfs.append("CURRENT YEAR")
+            if budget_df.empty: empty_dfs.append("BUDGET")
             
-            st.warning(f"No data remains after executive filtering for: {', '.join(empty_dfs)}. Please check executive selections.")
+            st.warning(f"NO DATA REMAINS AFTER EXECUTIVE FILTERING FOR: {', '.join(empty_dfs)}. PLEASE CHECK EXECUTIVE SELECTIONS.")
             return None
 
         # Check and convert date columns
-        st.write("Converting date columns...")
+        st.write("CONVERTING DATE COLUMNS...")
         try:
             ly_df[ly_date_col] = pd.to_datetime(ly_df[ly_date_col], dayfirst=True, errors='coerce')
             cy_df[cy_date_col] = pd.to_datetime(cy_df[cy_date_col], dayfirst=True, errors='coerce')
         except Exception as e:
-            st.error(f"Error converting date columns: {e}")
+            st.error(f"ERROR CONVERTING DATE COLUMNS: {e}")
             return None
         
         # Check for valid dates
         if ly_df[ly_date_col].isna().all() or cy_df[cy_date_col].isna().all():
-            st.error("Date columns contain no valid dates. Check date formats.")
+            st.error("DATE COLUMNS CONTAIN NO VALID DATES. CHECK DATE FORMATS.")
             return None
         
         available_ly_months = ly_df[ly_date_col].dt.strftime('%b %y').dropna().unique().tolist()
         available_cy_months = cy_df[cy_date_col].dt.strftime('%b %y').dropna().unique().tolist()
 
-        st.write(f"Available LY months: {available_ly_months}")
-        st.write(f"Available CY months: {available_cy_months}")
+        st.write(f"AVAILABLE LY MONTHS: {available_ly_months}")
+        st.write(f"AVAILABLE CY MONTHS: {available_cy_months}")
         
         if not available_ly_months or not available_cy_months:
-            st.error("No valid months extracted from date columns. Please check the date column format.")
+            st.error("NO VALID MONTHS EXTRACTED FROM DATE COLUMNS. PLEASE CHECK THE DATE COLUMN FORMAT.")
             return None
 
         # Apply month filter
-        st.write(f"Filtering for LY months: {ly_months}")
-        st.write(f"Filtering for CY months: {cy_months}")
+        st.write(f"FILTERING FOR LY MONTHS: {ly_months}")
+        st.write(f"FILTERING FOR CY MONTHS: {cy_months}")
         
         if not ly_months or not cy_months:
-            st.error("No months selected for comparison. Please select months for both LY and CY.")
+            st.error("NO MONTHS SELECTED FOR COMPARISON. PLEASE SELECT MONTHS FOR BOTH LY AND CY.")
             return None
             
         try:
             ly_filtered_df = ly_df[ly_df[ly_date_col].dt.strftime('%b %y').isin(ly_months)]
             cy_filtered_df = cy_df[cy_df[cy_date_col].dt.strftime('%b %y').isin(cy_months)]
         except Exception as e:
-            st.error(f"Error filtering by months: {e}")
+            st.error(f"ERROR FILTERING BY MONTHS: {e}")
             return None
 
         if ly_filtered_df.empty or cy_filtered_df.empty:
-            st.warning(f"No data for selected months (LY: {', '.join(ly_months)}, CY: {', '.join(cy_months)})")
+            st.warning(f"NO DATA FOR SELECTED MONTHS (LY: {', '.join(ly_months)}, CY: {', '.join(cy_months)})")
             return None
 
-        # Standardize product and company group names
-        st.write("Standardizing product and company group names...")
+        # Standardize product and company group names (convert to uppercase)
+        st.write("STANDARDIZING PRODUCT AND COMPANY GROUP NAMES...")
         
         # Handle possible missing values before applying standardize_name
-        ly_filtered_df[ly_product_col] = ly_filtered_df[ly_product_col].fillna("").astype(str)
-        cy_filtered_df[cy_product_col] = cy_filtered_df[cy_product_col].fillna("").astype(str)
-        budget_df[budget_product_group_col] = budget_df[budget_product_group_col].fillna("").astype(str)
+        ly_filtered_df[ly_product_col] = ly_filtered_df[ly_product_col].fillna("").astype(str).str.upper()
+        cy_filtered_df[cy_product_col] = cy_filtered_df[cy_product_col].fillna("").astype(str).str.upper()
+        budget_df[budget_product_group_col] = budget_df[budget_product_group_col].fillna("").astype(str).str.upper()
         
-        ly_filtered_df[ly_company_group_col] = ly_filtered_df[ly_company_group_col].fillna("").astype(str)
-        cy_filtered_df[cy_company_group_col] = cy_filtered_df[cy_company_group_col].fillna("").astype(str)
-        budget_df[budget_company_group_col] = budget_df[budget_company_group_col].fillna("").astype(str)
-        
-        # Apply standardization
-        ly_filtered_df[ly_product_col] = ly_filtered_df[ly_product_col].apply(standardize_name)
-        cy_filtered_df[cy_product_col] = cy_filtered_df[cy_product_col].apply(standardize_name)
-        budget_df[budget_product_group_col] = budget_df[budget_product_group_col].apply(standardize_name)
-
-        ly_filtered_df[ly_company_group_col] = ly_filtered_df[ly_company_group_col].apply(standardize_name)
-        cy_filtered_df[cy_company_group_col] = cy_filtered_df[cy_company_group_col].apply(standardize_name)
-        budget_df[budget_company_group_col] = budget_df[budget_company_group_col].apply(standardize_name)
+        ly_filtered_df[ly_company_group_col] = ly_filtered_df[ly_company_group_col].fillna("").astype(str).str.upper()
+        cy_filtered_df[cy_company_group_col] = cy_filtered_df[cy_company_group_col].fillna("").astype(str).str.upper()
+        budget_df[budget_company_group_col] = budget_df[budget_company_group_col].fillna("").astype(str).str.upper()
 
         # Apply company group filter
         if selected_company_groups:
-            st.write(f"Applying company group filter: {selected_company_groups}")
-            selected_company_groups = [standardize_name(g) for g in selected_company_groups]
+            st.write(f"APPLYING COMPANY GROUP FILTER: {selected_company_groups}")
+            selected_company_groups = [g.upper() for g in selected_company_groups]
             
             # Filter data but keep track of what's removed
             ly_before = len(ly_filtered_df)
@@ -3155,45 +3131,45 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
             cy_filtered_df = cy_filtered_df[cy_filtered_df[cy_company_group_col].isin(selected_company_groups)]
             budget_df = budget_df[budget_df[budget_company_group_col].isin(selected_company_groups)]
             
-            st.write(f"Filtered out {ly_before - len(ly_filtered_df)} rows from LY data")
-            st.write(f"Filtered out {cy_before - len(cy_filtered_df)} rows from CY data")
-            st.write(f"Filtered out {budget_before - len(budget_df)} rows from Budget data")
+            st.write(f"FILTERED OUT {ly_before - len(ly_filtered_df)} ROWS FROM LY DATA")
+            st.write(f"FILTERED OUT {cy_before - len(cy_filtered_df)} ROWS FROM CY DATA")
+            st.write(f"FILTERED OUT {budget_before - len(budget_df)} ROWS FROM BUDGET DATA")
 
             if ly_filtered_df.empty or cy_filtered_df.empty or budget_df.empty:
                 empty_dfs = []
-                if ly_filtered_df.empty: empty_dfs.append("Last Year")
-                if cy_filtered_df.empty: empty_dfs.append("Current Year")
-                if budget_df.empty: empty_dfs.append("Budget")
+                if ly_filtered_df.empty: empty_dfs.append("LAST YEAR")
+                if cy_filtered_df.empty: empty_dfs.append("CURRENT YEAR")
+                if budget_df.empty: empty_dfs.append("BUDGET")
                 
-                st.warning(f"No data remains after filtering for company groups: {selected_company_groups} in {', '.join(empty_dfs)}")
+                st.warning(f"NO DATA REMAINS AFTER FILTERING FOR COMPANY GROUPS: {selected_company_groups} IN {', '.join(empty_dfs)}")
                 return None
 
         # Convert quantity and value columns to numeric
-        st.write("Converting quantity and value columns to numeric...")
+        st.write("CONVERTING QUANTITY AND VALUE COLUMNS TO NUMERIC...")
         for df, qty_col, value_col, df_name in [
-            (ly_filtered_df, ly_qty_col, ly_value_col, "Last Year"), 
-            (cy_filtered_df, cy_qty_col, cy_value_col, "Current Year"), 
-            (budget_df, budget_qty_col, budget_value_col, "Budget")
+            (ly_filtered_df, ly_qty_col, ly_value_col, "LAST YEAR"), 
+            (cy_filtered_df, cy_qty_col, cy_value_col, "CURRENT YEAR"), 
+            (budget_df, budget_qty_col, budget_value_col, "BUDGET")
         ]:
             try:
                 df[qty_col] = pd.to_numeric(df[qty_col], errors='coerce').fillna(0)
                 df[value_col] = pd.to_numeric(df[value_col], errors='coerce').fillna(0)
                 
                 # Log some stats to help debug
-                st.write(f"{df_name} qty range: {df[qty_col].min()} to {df[qty_col].max()}")
-                st.write(f"{df_name} value range: {df[value_col].min()} to {df[value_col].max()}")
+                st.write(f"{df_name} QTY RANGE: {df[qty_col].min()} TO {df[qty_col].max()}")
+                st.write(f"{df_name} VALUE RANGE: {df[value_col].min()} TO {df[value_col].max()}")
                 
             except Exception as e:
-                st.error(f"Error converting numeric columns in {df_name} data: {e}")
+                st.error(f"ERROR CONVERTING NUMERIC COLUMNS IN {df_name} DATA: {e}")
                 return None
 
         # Get unique company groups from all datasets
-        st.write("Determining company groups...")
+        st.write("DETERMINING COMPANY GROUPS...")
         
         # Print what we have in each dataset
-        st.write(f"LY company groups: {ly_filtered_df[ly_company_group_col].unique().tolist()}")
-        st.write(f"CY company groups: {cy_filtered_df[cy_company_group_col].unique().tolist()}")
-        st.write(f"Budget company groups: {budget_df[budget_company_group_col].unique().tolist()}")
+        st.write(f"LY COMPANY GROUPS: {ly_filtered_df[ly_company_group_col].unique().tolist()}")
+        st.write(f"CY COMPANY GROUPS: {cy_filtered_df[cy_company_group_col].unique().tolist()}")
+        st.write(f"BUDGET COMPANY GROUPS: {budget_df[budget_company_group_col].unique().tolist()}")
         
         company_groups = selected_company_groups if selected_company_groups else pd.concat([
             ly_filtered_df[ly_company_group_col], 
@@ -3201,10 +3177,10 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
             budget_df[budget_company_group_col]
         ]).dropna().unique().tolist()
         
-        st.write(f"Found {len(company_groups)} company groups: {company_groups}")
+        st.write(f"FOUND {len(company_groups)} COMPANY GROUPS: {company_groups}")
 
         if not company_groups:
-            st.warning("No valid company groups found in the data. Please check company group columns.")
+            st.warning("NO VALID COMPANY GROUPS FOUND IN THE DATA. PLEASE CHECK COMPANY GROUP COLUMNS.")
             return None
 
         # Define helper functions for calculations
@@ -3221,49 +3197,45 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
             return round(((total_cy - total_ly) / total_ly) * 100, 2)
 
         result = {}
-        st.write("Processing data by company group...")
+        st.write("PROCESSING DATA BY COMPANY GROUP...")
         
         for group in company_groups:
-            st.write(f"Processing group: {group}")
+            st.write(f"PROCESSING GROUP: {group}")
             # Filter data by company group
             ly_group_df = ly_filtered_df[ly_filtered_df[ly_company_group_col] == group]
             cy_group_df = cy_filtered_df[cy_filtered_df[cy_company_group_col] == group]
             budget_group_df = budget_df[budget_df[budget_company_group_col] == group]
             
-            st.write(f"Group {group}: LY rows: {len(ly_group_df)}, CY rows: {len(cy_group_df)}, Budget rows: {len(budget_group_df)}")
+            st.write(f"GROUP {group}: LY ROWS: {len(ly_group_df)}, CY ROWS: {len(cy_group_df)}, BUDGET ROWS: {len(budget_group_df)}")
             
             # Check if we have data for this group in all datasets
             if ly_group_df.empty or cy_group_df.empty or budget_group_df.empty:
-                st.warning(f"Insufficient data for company group '{group}'. Skipping this group.")
+                st.warning(f"INSUFFICIENT DATA FOR COMPANY GROUP '{group}'. SKIPPING THIS GROUP.")
                 continue
 
             # Collect products specific to this company group
-            ly_products = ly_group_df[ly_product_col].dropna().apply(standardize_name).unique().tolist()
-            cy_products = cy_group_df[cy_product_col].dropna().apply(standardize_name).unique().tolist()
-            budget_products = budget_group_df[budget_product_group_col].dropna().apply(standardize_name).unique().tolist()
+            ly_products = ly_group_df[ly_product_col].dropna().str.upper().unique().tolist()
+            cy_products = cy_group_df[cy_product_col].dropna().str.upper().unique().tolist()
+            budget_products = budget_group_df[budget_product_group_col].dropna().str.upper().unique().tolist()
             group_products = sorted(set(ly_products + cy_products + budget_products))
             
-            st.write(f"Group {group}: Found {len(group_products)} products")
-            
-            # Restrict 'Gc' to 'General'
-            if group != 'General':
-                group_products = [p for p in group_products if p != 'Gc']
+            st.write(f"GROUP {group}: FOUND {len(group_products)} PRODUCTS")
 
             if not group_products:
-                st.warning(f"No products found for company group '{group}'. Skipping this group.")
+                st.warning(f"NO PRODUCTS FOUND FOR COMPANY GROUP '{group}'. SKIPPING THIS GROUP.")
                 continue
 
             # Aggregate data
-            st.write(f"Aggregating data for group {group}...")
+            st.write(f"AGGREGATING DATA FOR GROUP {group}...")
             try:
-                ly_qty = ly_group_df.groupby(ly_product_col)[ly_qty_col].sum().reset_index().rename(columns={ly_product_col: 'PRODUCT NAME', ly_qty_col: 'LAST_YEAR_QTY/MT'})
-                cy_qty = cy_group_df.groupby(cy_product_col)[cy_qty_col].sum().reset_index().rename(columns={cy_product_col: 'PRODUCT NAME', cy_qty_col: 'CURRENT_YEAR_QTY/MT'})
-                ly_value = ly_group_df.groupby(ly_product_col)[ly_value_col].sum().reset_index().rename(columns={ly_product_col: 'PRODUCT NAME', ly_value_col: 'LAST_YEAR_VALUE/L'})
-                cy_value = cy_group_df.groupby(cy_product_col)[cy_value_col].sum().reset_index().rename(columns={cy_product_col: 'PRODUCT NAME', cy_value_col: 'CURRENT_YEAR_VALUE/L'})
-                budget_qty = budget_group_df.groupby(budget_product_group_col)[budget_qty_col].sum().reset_index().rename(columns={budget_product_group_col: 'PRODUCT NAME', budget_qty_col: 'BUDGET_QTY/MT'})
-                budget_value = budget_group_df.groupby(budget_product_group_col)[budget_value_col].sum().reset_index().rename(columns={budget_product_group_col: 'PRODUCT NAME', budget_value_col: 'BUDGET_VALUE/L'})
+                ly_qty = ly_group_df.groupby(ly_product_col)[ly_qty_col].sum().reset_index().rename(columns={ly_product_col: 'PRODUCT NAME', ly_qty_col: 'LAST YEAR QTY/MT'})
+                cy_qty = cy_group_df.groupby(cy_product_col)[cy_qty_col].sum().reset_index().rename(columns={cy_product_col: 'PRODUCT NAME', cy_qty_col: 'CURRENT YEAR QTY/MT'})
+                ly_value = ly_group_df.groupby(ly_product_col)[ly_value_col].sum().reset_index().rename(columns={ly_product_col: 'PRODUCT NAME', ly_value_col: 'LAST YEAR VALUE/L'})
+                cy_value = cy_group_df.groupby(cy_product_col)[cy_value_col].sum().reset_index().rename(columns={cy_product_col: 'PRODUCT NAME', cy_value_col: 'CURRENT YEAR VALUE/L'})
+                budget_qty = budget_group_df.groupby(budget_product_group_col)[budget_qty_col].sum().reset_index().rename(columns={budget_product_group_col: 'PRODUCT NAME', budget_qty_col: 'BUDGET QTY/MT'})
+                budget_value = budget_group_df.groupby(budget_product_group_col)[budget_value_col].sum().reset_index().rename(columns={budget_product_group_col: 'PRODUCT NAME', budget_value_col: 'BUDGET VALUE/L'})
             except Exception as e:
-                st.error(f"Error aggregating data for group {group}: {e}")
+                st.error(f"ERROR AGGREGATING DATA FOR GROUP {group}: {e}")
                 continue
 
             # Create a DataFrame with all product groups for this company group
@@ -3281,12 +3253,12 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
                                      .fillna(0)
 
             # Calculate growth percentages for each product
-            qty_df['GROWTH %'] = qty_df.apply(lambda row: calc_growth_percentage(row['CURRENT_YEAR_QTY/MT'], row['LAST_YEAR_QTY/MT']), axis=1)
-            value_df['GROWTH %'] = value_df.apply(lambda row: calc_growth_percentage(row['CURRENT_YEAR_VALUE/L'], row['LAST_YEAR_VALUE/L']), axis=1)
+            qty_df['GROWTH %'] = qty_df.apply(lambda row: calc_growth_percentage(row['CURRENT YEAR QTY/MT'], row['LAST YEAR QTY/MT']), axis=1)
+            value_df['GROWTH %'] = value_df.apply(lambda row: calc_growth_percentage(row['CURRENT YEAR VALUE/L'], row['LAST YEAR VALUE/L']), axis=1)
 
             # Round all numeric columns to 2 decimal places
-            numeric_cols_qty = ['LAST_YEAR_QTY/MT', 'BUDGET_QTY/MT', 'CURRENT_YEAR_QTY/MT']
-            numeric_cols_value = ['LAST_YEAR_VALUE/L', 'BUDGET_VALUE/L', 'CURRENT_YEAR_VALUE/L']
+            numeric_cols_qty = ['LAST YEAR QTY/MT', 'BUDGET QTY/MT', 'CURRENT YEAR QTY/MT']
+            numeric_cols_value = ['LAST YEAR VALUE/L', 'BUDGET VALUE/L', 'CURRENT YEAR VALUE/L']
             
             for col in numeric_cols_qty:
                 qty_df[col] = qty_df[col].round(2)
@@ -3295,33 +3267,33 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
                 value_df[col] = value_df[col].round(2)
             
             # Reorder columns
-            qty_df = qty_df[['PRODUCT NAME', 'LAST_YEAR_QTY/MT', 'BUDGET_QTY/MT', 'CURRENT_YEAR_QTY/MT', 'GROWTH %']]
-            value_df = value_df[['PRODUCT NAME', 'LAST_YEAR_VALUE/L', 'BUDGET_VALUE/L', 'CURRENT_YEAR_VALUE/L', 'GROWTH %']]
+            qty_df = qty_df[['PRODUCT NAME', 'LAST YEAR QTY/MT', 'BUDGET QTY/MT', 'CURRENT YEAR QTY/MT', 'GROWTH %']]
+            value_df = value_df[['PRODUCT NAME', 'LAST YEAR VALUE/L', 'BUDGET VALUE/L', 'CURRENT YEAR VALUE/L', 'GROWTH %']]
 
             # Calculate totals correctly
-            total_ly_qty = qty_df['LAST_YEAR_QTY/MT'].sum()
-            total_cy_qty = qty_df['CURRENT_YEAR_QTY/MT'].sum()
-            total_budget_qty = qty_df['BUDGET_QTY/MT'].sum()
+            total_ly_qty = qty_df['LAST YEAR QTY/MT'].sum()
+            total_cy_qty = qty_df['CURRENT YEAR QTY/MT'].sum()
+            total_budget_qty = qty_df['BUDGET QTY/MT'].sum()
             
-            total_ly_value = value_df['LAST_YEAR_VALUE/L'].sum()
-            total_cy_value = value_df['CURRENT_YEAR_VALUE/L'].sum()
-            total_budget_value = value_df['BUDGET_VALUE/L'].sum()
+            total_ly_value = value_df['LAST YEAR VALUE/L'].sum()
+            total_cy_value = value_df['CURRENT YEAR VALUE/L'].sum()
+            total_budget_value = value_df['BUDGET VALUE/L'].sum()
 
             # Add totals with correct growth calculation
             qty_totals = pd.DataFrame({
                 'PRODUCT NAME': ['TOTAL'],
-                'LAST_YEAR_QTY/MT': [round(total_ly_qty, 2)],
-                'BUDGET_QTY/MT': [round(total_budget_qty, 2)],
-                'CURRENT_YEAR_QTY/MT': [round(total_cy_qty, 2)],
+                'LAST YEAR QTY/MT': [round(total_ly_qty, 2)],
+                'BUDGET QTY/MT': [round(total_budget_qty, 2)],
+                'CURRENT YEAR QTY/MT': [round(total_cy_qty, 2)],
                 'GROWTH %': [calc_total_growth_percentage(total_cy_qty, total_ly_qty)]
             })
             qty_df = pd.concat([qty_df, qty_totals], ignore_index=True)
 
             value_totals = pd.DataFrame({
                 'PRODUCT NAME': ['TOTAL'],
-                'LAST_YEAR_VALUE/L': [round(total_ly_value, 2)],
-                'BUDGET_VALUE/L': [round(total_budget_value, 2)],
-                'CURRENT_YEAR_VALUE/L': [round(total_cy_value, 2)],
+                'LAST YEAR VALUE/L': [round(total_ly_value, 2)],
+                'BUDGET VALUE/L': [round(total_budget_value, 2)],
+                'CURRENT YEAR VALUE/L': [round(total_cy_value, 2)],
                 'GROWTH %': [calc_total_growth_percentage(total_cy_value, total_ly_value)]
             })
             value_df = pd.concat([value_df, value_totals], ignore_index=True)
@@ -3329,17 +3301,17 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
             result[group] = {'qty_df': qty_df, 'value_df': value_df}
 
         if not result:
-            st.error("No data available for report. Please check filters and data content.")
+            st.error("NO DATA AVAILABLE FOR REPORT. PLEASE CHECK FILTERS AND DATA CONTENT.")
             return None
 
         # Remove debug statements in production
-        st.write("Product growth calculation complete!")
-        st.write(f"Generated reports for {len(result)} company groups")
+        st.write("PRODUCT GROWTH CALCULATION COMPLETE!")
+        st.write(f"GENERATED REPORTS FOR {len(result)} COMPANY GROUPS")
         
         return result
     
     except Exception as e:
-        st.error(f"Error in product growth calculation: {e}")
+        st.error(f"ERROR IN PRODUCT GROWTH CALCULATION: {e}")
         import traceback
         st.code(traceback.format_exc())
         return None
@@ -3352,7 +3324,7 @@ def create_product_growth_ppt(group_results, month_title, logo_file=None):
         prs.slide_height = Inches(7.5)
         
         # Create title slide (no page number)
-        create_title_slide(prs, f"Product Growth by Company Group – {month_title}", logo_file)
+        create_title_slide(prs, f"PRODUCT GROWTH BY COMPANY GROUP – {month_title.upper()}", logo_file)
         
         page_num = 1
         
@@ -3362,13 +3334,13 @@ def create_product_growth_ppt(group_results, month_title, logo_file=None):
             value_df = data['value_df']
             
             # Quantity slide
-            slide = add_table_slide(prs, qty_df, f"{group} - Quantity Growth", percent_cols=[4])
+            slide = add_table_slide(prs, qty_df, f"{group.upper()} - QUANTITY GROWTH", percent_cols=[4])
             if slide:
                 add_page_number(slide, page_num)
                 page_num += 1
             
             # Value slide  
-            slide = add_table_slide(prs, value_df, f"{group} - Value Growth", percent_cols=[4])
+            slide = add_table_slide(prs, value_df, f"{group.upper()} - VALUE GROWTH", percent_cols=[4])
             if slide:
                 add_page_number(slide, page_num)
                 page_num += 1
@@ -3381,7 +3353,6 @@ def create_product_growth_ppt(group_results, month_title, logo_file=None):
         logger.error(f"Error creating Product Growth PPT: {e}")
         st.error(f"Error creating Product Growth PPT: {e}")
         return None
-
 def tab_product_growth():
     """Product Growth Report Tab with AUTO-MAPPING."""
     st.header("Product Growth Dashboard")
@@ -3623,31 +3594,31 @@ def sidebar_ui():
         st.subheader("File Uploads")
         
         # Sales file upload
-        sales_file = st.file_uploader("Upload Current Year Sales Excel File", type=["xlsx"], key="upload_sales")
+        sales_file = st.file_uploader("Current Month Sales Excel File", type=["xlsx"], key="upload_sales")
         if sales_file:
             st.session_state.sales_file = sales_file
-            st.success("✅ Current Year Sales file uploaded")
-        
+            st.success("✅ Current Month Sales file uploaded")
+
         # Last Year Sales file upload
-        last_year_sales_file = st.file_uploader("Upload Last Year Sales Excel File", type=["xlsx"], key="upload_last_year_sales")
+        last_year_sales_file = st.file_uploader("Last Year Sales Excel File", type=["xlsx"], key="upload_last_year_sales")
         if last_year_sales_file:
             st.session_state.last_year_sales_file = last_year_sales_file
             st.success("✅ Last Year Sales file uploaded")
         
         # Budget file upload
-        budget_file = st.file_uploader("Upload Budget Excel File", type=["xlsx"], key="upload_budget")
+        budget_file = st.file_uploader("Current Year Budget Excel File", type=["xlsx"], key="upload_budget")
         if budget_file:
             st.session_state.budget_file = budget_file
-            st.success("✅ Budget file uploaded")
-        
+            st.success("✅ Current Year Budget file uploaded")
+
         # OS Jan file upload
-        os_jan_file = st.file_uploader("Upload OS-Previous Month Excel File", type=["xlsx"], key="upload_os_jan")
+        os_jan_file = st.file_uploader("OS-Previous Month Excel File", type=["xlsx"], key="upload_os_jan")
         if os_jan_file:
             st.session_state.os_jan_file = os_jan_file
             st.success("✅ OS-Previous Month file uploaded")
         
         # OS Feb file upload
-        os_feb_file = st.file_uploader("Upload OS-Current Month Excel File", type=["xlsx"], key="upload_os_feb")
+        os_feb_file = st.file_uploader("OS-Current Month Excel File", type=["xlsx"], key="upload_os_feb")
         if os_feb_file:
             st.session_state.os_feb_file = os_feb_file
             st.success("✅ OS-Current Month file uploaded")
@@ -3679,9 +3650,9 @@ def main():
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("#### Required Files:")
-            st.markdown(f"- Current Year Sales File: {'✅ Uploaded' if st.session_state.sales_file else '❌ Missing'}")
+            st.markdown(f"- Current Month Sales File: {'✅ Uploaded' if st.session_state.sales_file else '❌ Missing'}")
             st.markdown(f"- Last Year Sales File: {'✅ Uploaded' if st.session_state.last_year_sales_file else '❌ Missing'}")
-            st.markdown(f"- Budget File: {'✅ Uploaded' if st.session_state.budget_file else '❌ Missing'}")
+            st.markdown(f"- Current Year Budget File: {'✅ Uploaded' if st.session_state.budget_file else '❌ Missing'}")
         with col2:
             st.markdown("####  ")
             st.markdown(f"- OS-Previous Month File: {'✅ Uploaded' if st.session_state.os_jan_file else '❌ Missing'}")
