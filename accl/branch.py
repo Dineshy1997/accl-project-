@@ -299,7 +299,7 @@ def add_page_number(slide, page_num):
         logger.error(f"Error adding page number: {e}")
 
 def add_table_slide(prs, df, title, percent_cols=None):
-    """Add a slide with a table to a PPT presentation - Updated with page numbers and uppercase content."""
+    """Add a slide with a table to a PPT presentation - Updated with page numbers and consistent formatting."""
     if df is None or df.empty:
         return None
     slide_layout = prs.slide_layouts[6]  # Blank layout
@@ -336,14 +336,22 @@ def add_table_slide(prs, df, title, percent_cols=None):
         for col_idx in range(cols):
             cell = table.cell(row_idx + 1, col_idx)
             value = df.iloc[row_idx, col_idx]
+            
+            # Format cells with consistent decimal places
             if percent_cols and col_idx in percent_cols:
                 cell.text = f"{value}%"
             else:
-                # Make text content uppercase for branch/area names (first column)
-                if col_idx == 0:
+                # For numeric columns (not first column), ensure 2-decimal formatting
+                if col_idx > 0 and isinstance(value, (int, float)) and not pd.isna(value):
+                    if "%" not in str(df.columns[col_idx]):
+                        cell.text = f"{float(value):.2f}"
+                    else:
+                        cell.text = str(value)
+                elif col_idx == 0:
                     cell.text = str(value).upper()
                 else:
                     cell.text = str(value)
+            
             cell.text_frame.paragraphs[0].font.size = Pt(14)
             cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
             cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
@@ -983,34 +991,18 @@ def calculate_values(sales_df, budget_df, selected_month, sales_executives, budg
         })
         overall_sales_value_df = pd.concat([overall_sales_value_df, total_row_overall_value], ignore_index=True)
         
-        # FINAL ROUNDING: Convert to integers for final display (keeping original behavior)
-        budget_vs_billed_value_df['BUDGET VALUE/L'] = budget_vs_billed_value_df['BUDGET VALUE/L'].round(0).astype(int)
-        budget_vs_billed_value_df['BILLED VALUE/L'] = budget_vs_billed_value_df['BILLED VALUE/L'].round(0).astype(int)
-        budget_vs_billed_qty_df['BUDGET QTY/MT'] = budget_vs_billed_qty_df['BUDGET QTY/MT'].round(0).astype(int)
-        budget_vs_billed_qty_df['BILLED QTY/MT'] = budget_vs_billed_qty_df['BILLED QTY/MT'].round(0).astype(int)
-        overall_sales_qty_df['BUDGET QTY/MT'] = overall_sales_qty_df['BUDGET QTY/MT'].round(0).astype(int)
-        overall_sales_qty_df['BILLED QTY/MT'] = overall_sales_qty_df['BILLED QTY/MT'].round(0).astype(int)
-        overall_sales_value_df['BUDGET VALUE/L'] = overall_sales_value_df['BUDGET VALUE/L'].round(0).astype(int)
-        overall_sales_value_df['BILLED VALUE/L'] = overall_sales_value_df['BILLED VALUE/L'].round(0).astype(int)
-        
-        # ADDITIONAL SAFETY CHECK: Force fix any remaining percentage anomalies
-        for df_name, df in [("QTY", budget_vs_billed_qty_df), ("VALUE", budget_vs_billed_value_df)]:
-            if df_name == "QTY":
-                budget_col, billed_col = 'BUDGET QTY/MT', 'BILLED QTY/MT'
-            else:
-                budget_col, billed_col = 'BUDGET VALUE/L', 'BILLED VALUE/L'
-            
-            # Check for any remaining anomalies
-            final_anomaly_mask = (
-                (df[budget_col] == 0) & 
-                (df[billed_col] == 0) & 
-                (df['%'] != 0.0)
-            )
-            
-            if final_anomaly_mask.any():
-                print(f"🚨 FINAL CHECK: Found {final_anomaly_mask.sum()} anomalies in {df_name} DataFrame")
-                df.loc[final_anomaly_mask, '%'] = 0.0
-                print(f"✅ Fixed all anomalies in {df_name} DataFrame")
+        # CONSISTENT 2-DECIMAL FORMATTING: Apply to all DataFrames
+        for df, df_name in [(budget_vs_billed_value_df, 'VALUE'), (budget_vs_billed_qty_df, 'QTY'), 
+                           (overall_sales_qty_df, 'OVERALL_QTY'), (overall_sales_value_df, 'OVERALL_VALUE')]:
+            # Convert numeric columns to consistent 2-decimal format
+            for col in df.columns:
+                if col != 'AREA' and '%' not in str(col):
+                    try:
+                        # Convert to numeric and format to 2 decimal places
+                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                        df[col] = df[col].apply(lambda x: f"{float(x):.2f}")
+                    except:
+                        pass  # Keep original values if conversion fails
         
         print("Budget vs Billed calculation completed successfully!")
         
@@ -2672,6 +2664,13 @@ def calculate_od_values_updated(os_first, os_second, total_sale, selected_month_
     
     final = pd.concat([final, pd.DataFrame([total_row])], ignore_index=True)
     
+    # Ensure consistent 2-decimal formatting for all numeric columns
+    for col in final.columns:
+        if col not in ["Branch"] and final[col].dtype in ['float64', 'int64']:
+            # For percentage columns, keep as is, for others ensure 2 decimal places
+            if "%" not in col:
+                final[col] = final[col].apply(lambda x: f"{float(x):.2f}" if pd.notna(x) else "0.00")
+    
     # Rename columns to include /L units and uppercase for display
     final = final.rename(columns={
         "Branch": "BRANCH",
@@ -3256,21 +3255,21 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
             qty_df['GROWTH %'] = qty_df.apply(lambda row: calc_growth_percentage(row['CURRENT YEAR QTY/MT'], row['LAST YEAR QTY/MT']), axis=1)
             value_df['GROWTH %'] = value_df.apply(lambda row: calc_growth_percentage(row['CURRENT YEAR VALUE/L'], row['LAST YEAR VALUE/L']), axis=1)
 
-            # Round all numeric columns to 2 decimal places
+            # Apply consistent 2-decimal formatting
             numeric_cols_qty = ['LAST YEAR QTY/MT', 'BUDGET QTY/MT', 'CURRENT YEAR QTY/MT']
             numeric_cols_value = ['LAST YEAR VALUE/L', 'BUDGET VALUE/L', 'CURRENT YEAR VALUE/L']
             
             for col in numeric_cols_qty:
-                qty_df[col] = qty_df[col].round(2)
+                qty_df[col] = qty_df[col].apply(lambda x: float(f"{x:.2f}") if pd.notna(x) else 0.00)
             
             for col in numeric_cols_value:
-                value_df[col] = value_df[col].round(2)
+                value_df[col] = value_df[col].apply(lambda x: float(f"{x:.2f}") if pd.notna(x) else 0.00)
             
             # Reorder columns
             qty_df = qty_df[['PRODUCT NAME', 'LAST YEAR QTY/MT', 'BUDGET QTY/MT', 'CURRENT YEAR QTY/MT', 'GROWTH %']]
             value_df = value_df[['PRODUCT NAME', 'LAST YEAR VALUE/L', 'BUDGET VALUE/L', 'CURRENT YEAR VALUE/L', 'GROWTH %']]
 
-            # Calculate totals correctly
+            # Calculate totals correctly with consistent formatting
             total_ly_qty = qty_df['LAST YEAR QTY/MT'].sum()
             total_cy_qty = qty_df['CURRENT YEAR QTY/MT'].sum()
             total_budget_qty = qty_df['BUDGET QTY/MT'].sum()
@@ -3279,21 +3278,21 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_months, cy_months, ly_d
             total_cy_value = value_df['CURRENT YEAR VALUE/L'].sum()
             total_budget_value = value_df['BUDGET VALUE/L'].sum()
 
-            # Add totals with correct growth calculation
+            # Add totals with correct growth calculation and consistent formatting
             qty_totals = pd.DataFrame({
                 'PRODUCT NAME': ['TOTAL'],
-                'LAST YEAR QTY/MT': [round(total_ly_qty, 2)],
-                'BUDGET QTY/MT': [round(total_budget_qty, 2)],
-                'CURRENT YEAR QTY/MT': [round(total_cy_qty, 2)],
+                'LAST YEAR QTY/MT': [float(f"{total_ly_qty:.2f}")],
+                'BUDGET QTY/MT': [float(f"{total_budget_qty:.2f}")],
+                'CURRENT YEAR QTY/MT': [float(f"{total_cy_qty:.2f}")],
                 'GROWTH %': [calc_total_growth_percentage(total_cy_qty, total_ly_qty)]
             })
             qty_df = pd.concat([qty_df, qty_totals], ignore_index=True)
 
             value_totals = pd.DataFrame({
                 'PRODUCT NAME': ['TOTAL'],
-                'LAST YEAR VALUE/L': [round(total_ly_value, 2)],
-                'BUDGET VALUE/L': [round(total_budget_value, 2)],
-                'CURRENT YEAR VALUE/L': [round(total_cy_value, 2)],
+                'LAST YEAR VALUE/L': [float(f"{total_ly_value:.2f}")],
+                'BUDGET VALUE/L': [float(f"{total_budget_value:.2f}")],
+                'CURRENT YEAR VALUE/L': [float(f"{total_cy_value:.2f}")],
                 'GROWTH %': [calc_total_growth_percentage(total_cy_value, total_ly_value)]
             })
             value_df = pd.concat([value_df, value_totals], ignore_index=True)
