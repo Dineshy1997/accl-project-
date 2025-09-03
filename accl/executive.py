@@ -2099,8 +2099,9 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_month, cy_month, ly_dat
        return None
    result = {}
    for company in company_groups:
-       qty_df = pd.DataFrame(columns=['PRODUCT GROUP', 'LAST YEAR QTY/MT', 'TARGET QTY/MT', 'CURRENT YEAR QTY/MT', 'GROWTH %'])
-       value_df = pd.DataFrame(columns=['PRODUCT GROUP', 'LAST YEAR VALUE/L', 'TARGET VALUE/L', 'CURRENT YEAR VALUE/L', 'GROWTH %'])
+       # Updated column names with QTY and VALUE in labels - ALL UPPERCASE
+       qty_df = pd.DataFrame(columns=['PRODUCT GROUP', 'LAST YEAR QTY/MT', 'BUDGET QTY/MT', 'CURRENT YEAR QTY/MT'])
+       value_df = pd.DataFrame(columns=['PRODUCT GROUP', 'LAST YEAR VALUE/L', 'BUDGET VALUE/L', 'CURRENT YEAR VALUE/L'])
        ly_company_df = ly_filtered_df[ly_filtered_df[ly_company_group_col] == company]
        cy_company_df = cy_filtered_df[cy_filtered_df[cy_company_group_col] == company]
        budget_company_df = budget_df[budget_df[budget_company_group_col] == company]
@@ -2121,68 +2122,85 @@ def calculate_product_growth(ly_df, cy_df, budget_df, ly_month, cy_month, ly_dat
        ly_qty = ly_qty.rename(columns={ly_product_group_col: 'PRODUCT GROUP', ly_qty_col: 'LAST YEAR QTY/MT'})
        cy_qty = cy_company_df.groupby([cy_company_group_col, cy_product_group_col])[cy_qty_col].sum().reset_index()
        cy_qty = cy_qty.rename(columns={cy_product_group_col: 'PRODUCT GROUP', cy_qty_col: 'CURRENT YEAR QTY/MT'})
-       
        budget_qty = budget_company_df.groupby([budget_company_group_col, budget_product_group_col])[budget_qty_col].sum().reset_index()
-       budget_qty = budget_qty.rename(columns={budget_product_group_col: 'PRODUCT GROUP', budget_qty_col: 'TARGET QTY/MT'})
-       
+       budget_qty = budget_qty.rename(columns={budget_product_group_col: 'PRODUCT GROUP', budget_qty_col: 'BUDGET QTY/MT'})
        ly_value = ly_company_df.groupby([ly_company_group_col, ly_product_group_col])[ly_value_col].sum().reset_index()
        ly_value = ly_value.rename(columns={ly_product_group_col: 'PRODUCT GROUP', ly_value_col: 'LAST YEAR VALUE/L'})
        cy_value = cy_company_df.groupby([cy_company_group_col, cy_product_group_col])[cy_value_col].sum().reset_index()
        cy_value = cy_value.rename(columns={cy_product_group_col: 'PRODUCT GROUP', cy_value_col: 'CURRENT YEAR VALUE/L'})
-       
        budget_value = budget_company_df.groupby([budget_company_group_col, budget_product_group_col])[budget_value_col].sum().reset_index()
-       budget_value = budget_value.rename(columns={budget_product_group_col: 'PRODUCT GROUP', budget_value_col: 'TARGET VALUE/L'})
-       
+       budget_value = budget_value.rename(columns={budget_product_group_col: 'PRODUCT GROUP', budget_value_col: 'BUDGET VALUE/L'})
        product_qty_df = pd.DataFrame({'PRODUCT GROUP': company_product_groups})
        product_value_df = pd.DataFrame({'PRODUCT GROUP': company_product_groups})
-       
        qty_df = product_qty_df.merge(ly_qty[['PRODUCT GROUP', 'LAST YEAR QTY/MT']], on='PRODUCT GROUP', how='left')\
-                              .merge(budget_qty[['PRODUCT GROUP', 'TARGET QTY/MT']], on='PRODUCT GROUP', how='left')\
+                              .merge(budget_qty[['PRODUCT GROUP', 'BUDGET QTY/MT']], on='PRODUCT GROUP', how='left')\
                               .merge(cy_qty[['PRODUCT GROUP', 'CURRENT YEAR QTY/MT']], on='PRODUCT GROUP', how='left').fillna(0)
-       
        value_df = product_value_df.merge(ly_value[['PRODUCT GROUP', 'LAST YEAR VALUE/L']], on='PRODUCT GROUP', how='left')\
-                                  .merge(budget_value[['PRODUCT GROUP', 'TARGET VALUE/L']], on='PRODUCT GROUP', how='left')\
+                                  .merge(budget_value[['PRODUCT GROUP', 'BUDGET VALUE/L']], on='PRODUCT GROUP', how='left')\
                                   .merge(cy_value[['PRODUCT GROUP', 'CURRENT YEAR VALUE/L']], on='PRODUCT GROUP', how='left').fillna(0)
        
-       def calc_growth(row, cy_col, ly_col):
-           if pd.isna(row[ly_col]) or row[ly_col] == 0:
-               return 0.00 if row[cy_col] == 0 else 100.00
-           return round(((row[cy_col] - row[ly_col]) / row[ly_col]) * 100, 2)
-
-       qty_df['GROWTH %'] = qty_df.apply(lambda row: calc_growth(row, 'CURRENT YEAR QTY/MT', 'LAST YEAR QTY/MT'), axis=1)
-       value_df['GROWTH %'] = value_df.apply(lambda row: calc_growth(row, 'CURRENT YEAR VALUE/L', 'LAST YEAR VALUE/L'), axis=1)
+       # Round all numeric columns to 2 decimal places BEFORE any calculation
+       numeric_cols_qty = ['LAST YEAR QTY/MT', 'BUDGET QTY/MT', 'CURRENT YEAR QTY/MT']
+       numeric_cols_value = ['LAST YEAR VALUE/L', 'BUDGET VALUE/L', 'CURRENT YEAR VALUE/L']
        
-       # Apply consistent 2-decimal formatting to ALL numeric columns
-       numeric_cols_qty = ['LAST YEAR QTY/MT', 'TARGET QTY/MT', 'CURRENT YEAR QTY/MT', 'GROWTH %']
-       numeric_cols_value = ['LAST YEAR VALUE/L', 'TARGET VALUE/L', 'CURRENT YEAR VALUE/L', 'GROWTH %']
-       
-       # Ensure exactly 2 decimal places for all numeric values
        for col in numeric_cols_qty:
-           qty_df[col] = qty_df[col].apply(lambda x: float(f"{x:.2f}") if pd.notna(x) else 0.00)
+           qty_df[col] = qty_df[col].round(2)
        for col in numeric_cols_value:
-           value_df[col] = value_df[col].apply(lambda x: float(f"{x:.2f}") if pd.notna(x) else 0.00)
+           value_df[col] = value_df[col].round(2)
        
-       qty_df = qty_df[['PRODUCT GROUP', 'LAST YEAR QTY/MT', 'TARGET QTY/MT', 'CURRENT YEAR QTY/MT', 'GROWTH %']]
-       value_df = value_df[['PRODUCT GROUP', 'LAST YEAR VALUE/L', 'TARGET VALUE/L', 'CURRENT YEAR VALUE/L', 'GROWTH %']]
+       # Calculate totals first
+       total_ly_qty = qty_df['LAST YEAR QTY/MT'].sum()
+       total_cy_qty = qty_df['CURRENT YEAR QTY/MT'].sum() 
+       total_budget_qty = qty_df['BUDGET QTY/MT'].sum()
        
-       # Apply consistent 2-decimal formatting to totals as well
+       total_ly_value = value_df['LAST YEAR VALUE/L'].sum()
+       total_cy_value = value_df['CURRENT YEAR VALUE/L'].sum()
+       total_budget_value = value_df['BUDGET VALUE/L'].sum()
+       
+       # Add total rows first
        qty_totals = pd.DataFrame({
            'PRODUCT GROUP': ['TOTAL'],
-           'LAST YEAR QTY/MT': [float(f"{qty_df['LAST YEAR QTY/MT'].sum():.2f}")],
-           'TARGET QTY/MT': [float(f"{qty_df['TARGET QTY/MT'].sum():.2f}")],
-           'CURRENT YEAR QTY/MT': [float(f"{qty_df['CURRENT YEAR QTY/MT'].sum():.2f}")],
-           'GROWTH %': [float(f"{calc_growth({'CURRENT YEAR QTY/MT': qty_df['CURRENT YEAR QTY/MT'].sum(), 'LAST YEAR QTY/MT': qty_df['LAST YEAR QTY/MT'].sum()}, 'CURRENT YEAR QTY/MT', 'LAST YEAR QTY/MT'):.2f}")]
+           'LAST YEAR QTY/MT': [round(total_ly_qty, 2)],
+           'BUDGET QTY/MT': [round(total_budget_qty, 2)],
+           'CURRENT YEAR QTY/MT': [round(total_cy_qty, 2)],
        })
        qty_df = pd.concat([qty_df, qty_totals], ignore_index=True)
        
        value_totals = pd.DataFrame({
            'PRODUCT GROUP': ['TOTAL'],
-           'LAST YEAR VALUE/L': [float(f"{value_df['LAST YEAR VALUE/L'].sum():.2f}")],
-           'TARGET VALUE/L': [float(f"{value_df['TARGET VALUE/L'].sum():.2f}")],
-           'CURRENT YEAR VALUE/L': [float(f"{value_df['CURRENT YEAR VALUE/L'].sum():.2f}")],
-           'GROWTH %': [float(f"{calc_growth({'CURRENT YEAR VALUE/L': value_df['CURRENT YEAR VALUE/L'].sum(), 'LAST YEAR VALUE/L': value_df['LAST YEAR VALUE/L'].sum()}, 'CURRENT YEAR VALUE/L', 'LAST YEAR VALUE/L'):.2f}")]
+           'LAST YEAR VALUE/L': [round(total_ly_value, 2)],
+           'BUDGET VALUE/L': [round(total_budget_value, 2)],
+           'CURRENT YEAR VALUE/L': [round(total_cy_value, 2)],
        })
        value_df = pd.concat([value_df, value_totals], ignore_index=True)
+       
+       # NOW CALCULATE ALL GROWTH % USING IDENTICAL FORMULA
+       # One function, one formula, applied to every single row identically
+       qty_growth_list = []
+       for _, row in qty_df.iterrows():
+           cy = float(row['CURRENT YEAR QTY/MT'])
+           ly = float(row['LAST YEAR QTY/MT'])
+           if ly == 0:
+               growth = 0.00 if cy == 0 else 100.00
+           else:
+               growth = round(((cy - ly) / ly) * 100, 2)
+           qty_growth_list.append(growth)
+       qty_df['GROWTH %'] = qty_growth_list
+       
+       value_growth_list = []
+       for _, row in value_df.iterrows():
+           cy = float(row['CURRENT YEAR VALUE/L'])
+           ly = float(row['LAST YEAR VALUE/L'])
+           if ly == 0:
+               growth = 0.00 if cy == 0 else 100.00
+           else:
+               growth = round(((cy - ly) / ly) * 100, 2)
+           value_growth_list.append(growth)
+       value_df['GROWTH %'] = value_growth_list
+       
+       # Reorder columns
+       qty_df = qty_df[['PRODUCT GROUP', 'LAST YEAR QTY/MT', 'BUDGET QTY/MT', 'CURRENT YEAR QTY/MT', 'GROWTH %']]
+       value_df = value_df[['PRODUCT GROUP', 'LAST YEAR VALUE/L', 'BUDGET VALUE/L', 'CURRENT YEAR VALUE/L', 'GROWTH %']]
        
        result[company] = {'qty_df': qty_df, 'value_df': value_df}
    if not result:
