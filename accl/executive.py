@@ -1787,9 +1787,6 @@ def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
        os_jan = os_jan[os_jan[os_jan_area_col].isin([b.upper() for b in selected_branches])]
        os_feb = os_feb[os_feb[os_feb_area_col].isin([b.upper() for b in selected_branches])]
        total_sale = total_sale[total_sale[sale_area_col].isin([b.upper() for b in selected_branches])]
-       if os_jan.empty or os_feb.empty or total_sale.empty:
-           st.error(f"No data found for selected branches: {', '.join(selected_branches)}")
-           return None
 
    # Date conversion and exec normalization
    os_jan[os_jan_due_date_col] = pd.to_datetime(os_jan[os_jan_due_date_col], errors='coerce')
@@ -1807,52 +1804,70 @@ def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
    total_sale["SL Code"] = total_sale[sale_sl_code_col].astype(str)
    total_sale["EXECUTIVE"] = total_sale[sale_exec_col].astype(str).str.strip().str.upper()
 
-   # Exec filter
-   if selected_branches:
-       branch_os_jan = os_jan[os_jan[os_jan_area_col].isin([b.upper() for b in selected_branches])]
-       branch_os_feb = os_feb[os_feb[os_feb_area_col].isin([b.upper() for b in selected_branches])]
-       branch_sale = total_sale[total_sale[sale_area_col].isin([b.upper() for b in selected_branches])]
-       branch_execs = sorted(set(branch_os_jan["EXECUTIVE"].dropna().unique()) |
-                             set(branch_os_feb["EXECUTIVE"].dropna().unique()) |
-                             set(branch_sale["EXECUTIVE"].dropna().unique()))
-       if selected_executives:
-           sel_execs_upper = [str(e).strip().upper() for e in selected_executives]
-           executives_to_display = [e for e in branch_execs if e in sel_execs_upper]
-       else:
-           executives_to_display = branch_execs
+   # FIXED: Get all executives from all sources, not just selected branches
+   if selected_executives:
+       selected_execs_upper = [str(e).strip().upper() for e in selected_executives]
+       executives_to_display = selected_execs_upper
    else:
-       executives_to_display = [str(e).strip().upper() for e in selected_executives] if selected_executives else \
-                               sorted(set(os_jan["EXECUTIVE"].dropna().unique()) |
-                                      set(os_feb["EXECUTIVE"].dropna().unique()) |
-                                      set(total_sale["EXECUTIVE"].dropna().unique()))
+       # Get all executives from all datasets
+       all_executives = set()
+       all_executives.update(os_jan["EXECUTIVE"].dropna().unique())
+       all_executives.update(os_feb["EXECUTIVE"].dropna().unique()) 
+       all_executives.update(total_sale["EXECUTIVE"].dropna().unique())
+       executives_to_display = sorted(list(all_executives))
 
-   os_jan = os_jan[os_jan["EXECUTIVE"].isin(executives_to_display)]
-   os_feb = os_feb[os_feb["EXECUTIVE"].isin(executives_to_display)]
-   total_sale = total_sale[total_sale["EXECUTIVE"].isin(executives_to_display)]
-   if os_jan.empty or os_feb.empty or total_sale.empty:
-       st.error("No data after filtering.")
+   # Filter data by selected executives - but don't require all datasets to have data
+   os_jan_filtered = os_jan[os_jan["EXECUTIVE"].isin(executives_to_display)]
+   os_feb_filtered = os_feb[os_feb["EXECUTIVE"].isin(executives_to_display)]
+   total_sale_filtered = total_sale[total_sale["EXECUTIVE"].isin(executives_to_display)]
+
+   # CRITICAL FIX: Check if we have ANY data, not if ALL datasets have data
+   if total_sale_filtered.empty and os_jan_filtered.empty and os_feb_filtered.empty:
+       st.error("No data found for selected executives.")
        return None
+   
+   # Show warning if some executives only have partial data
+   executives_in_sale = set(total_sale_filtered["EXECUTIVE"].unique())
+   executives_in_os_jan = set(os_jan_filtered["EXECUTIVE"].unique())
+   executives_in_os_feb = set(os_feb_filtered["EXECUTIVE"].unique())
+   
+   partial_data_execs = []
+   for exec_name in executives_to_display:
+       if exec_name in executives_in_sale and (exec_name not in executives_in_os_jan or exec_name not in executives_in_os_feb):
+           partial_data_execs.append(exec_name)
+   
+   if partial_data_execs:
+       st.info(f"Note: {', '.join(partial_data_execs)} found only in sales data, not in OS files. OS calculations will show as 0.")
 
    specified_date = pd.to_datetime("01-" + selected_month_str, format="%d-%b-%y")
    specified_month_end = specified_date + pd.offsets.MonthEnd(0)
 
-   # Due Target - Updated column name
-   due_target_sum = os_jan[os_jan[os_jan_due_date_col] <= specified_month_end] \
-       .groupby("EXECUTIVE")[os_jan_net_value_col].sum().reset_index()
-   due_target_sum.columns = ["EXECUTIVE", "DUE TARGET/L"]
+   # Due Target - Handle empty os_jan_filtered
+   if not os_jan_filtered.empty:
+       due_target_sum = os_jan_filtered[os_jan_filtered[os_jan_due_date_col] <= specified_month_end] \
+           .groupby("EXECUTIVE")[os_jan_net_value_col].sum().reset_index()
+       due_target_sum.columns = ["EXECUTIVE", "DUE TARGET/L"]
+   else:
+       due_target_sum = pd.DataFrame(columns=["EXECUTIVE", "DUE TARGET/L"])
 
-   # OS Jan Coll
-   os_jan_coll_sum = os_jan[os_jan[os_jan_due_date_col] <= specified_month_end] \
-       .groupby("EXECUTIVE")[os_jan_net_value_col].sum().reset_index()
-   os_jan_coll_sum.columns = ["EXECUTIVE", "OS Jan Coll"]
+   # OS Jan Coll - Handle empty os_jan_filtered
+   if not os_jan_filtered.empty:
+       os_jan_coll_sum = os_jan_filtered[os_jan_filtered[os_jan_due_date_col] <= specified_month_end] \
+           .groupby("EXECUTIVE")[os_jan_net_value_col].sum().reset_index()
+       os_jan_coll_sum.columns = ["EXECUTIVE", "OS Jan Coll"]
+   else:
+       os_jan_coll_sum = pd.DataFrame(columns=["EXECUTIVE", "OS Jan Coll"])
 
-   # OS Feb Coll
-   os_feb_coll_sum = os_feb[(os_feb[os_feb_ref_date_col] < specified_date) &
-                            (os_feb[os_feb_due_date_col] <= specified_month_end)] \
-       .groupby("EXECUTIVE")[os_feb_net_value_col].sum().reset_index()
-   os_feb_coll_sum.columns = ["EXECUTIVE", "OS Feb Coll"]
+   # OS Feb Coll - Handle empty os_feb_filtered
+   if not os_feb_filtered.empty:
+       os_feb_coll_sum = os_feb_filtered[(os_feb_filtered[os_feb_ref_date_col] < specified_date) &
+                                (os_feb_filtered[os_feb_due_date_col] <= specified_month_end)] \
+           .groupby("EXECUTIVE")[os_feb_net_value_col].sum().reset_index()
+       os_feb_coll_sum.columns = ["EXECUTIVE", "OS Feb Coll"]
+   else:
+       os_feb_coll_sum = pd.DataFrame(columns=["EXECUTIVE", "OS Feb Coll"])
 
-   # Collection + early Overall % - Ensuring exact same calculation logic
+   # Collection + early Overall %
    collection = os_jan_coll_sum.merge(os_feb_coll_sum, on="EXECUTIVE", how="outer").fillna(0)
    collection["COLLECTION ACHIEVED/L"] = collection["OS Jan Coll"] - collection["OS Feb Coll"]
    collection = collection.merge(due_target_sum, on="EXECUTIVE", how="outer").fillna(0)
@@ -1861,20 +1876,31 @@ def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
        (collection["COLLECTION ACHIEVED/L"] / collection["DUE TARGET/L"]) * 100,
        0
    )
-   # Overdue - Updated column name
-   overdue_sum = total_sale[
-       total_sale[sale_bill_date_col].between(specified_date, specified_month_end) &
-       total_sale[sale_due_date_col].between(specified_date, specified_month_end)
-   ].groupby("EXECUTIVE")[sale_value_col].sum().reset_index()
-   overdue_sum.columns = ["EXECUTIVE", "FOR THE MONTH OVERDUE/L"]
 
-   # Month collection + early Selected Month % - Ensuring exact same calculation logic
-   sale_value_sum = overdue_sum.rename(columns={"FOR THE MONTH OVERDUE/L": "Sale Value"})
-   os_feb_month_sum = os_feb[
-       os_feb[os_feb_ref_date_col].between(specified_date, specified_month_end) &
-       os_feb[os_feb_due_date_col].between(specified_date, specified_month_end)
-   ].groupby("EXECUTIVE")[os_feb_net_value_col].sum().reset_index()
-   os_feb_month_sum.columns = ["EXECUTIVE", "OS Month Collection"]
+   # Overdue - Handle empty total_sale_filtered
+   if not total_sale_filtered.empty:
+       overdue_sum = total_sale_filtered[
+           total_sale_filtered[sale_bill_date_col].between(specified_date, specified_month_end) &
+           total_sale_filtered[sale_due_date_col].between(specified_date, specified_month_end)
+       ].groupby("EXECUTIVE")[sale_value_col].sum().reset_index()
+       overdue_sum.columns = ["EXECUTIVE", "FOR THE MONTH OVERDUE/L"]
+   else:
+       overdue_sum = pd.DataFrame(columns=["EXECUTIVE", "FOR THE MONTH OVERDUE/L"])
+
+   # Month collection
+   if not overdue_sum.empty:
+       sale_value_sum = overdue_sum.rename(columns={"FOR THE MONTH OVERDUE/L": "Sale Value"})
+   else:
+       sale_value_sum = pd.DataFrame(columns=["EXECUTIVE", "Sale Value"])
+   
+   if not os_feb_filtered.empty:
+       os_feb_month_sum = os_feb_filtered[
+           os_feb_filtered[os_feb_ref_date_col].between(specified_date, specified_month_end) &
+           os_feb_filtered[os_feb_due_date_col].between(specified_date, specified_month_end)
+       ].groupby("EXECUTIVE")[os_feb_net_value_col].sum().reset_index()
+       os_feb_month_sum.columns = ["EXECUTIVE", "OS Month Collection"]
+   else:
+       os_feb_month_sum = pd.DataFrame(columns=["EXECUTIVE", "OS Month Collection"])
 
    month_collection = sale_value_sum.merge(os_feb_month_sum, on="EXECUTIVE", how="outer").fillna(0)
    month_collection["FOR THE MONTH COLLECTION/L"] = month_collection["Sale Value"] - month_collection["OS Month Collection"]
@@ -1884,41 +1910,44 @@ def calculate_od_values(os_jan, os_feb, total_sale, selected_month_str,
        0
    )
 
-   # Merge all - Following original order and logic exactly
-   final = collection.drop(columns=["OS Jan Coll", "OS Feb Coll"]) \
+   # Merge all
+   final = collection.drop(columns=["OS Jan Coll", "OS Feb Coll"], errors='ignore') \
        .merge(overdue_sum, on="EXECUTIVE", how="outer") \
        .merge(month_collection[["EXECUTIVE", "FOR THE MONTH COLLECTION/L", "FOR THE MONTH % ACHIEVED"]],
               on="EXECUTIVE", how="outer").fillna(0)
 
-   # Reorder columns to match original function's exact order
+   # Reorder columns
    final = final[["EXECUTIVE", "DUE TARGET/L", "COLLECTION ACHIEVED/L", "OVERALL % ACHIEVED", 
                   "FOR THE MONTH OVERDUE/L", "FOR THE MONTH COLLECTION/L", "FOR THE MONTH % ACHIEVED"]]
 
-   # Preserve exec list
+   # Ensure all selected executives are included
    final = pd.DataFrame({'EXECUTIVE': executives_to_display}).merge(final, on='EXECUTIVE', how='left').fillna(0)
 
    # Remove HO/HEAD OFFICE
    final = final[~final["EXECUTIVE"].str.upper().isin(["HO", "HEAD OFFICE"])]
 
-   # Scale + rounding only after percentages done - Updated column names
+   # Scale + rounding
    val_cols = ["DUE TARGET/L", "COLLECTION ACHIEVED/L", "FOR THE MONTH OVERDUE/L", "FOR THE MONTH COLLECTION/L"]
-   final[val_cols] = final[val_cols].div(100000)
-   
-   # Apply consistent 2-decimal formatting
-   for col in val_cols:
-       final[col] = final[col].apply(lambda x: float(f"{x:.2f}") if pd.notna(x) else 0.00)
-   
-   for col in ["OVERALL % ACHIEVED", "FOR THE MONTH % ACHIEVED"]:
-       final[col] = final[col].apply(lambda x: float(f"{x:.2f}") if pd.notna(x) else 0.00)
+   final[val_cols] = final[val_cols].div(100000).round(2)
+   final[["OVERALL % ACHIEVED", "FOR THE MONTH % ACHIEVED"]] = final[["OVERALL % ACHIEVED", "FOR THE MONTH % ACHIEVED"]].round(2)
 
    # Sort + TOTAL
    final.sort_values("EXECUTIVE", inplace=True)
    total_row = {'EXECUTIVE': 'TOTAL'}
    for col in final.columns[1:]:
        if col in ["OVERALL % ACHIEVED", "FOR THE MONTH % ACHIEVED"]:
-           total_row[col] = float(f"{np.average(final[col], weights=final['DUE TARGET/L'] if col == 'OVERALL % ACHIEVED' else final['FOR THE MONTH OVERDUE/L']):.2f}")
+           # Handle weighted average for percentages
+           if col == "OVERALL % ACHIEVED":
+               weights = final["DUE TARGET/L"]
+           else:
+               weights = final["FOR THE MONTH OVERDUE/L"]
+           
+           if weights.sum() > 0:
+               total_row[col] = round(np.average(final[col], weights=weights), 2)
+           else:
+               total_row[col] = 0
        else:
-           total_row[col] = float(f"{final[col].sum():.2f}")
+           total_row[col] = round(final[col].sum(), 2)
    final = pd.concat([final, pd.DataFrame([total_row])], ignore_index=True)
 
    return final
